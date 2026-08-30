@@ -127,6 +127,18 @@ def main():
                 keys[k] = (z, x, y)
     check("tile_key is injective across every zoom the agent uses",
           dup is None, str(dup))
+    # scalars normalise to Python int whatever they arrive as, so a key built
+    # from numpy coordinates hashes identically to one built from Python ints --
+    # the index is written from numpy and read back with either
+    k_py = tm.tile_key(8, 127, 85)
+    k_np = tm.tile_key(np.int64(8), np.int32(127), np.int64(85))
+    check("tile_key normalises numpy scalars to Python int",
+          type(k_np) is int and k_np == k_py, "{} {}".format(type(k_np), k_np))
+    check("tile_key handles a 0-d array as a scalar",
+          tm.tile_key(np.array(8), np.array(127), np.array(85)) == k_py)
+    check("a numpy-built key finds a Python-built dict entry",
+          {k_py: "hit"}.get(k_np) == "hit")
+
     # the vectorised build in dataset.py / beam.py must agree with the scalar
     # lookup, or the index is written with one key and read with another
     z = np.array([0, 4, 8, 12, 16], dtype=np.int64)

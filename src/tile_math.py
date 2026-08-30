@@ -108,15 +108,22 @@ MAX_KEY_ZOOM = X_SHIFT - 1          # 28
 def tile_key(z, x, y):
     """Pack a tile address into one integer for use as a dict or lookup key.
 
-    Accepts Python ints or numpy integer arrays and returns the same kind, so
-    the vectorised index build and the per-item lookup produce identical keys --
-    which is the entire point of this living in one place. Pass Python ints when
-    the result is a dict key; numpy scalars hash equal but cost more per lookup.
+    Takes scalars or numpy integer arrays and returns the same kind, so the
+    vectorised index build and the per-item lookup produce identical keys --
+    which is the entire point of this living in one place.
+
+    Scalars are normalised to Python int, including numpy integers, so a key
+    hashes the same however the caller happened to be holding its coordinates.
+    Arrays are shifted elementwise and keep their dtype. The array test is
+    duck-typed rather than an isinstance check because this module imports only
+    `math` and is not going to take a numpy dependency for one branch.
 
     There is no unpack function on purpose: nothing needs to read a key back,
-    and adding one would invite the layout being reimplemented at the call site.
+    and adding one would invite the layout being reimplemented at a call site.
     """
-    return (z << Z_SHIFT) | (x << X_SHIFT) | y
+    if getattr(z, "shape", ()) != ():
+        return (z << Z_SHIFT) | (x << X_SHIFT) | y
+    return (int(z) << Z_SHIFT) | (int(x) << X_SHIFT) | int(y)
 
 
 def descend(z: int, x: int, y: int, action: int, g: int = G):

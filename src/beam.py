@@ -23,11 +23,6 @@ import tile_math as tm
 import tiles as T
 
 
-def _key(z, x, y):
-    """Cache key for a tile. See tile_math.tile_key for the bit layout."""
-    return tm.tile_key(int(z), int(x), int(y))
-
-
 class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
@@ -50,7 +45,7 @@ class TokenSource:
         out = np.zeros((len(keys), self.grid * self.grid, T.N_CLASSES), np.float32)
         misses = []
         for i, (z, x, y) in enumerate(keys):
-            kk = _key(z, x, y)
+            kk = tm.tile_key(z, x, y)
             row = self.lut.get(kk)
             if row is not None:
                 out[i] = self.tokens[row]
