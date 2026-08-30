@@ -1,29 +1,191 @@
-# Overnight run: data scale vs epochs
+# Overnight run — data scale, epochs, and what actually carries the win
 
-Selection criterion is greedy-decode **val median km**, not val loss. Beam ranking is on s0-s2 (`--score-steps 3`), the shipping depth.
+Run window 03:07–12:15, 30 August 2026. 16 stages, zero failures or drops.
+Release **s10** built from OSV-5M shards 00–09: 500,000 images, 400,180 train /
+50,032 val / 49,788 test, sequence split, hash `59e4b597281a`.
 
+All numbers below are the **test** split, 5,000 images, beam k=2, ranked on
+s0–s2 (the shipping configuration), with 3,000-resample paired bootstrap
+intervals. Arms see the same images in the same order, so contrasts are paired.
 
-## Arms
+---
 
-| arm | release | images | epochs | steps | selected ep | val km (greedy, sel) | test km k=2 | test <25km | s/epoch |
-|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+## Headline
 
-## Beam width sweep (val)
+| | median km | `<25 km` |
+|---|---:|---:|
+| `s01_km` — 50k release, everything at 50k | 242.7 | 20.1% |
+| `s10_n400k_e2` — 500k release | **49.4** | **42.4%** |
 
-| arm | k=1 | k=2 | k=4 |
-|---|---:|---:|---:|
+A 4.9× reduction in median error. The rest of this report is about which half
+of the scale-up caused it, and the answer is not the one the grid was built to
+measure.
 
-## System utilisation by stage
+---
 
-| stage | samples | GPU % (peak) | VRAM MB | shared MB | W | degC | CPU % | RAM GB |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| embed_dino | 34 | 87 (100) | 4705 | 231 | 183 | 60 | 25 | 18.9 |
-| embed_siglip | 12 | 75 (100) | 4123 | 240 | 197 | 59 | 27 | 18.3 |
+## 1. It is the retrieval bank, not the training set
 
-`shared MB` is GPU memory that spilled into system DRAM. The desktop baseline here is 230-290 MB; materially above that means a process is over-committed and every access is crossing PCIe while nvidia-smi still reports 100% utilisation.
+The grid varies training-set size with `--limit`, but the kNN bank was built
+from every train image regardless — so every arm carried a full 400k
+non-parametric memory over a 25k–400k parametric one. The control isolates it:
+same 25,000 training images, same config, same schedule, **only the bank
+differs**.
 
+| training images | bank | median km | `<25 km` |
+|---:|---:|---:|---:|
+| 25,000 | 400,180 | 72.6 | 38.8% |
+| 25,000 | 25,000 | 635.9 | 17.2% |
 
-## Stage timings
+Paired 95% CI: **[+20.2, +23.0] pp** on the hit rate, [−616, −496] km on the
+median. Separated by a wide margin.
 
-| stage | minutes |
-|---|---:|
+So, decomposed:
+
+- scaling the **bank** 25k → 400k: **+21.6 pp**
+- scaling the **training set** 25k → 400k at a fixed full bank: **+3.6 pp**
+
+**The memory is worth about six times the training data.** An independent
+cross-check falls out of it: the control (25k bank, 25k train) scores 17.2% and
+`s01_km` (40k bank, 40k train) scores 20.1% — two different releases landing
+where that relationship predicts.
+
+This reframes the standing "data is the binding constraint" finding. Data is
+binding, but as *retrieval corpus*, not as gradient signal.
+
+---
+
+## 2. The data-scaling curve is still rising at 400k
+
+Compute-matched: every arm gets ~15,000 optimizer steps at batch 64, so epochs
+scale inversely with the training-set size.
+
+| training images | epochs | steps | median km | `<25 km` |
+|---:|---:|---:|---:|---:|
+| 25,000 | 38 | 14,843 | 72.6 | 38.8% |
+| 50,000 | 19 | 14,843 | 76.8 | 38.3% |
+| 100,000 | 10 | 15,625 | 54.4 | 41.3% |
+| 200,000 | 5 | 15,625 | 53.7 | 41.2% |
+| 400,000 | 2 | 12,500 | **49.4** | **42.4%** |
+
+Paired verdicts: 25k↔50k **inside noise**; 50k→100k **separated**;
+100k↔200k **inside noise**; 200k→400k **separated** ([+1.6, +8.8] km,
+[+0.52, +1.98] pp). The increments are non-monotonic, which is what ~1 pp
+resolution around a slowly rising curve looks like — but the endpoints are
+separated, so **the curve has not saturated**. 400k also received the *fewest*
+steps of any arm, so its ceiling is not measured.
+
+---
+
+## 3. Many epochs on less data do not substitute for data
+
+The non-compute-matched arm: 50,000 images for 80 epochs, 62,500 steps, 4.2× the
+budget of every other arm.
+
+| epoch | `<25 km` | median km | val loss |
+|---:|---:|---:|---:|
+| 3 | **41.2%** | **54.9** | 12.669 |
+| 10 | 37.5% | 82.4 | 13.064 |
+| 20 | 32.0% | 202.4 | 18.890 |
+| 40 | 29.8% | 229.7 | 32.290 |
+| 80 | 29.4% | 283.5 | 39.451 |
+
+**It peaks at epoch 3 of 80**; the other 77 are actively destructive. On test it
+scores 39.8%, which beats 50k×19 (38.3%, separated) but loses to 100k×10
+(41.3%, separated).
+
+**4.2× the compute on fixed data buys less than 2× the data at 1× compute.**
+The small arms cannot absorb their budget at all: 25k and 50k peak at epoch 2,
+around 780 of their 14,843 steps, and spend the remaining 95% overfitting.
+
+---
+
+## 4. Six defects the 10× exposed, none of which raised an error
+
+Every one degraded silently at 500k and had been harmless-but-latent at 50k.
+
+| defect | at 50k | at 500k |
+|---|---|---|
+| kNN bank built as fp32 on-card | 0.7 GB, fine | 7.4 GB on an 8 GB card → Windows spills to shared memory and runs the matmul over PCIe |
+| dataset pickled to every worker | 1.4 GB, merely slow | 8.5 GB → `OSError 22`; `np.memmap` pickles **by value**, and Windows spawns rather than forks |
+| per-epoch val loss pass | 79 steps | 782 steps, against as few as 391 training steps |
+| selection on median km | — | selects on noise; see §5 |
+| runner re-sized the grid on restart | — | renamed every tag and recomputed finished arms at a different step budget |
+| `--select hit` with no rollout | — | criterion NaN every epoch, **no checkpoint ever written**, exit 0, done-marker written |
+
+The last is the worst shape of bug in this project: a stage that reports success
+and produces nothing. `train.py` now exits non-zero if it never saved.
+
+---
+
+## 5. Selection: val loss → median km was half a fix
+
+The plan specifies early-stopping on val median km rather than loss. Replacing
+the criterion fixed the wrong half.
+
+- **Across epochs within a run, val loss and median km agree.** On `s01_km` they
+  correlate **+0.942** and select the same epoch (6). The inherited
+  "anti-correlated" finding was an across-*arms* claim, which is a different
+  question from the one early stopping decides.
+- **The median is far too noisy to select on.** Over 1,000 val images it swung
+  82 → 151 → 158 → 213 → 132 → 365 km across consecutive epochs while `<25 km`
+  on the same predictions moved smoothly 35.3 → 31.1 → 30.8 → 29.3 → 30.4 →
+  26.3%.
+
+`--select hit` is now the default: the `<25 km` rate, median only as tie-break.
+This is the project's own error-bar finding applied to model selection.
+
+---
+
+## 6. Reproduction is as noisy as the error bar
+
+`retr_dual` (the 224.7 km headline) and `s01_km` are the same configuration,
+release, split and selected epoch. They land **18 km apart** (224.7 vs 242.7),
+about the width of the median's own 95% interval at n≈5,000. The `<25 km` rates
+agree far better (20.8% vs 20.1%).
+
+Attribution is incomplete: it is either seed variance or a difference in total
+`--epochs`, which changes the cosine schedule and which the checkpoint does not
+record. **Checkpoints should record the full training argv.**
+
+Consequence: single-seed median comparisons under ~20 km in this project are not
+claims. One seed per arm is also the main limit on everything above.
+
+---
+
+## 7. Machine
+
+| stage | GPU | VRAM | shared | W | wall |
+|---|---:|---:|---:|---:|---:|
+| embed DINOv2 | 79% | 4,763 MB | 186 MB | 185 | 55.1 min |
+| embed SigLIP | 68% | 4,008 MB | 182 MB | 180 | 46.8 min |
+| tile fetch | 1% | 705 MB | 96 MB | 11 | 13.6 min |
+| kNN bank | 84% | 6,643 MB | 184 MB | 196 | 1.4 min |
+| training (`s01_km`) | 92% | 3,954 MB | 357 MB | 186 | 25.6 min |
+
+No DRAM spill anywhere: shared memory stays in the 96–357 MB desktop baseline,
+including the kNN stage peaking at 6.6 GB dedicated. The tile fetch at 1% GPU is
+correct — it is network-bound at 643 tiles/s. Embedding averages of 79%/68%
+reflect ~30 s of GPU idle per shard while the next 2.5 GB is read from the
+spinning disk at 85 MB/s; prefetching it on a thread would recover ~10 min of
+the ~100.
+
+**GPU telemetry wedged at 05:45**, immediately after the first hard kill of a
+CUDA process, and reported a frozen `1 %, 11.37 W, 210 MHz` for the rest of the
+run. A saturating matmul measured **45.5 TFLOP/s bf16** against that reading, so
+the counter was stuck, not the card. Utilisation rows after 05:45 in
+`runs/util.csv` are invalid; step rate from the training logs is the reliable
+health signal and stayed normal at 0.12 s/step throughout.
+
+---
+
+## What to do next
+
+1. **Scale the bank, not the training set.** §1 says the corpus is worth ~6× the
+   gradient signal per image, and the bank is far cheaper: it needs embeddings,
+   not optimizer steps. The next experiment is the remaining 88 shards embedded
+   into the bank with the training set held at 400k.
+2. **Two seeds per arm, minimum.** §6 means one seed cannot support a median
+   ordering, and several conclusions here rest on ~1 pp.
+3. **Record the full training argv in every checkpoint.** §6 was only partly
+   attributable because `--epochs` is not stored.
+4. **Prefetch the next shard during embedding** — ~10% of prep wall clock.
