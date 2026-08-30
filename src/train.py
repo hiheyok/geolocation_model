@@ -80,7 +80,7 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
         b = {k: (v.to(dev, non_blocking=True) if torch.is_tensor(v) else v)
              for k, v in batch.items()}
         if street_gpu is not None and "nbr_row" in b:
-            b["nbr_emb"] = street_gpu[b["nbr_row"]]
+            b["nbr_emb"] = street_gpu[b["nbr_row"]].float()
         if train and (noise > 0 or drop > 0):
             st = b["street"]
             if noise > 0:
@@ -260,8 +260,8 @@ def main():
     street_gpu = None
     if a.retr and a.retr_mode in ("pos", "dual"):
         street_gpu = torch.from_numpy(
-            np.load(config.STREET_CACHE / a.street_file, mmap_mode="r")[:]
-        ).to(dev).float()
+            np.load(config.STREET_CACHE / a.street_file, mmap_mode="r")[:].copy()
+        ).to(dev)          # fp16 on device; cast at the gather
 
     model = GeoAgent(d_street=tr.dataset.dim_street if hasattr(tr, "dataset")
                      else tr.dim_street,
