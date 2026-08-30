@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import splits as sp
 import tile_math as tm
-from dataset import GeoStepDataset
+from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent, param_report
 
 
@@ -80,7 +80,7 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
         b = {k: (v.to(dev, non_blocking=True) if torch.is_tensor(v) else v)
              for k, v in batch.items()}
         if street_gpu is not None and "nbr_row" in b:
-            b["nbr_emb"] = street_gpu[b["nbr_row"]].float()
+            b["nbr_emb"] = gather_nbr(street_gpu, b["nbr_row"], dev)
         if train and (noise > 0 or drop > 0):
             st = b["street"]
             if noise > 0:
@@ -213,6 +213,19 @@ def main():
                     help="weight on the sink loss")
     ap.add_argument("--pos", choices=["learned", "rope", "both"], default="learned",
                     help="map token positions: additive embedding, 2D rotary, or both")
+    ap.add_argument("--select", choices=["km", "loss"], default="km",
+                    help="what decides which epoch is kept. Val loss is a proxy "
+                         "and this project has measured it anti-correlated with "
+                         "median km on *test*; km runs a greedy decode over "
+                         "--sel-n val images each epoch and keeps the best. "
+                         "km is the only mode that touches the tile server.")
+    ap.add_argument("--sel-n", type=int, default=1000,
+                    help="val images decoded per epoch for --select km")
+    ap.add_argument("--sel-k", type=int, default=1,
+                    help="beam width for selection; 1 = greedy, which is what "
+                         "the plan specifies -- full beam is for evaluation")
+    ap.add_argument("--sel-score-steps", type=int, default=3,
+                    help="ranking depth when --sel-k > 1; ignored at k=1")
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -241,9 +254,11 @@ def main():
         keep = np.random.default_rng(config.SPLIT_SEED).choice(
             len(tr), a.limit, replace=False)
         tr = Subset(tr, sorted(keep.tolist()))
+    va_ds = va          # rollout needs the dataset, not a Subset view
     if a.overfit:
         tr = Subset(tr, list(range(a.overfit)))
         va = tr
+        va_ds = None
     print("train {:,} images   val {:,} images   grid g={} steps={}"
           .format(len(tr), len(va), tm.G, steps))
 
@@ -255,13 +270,22 @@ def main():
     ltr = DataLoader(tr, batch_size=a.batch, shuffle=True, drop_last=False, **dl_kw)
     lva = DataLoader(va, batch_size=a.batch, shuffle=False, **dl_kw)
 
-    # 0.46 GB of the ~4 GB idle VRAM; turns neighbour embeddings into an
-    # on-device gather instead of 19 MB of extra host-to-device traffic
     street_gpu = None
     if a.retr and a.retr_mode in ("pos", "dual"):
-        street_gpu = torch.from_numpy(
-            np.load(config.STREET_CACHE / a.street_file, mmap_mode="r")[:].copy()
-        ).to(dev)          # fp16 on device; cast at the gather
+        street_gpu = street_table(config.STREET_CACHE / a.street_file, dev)
+
+    # Selecting on val loss was a regression against the written plan, which
+    # says "early-stop on val median km error, not on loss -- the losses are
+    # proxies and can improve while the metric that matters stalls".  Measured
+    # here, they do worse than stall: they move the wrong way.  A greedy decode
+    # is cheap because steps 0-2 read z0/z4/z8, all of which are cached
+    # exhaustively; only the step-3 z12 view and the z16 click can miss, and
+    # TokenSource keeps live fetches for the rest of the run.
+    src = rollout = None
+    if a.select == "km":
+        from beam import TokenSource
+        from evaluate import evaluate as rollout
+        src = TokenSource(tm.G)
 
     model = GeoAgent(d_street=tr.dataset.dim_street if hasattr(tr, "dataset")
                      else tr.dim_street,
@@ -302,8 +326,22 @@ def main():
                                                      sched.get_last_lr()[0]), flush=True)
         print("   " + fmt("train", mtr, steps), flush=True)
         print("   " + fmt("val", mva, steps), flush=True)
-        if mva["loss"] < best:
-            best = mva["loss"]
+
+        km = float("nan")
+        if rollout is not None and va_ds is not None:
+            model.eval()
+            r = rollout(model, va_ds, src, dev, a.sel_n, beam_k=a.sel_k,
+                        top_m=max(4, a.sel_k), greedy=(a.sel_k == 1),
+                        score_steps=(None if a.sel_k == 1 else a.sel_score_steps),
+                        street_gpu=street_gpu)
+            km = float(np.median(r["err"]))
+            print("   {:<5} median {:7.1f} km   <25km {:5.1%}   {:,} images  "
+                  "{:4.1f}s".format("sel", km, float((r["err"] < 25).mean()),
+                                    r["n"], r["secs"]), flush=True)
+
+        crit = km if a.select == "km" else mva["loss"]
+        if crit == crit and crit < best:
+            best = crit
             torch.save({"model": model.state_dict(), "g": tm.G, "steps": steps,
                         "map_layers": a.map_layers, "street_file": a.street_file,
                         "pool": a.pool, "pool_q": a.pool_q, "pos": a.pos,
@@ -314,9 +352,13 @@ def main():
                         "retr_tau": a.retr_tau, "knn_file": knn_file,
                         "split_mode": split_mode,
                         "split_hash": split_hash,
-                        "epoch": ep, "val_loss": best},
+                        "release": config.RELEASE,
+                        "epoch": ep, "val_loss": mva["loss"],
+                        "val_km": km, "select": a.select,
+                        "sel_n": a.sel_n, "sel_k": a.sel_k},
                        config.CHECKPOINTS / (a.tag + ".pt"))
-    print("\nbest val loss {:.4f} -> {}".format(best, a.tag + ".pt"))
+    print("\nbest val {} {:.4f} -> {}".format(
+        "median km" if a.select == "km" else "loss", best, a.tag + ".pt"))
 
 
 if __name__ == "__main__":

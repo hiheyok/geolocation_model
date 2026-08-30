@@ -14,7 +14,7 @@ import splits as sp
 import tile_math as tm
 from baselines import BUCKETS, great_circle_km, print_table, report
 from beam import TokenSource, search
-from dataset import GeoStepDataset
+from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent
 
 
@@ -60,6 +60,19 @@ def check_split(ck, mode, split, allow_dirty=False):
     measures the contamination directly rather than trusting the labels.
     """
     import pyarrow.parquet as pq
+
+    # Release first: the split hash only proves two splits agree over the same
+    # rows, and every cache here is indexed by row order, so a checkpoint read
+    # against a different release silently pairs each image with another
+    # image's embedding rather than failing.
+    rel = ck.get("release", "s01")
+    if rel != config.RELEASE:
+        raise SystemExit(
+            "release mismatch: checkpoint trained on {!r}, OSV_RELEASE is {!r}. "
+            "Every cache is indexed by row order in that release's "
+            "dataset.parquet, so this comparison would be meaningless. "
+            "Re-run with OSV_RELEASE={}.".format(rel, config.RELEASE, rel))
+
     tbl = pq.read_table(config.DATASET_PARQUET)
     live_lab, live = sp.read(tbl, mode)
     was, want = ck.get("split_mode"), ck.get("split_hash")
@@ -109,8 +122,9 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
                     torch.from_numpy(ds.all_y16[ds.knn_idx[r]].astype(np.int64)).to(dev),
                     torch.from_numpy(ds.knn_sim[r]).to(dev)]
             if street_gpu is not None:
-                nbrs.append(street_gpu[torch.from_numpy(
-                    ds.knn_idx[r].astype(np.int64)).to(dev)].float())
+                nbrs.append(gather_nbr(
+                    street_gpu,
+                    torch.from_numpy(ds.knn_idx[r].astype(np.int64)), dev))
         res = search(model, street, source, dev, beam_k, top_m, greedy=greedy,
                      sink_prune=sink_prune, score_steps=score_steps, nbrs=nbrs)
         for i, r in zip(sel, res):
@@ -156,14 +170,16 @@ def main():
     sf = street_file_for(d_street, a.street_file)
     street_gpu = None
     if ck.get("retr_mode") in ("pos", "dual"):
-        street_gpu = torch.from_numpy(
-            np.load(config.STREET_CACHE / sf, mmap_mode="r")[:].copy()).to(dev)
+        street_gpu = street_table(config.STREET_CACHE / sf, dev)
     ds = GeoStepDataset(a.split, street_file=sf, split_mode=mode,
                         knn_file=ck.get("knn_file"),
                         knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
     src = TokenSource(tm.G)
-    print("checkpoint {}  epoch {}  val_loss {:.4f}".format(
-        a.tag, ck["epoch"], ck["val_loss"]))
+    km = ck.get("val_km")
+    sel = ("" if km is None or km != km else
+           "  val_km {:.1f} (selected on {})".format(km, ck.get("select", "loss")))
+    print("checkpoint {}  release {}  epoch {}  val_loss {:.4f}{}".format(
+        a.tag, ck.get("release", "s01"), ck["epoch"], ck["val_loss"], sel))
     print("{} split, {:,} images evaluated\n".format(a.split, min(a.n, len(ds))))
 
     ks = ([int(k) for k in a.ks.split(",")] if a.ks else

@@ -53,6 +53,11 @@ def main():
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--exhaustive-z8", action="store_true",
                     help="also fetch all 65,536 z8 tiles (only helps beam latency)")
+    ap.add_argument("--seed-from", default=None,
+                    help="another release's map cache to copy already-fetched "
+                         "tiles from, matched by (z,x,y). A token grid is a "
+                         "pure function of its address and so is valid across "
+                         "releases; only the row numbering differs.")
     a = ap.parse_args()
 
     keys = needed_keys(a.grid, a.exhaustive_z8)
@@ -83,6 +88,29 @@ def main():
     done = (np.load(DONE) if reuse
             else np.zeros(n, dtype=np.uint8))
     pq.write_table(idx, INDEX)
+
+    if a.seed_from:
+        # Growing a release adds sparse z12/z16 rows and renumbers everything,
+        # which would otherwise refetch the 65,792 exhaustive tiles the previous
+        # release already holds.  Addresses are stable, rows are not.
+        src = Path(a.seed_from)
+        sidx = pq.read_table(src / "index.parquet")
+        sdone = np.load(src / "done.u8.npy")
+        stok = np.load(src / "tokens.f16.npy", mmap_mode="r")
+        skey = {}
+        for z, x, y, r in zip(np.asarray(sidx["z"]), np.asarray(sidx["x"]),
+                              np.asarray(sidx["y"]), np.asarray(sidx["row"])):
+            skey[(int(z), int(x), int(y))] = int(r)
+        moved = 0
+        for row in np.flatnonzero(done == 0):
+            sr = skey.get(keys[row])
+            if sr is not None and sdone[sr]:
+                tok[row] = stok[sr]
+                done[row] = 1
+                moved += 1
+        tok.flush()
+        np.save(DONE, done)
+        print("seeded         {:,} tiles from {}".format(moved, src))
 
     todo = np.flatnonzero(done == 0).tolist()
     print("already cached {:,}".format(n - len(todo)))

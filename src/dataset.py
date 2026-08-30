@@ -20,6 +20,33 @@ import splits as sp
 import tile_math as tm
 
 
+
+def street_table(path, dev, budget_gb=1.5):
+    """The neighbour lookup table, on the card if it fits and in host RAM if not.
+
+    retr_mode pos/dual is keyed on neighbour embeddings, so this is gathered
+    from every iteration.  At 50k images it is 0.46 GB of otherwise idle VRAM
+    and belongs there; at 500k it is 4.6 GB and would push the process into
+    Windows' shared-memory spill, where every access is a PCIe round trip and
+    nothing reports an error.  The gather is ~9 MB per batch either way.
+    """
+    a = np.load(path, mmap_mode="r")
+    gb = a.nbytes / 1e9
+    t = torch.from_numpy(np.asarray(a))          # fp16; cast at the gather
+    on_gpu = dev == "cuda" and gb <= budget_gb
+    print("nbr table  {:.2f} GB on {}{}".format(
+        gb, "cuda" if on_gpu else "cpu",
+        "" if on_gpu else "  (too large for the card; gathered host-side)"),
+        flush=True)
+    return t.to(dev) if on_gpu else t
+
+
+def gather_nbr(table, rows, dev):
+    """rows may live on either device; the table decides where the gather runs."""
+    idx = rows if rows.device == table.device else rows.to(table.device)
+    return table[idx].to(dev, non_blocking=True).float()
+
+
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
                  street_file="embeddings.f16.npy", n_neg=0, neg_seed=0,

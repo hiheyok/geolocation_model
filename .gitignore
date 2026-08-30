@@ -20,3 +20,12 @@ __pycache__/
 venv/
 *.egg-info/
 .DS_Store
+
+# Overnight run scratch: logs, done-markers, utilisation samples.
+# runs/REPORT.md and runs/state.json are the outputs worth keeping.
+runs/logs/
+runs/marks/
+runs/util.csv
+runs/*.out
+runs/*.err
+runs/*.log
