@@ -31,9 +31,10 @@ import config
 import splits as sp
 
 
-def cache_path(street_file, mode, k):
-    return config.STREET_CACHE / "knn_{}_{}_k{}.npz".format(
-        street_file.replace(".f16.npy", ""), mode, k)
+def cache_path(street_file, mode, k, bank_limit=0):
+    tail = "" if not bank_limit else "_bank{}k".format(bank_limit // 1000)
+    return config.STREET_CACHE / "knn_{}_{}_k{}{}.npz".format(
+        street_file.replace(".f16.npy", ""), mode, k, tail)
 
 
 def main():
@@ -42,6 +43,11 @@ def main():
     ap.add_argument("--split-mode", default=sp.PRIMARY, choices=sorted(sp.MODES))
     ap.add_argument("--k", type=int, default=32)
     ap.add_argument("--chunk", type=int, default=1024)
+    ap.add_argument("--bank-limit", type=int, default=0,
+                    help="restrict the bank to the same N train images that "
+                         "train.py --limit N uses, so an arm's retrieval "
+                         "memory matches its training set instead of always "
+                         "being the full release. 0 = every train image.")
     a = ap.parse_args()
 
     ds = pq.read_table(config.DATASET_PARQUET)
@@ -52,6 +58,14 @@ def main():
     emb = np.load(config.STREET_CACHE / a.street_file, mmap_mode="r")
     n, d = emb.shape
     bank_rows = np.flatnonzero(labels == "train").astype(np.int64)
+    if a.bank_limit and a.bank_limit < len(bank_rows):
+        # exactly train.py's subset: same rng, same seed, same draw over the
+        # train rows in parquet order
+        keep = np.random.default_rng(config.SPLIT_SEED).choice(
+            len(bank_rows), a.bank_limit, replace=False)
+        bank_rows = bank_rows[np.sort(keep)]
+        print("bank limit {:,} images (matching train.py --limit)"
+              .format(a.bank_limit))
     dev = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Normalise into fp16 in blocks.  The whole bank in fp32 is 4x its final
@@ -90,7 +104,7 @@ def main():
         if (lo // a.chunk) % 200 == 0:
             print("  {:>7,}/{:,}".format(hi, n), flush=True)
 
-    out = cache_path(a.street_file, a.split_mode, a.k)
+    out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit)
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),
              split_mode=a.split_mode, split_hash=shash,
              street_file=a.street_file)
