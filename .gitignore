@@ -1,0 +1,22 @@
+# Derived artefacts, regenerable from the scripts in this repo.
+# cache/ is 2.7 GB (street embeddings + map token grids) and checkpoints/ is
+# 975 MB; both are rebuilt by scripts/embed_street.py, scripts/fetch_tiles.py,
+# scripts/build_knn.py and src/train.py.
+cache/
+checkpoints/
+experiments/
+
+# data/processed/*.parquet IS tracked on purpose -- it is the benchmark of
+# record. The split it carries (sequence, hash 09806e14e749) drifted out of
+# sync with build_dataset.py once already, and version-controlling it is what
+# makes that detectable. Raw OSV-5M is not ours to redistribute.
+data/osv5m/
+data/raw/
+
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+*.egg-info/
+.DS_Store

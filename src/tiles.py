@@ -1,0 +1,136 @@
+"""The only module that speaks HTTP to the tile server.
+
+Fetches single-channel class masks and turns them into the per-patch class
+histograms the map encoder consumes.  A class-id mask is never interpolated --
+only aggregated -- so the illegal-id failure mode cannot occur downstream.
+"""
+
+import io
+import threading
+import time
+
+import numpy as np
+import requests
+from PIL import Image
+
+DEFAULT_BASE = "http://192.168.50.1:3000"
+
+CLASS_STEP = 23          # ids are spaced 23 apart: 0, 23, ..., 253
+N_CLASSES = 12
+TILE_PX = 512
+LEGAL_IDS = frozenset(range(0, CLASS_STEP * N_CLASSES, CLASS_STEP))
+
+
+class TileError(RuntimeError):
+    pass
+
+
+class TileClient:
+    """Thread-safe: each thread gets its own pooled session."""
+
+    def __init__(self, base=DEFAULT_BASE, timeout=20.0, retries=3):
+        self.base = base.rstrip("/")
+        self.timeout = timeout
+        self.retries = retries
+        self._local = threading.local()
+
+    @property
+    def session(self):
+        s = getattr(self._local, "s", None)
+        if s is None:
+            s = requests.Session()
+            s.mount("http://", requests.adapters.HTTPAdapter(
+                pool_connections=32, pool_maxsize=32, max_retries=0))
+            self._local.s = s
+        return s
+
+    def _get(self, path):
+        last = None
+        for attempt in range(self.retries):
+            try:
+                r = self.session.get(self.base + path, timeout=self.timeout)
+                if r.status_code == 200:
+                    return r.content
+                if 400 <= r.status_code < 500:
+                    raise TileError(f"{r.status_code} for {path}: {r.text[:200]}")
+                last = TileError(f"{r.status_code} for {path}")
+            except requests.RequestException as e:
+                last = e
+            time.sleep(0.15 * (attempt + 1))
+        raise TileError(f"{path} failed after {self.retries} attempts: {last}")
+
+    # -- endpoints ---------------------------------------------------------
+
+    def health(self):
+        import json
+        return json.loads(self._get("/health"))
+
+    def classes(self):
+        import json
+        return json.loads(self._get("/classes"))
+
+    def mask(self, z, x, y, mode="class"):
+        """Class-id mask as (512, 512) uint8."""
+        q = "" if mode == "class" else f"?mode={mode}"
+        raw = self._get(f"/tile/{z}/{x}/{y}/mask.png{q}")
+        img = Image.open(io.BytesIO(raw))
+        if img.mode != "L":
+            raise TileError(f"expected colour type 0 greyscale, got mode {img.mode}")
+        return np.asarray(img, dtype=np.uint8)
+
+    def image(self, z, x, y):
+        """Greyscale cartographic render as (512, 512) uint8 -- ablation only."""
+        raw = self._get(f"/tile/{z}/{x}/{y}.png")
+        return np.asarray(Image.open(io.BytesIO(raw)).convert("L"), dtype=np.uint8)
+
+    def labels(self, z, x, y, layers=None, limit=None, lang="latin"):
+        import json
+        q = [f"lang={lang}"]
+        if layers:
+            q.append("layers=" + ",".join(layers))
+        if limit:
+            q.append(f"limit={int(limit)}")
+        return json.loads(self._get(f"/tile/{z}/{x}/{y}/labels.json?" + "&".join(q)))
+
+
+# -- tokenisation ----------------------------------------------------------
+
+def check_legal(mask):
+    """Assert the mask holds only legal class ids.  The one place this can enter."""
+    if mask.dtype != np.uint8:
+        raise TileError(f"mask must be uint8, got {mask.dtype}")
+    bad = np.unique(mask[(mask % CLASS_STEP) != 0])
+    if bad.size:
+        raise TileError(f"illegal class ids present: {bad.tolist()[:8]}")
+    hi = int(mask.max()) // CLASS_STEP
+    if hi >= N_CLASSES:
+        raise TileError(f"class id {hi} out of range 0..{N_CLASSES - 1}")
+
+
+def to_tokens(mask, grid=16):
+    """(512, 512) class mask -> (grid*grid, 12) float32 class fractions per patch.
+
+    Aggregation, never interpolation: every pixel contributes, and the result is
+    a strict superset of majority vote (majority is its argmax).
+    """
+    if mask.shape != (TILE_PX, TILE_PX):
+        raise TileError(f"expected {TILE_PX}x{TILE_PX}, got {mask.shape}")
+    if TILE_PX % grid:
+        raise TileError(f"grid {grid} does not divide {TILE_PX}")
+    check_legal(mask)
+
+    p = TILE_PX // grid
+    ids = (mask // CLASS_STEP).astype(np.uint8)
+    # (grid, p, grid, p) -> (grid*grid, p*p): one row per patch, row-major
+    patches = ids.reshape(grid, p, grid, p).transpose(0, 2, 1, 3).reshape(grid * grid, p * p)
+
+    out = np.zeros((grid * grid, N_CLASSES), dtype=np.float32)
+    for c in range(N_CLASSES):
+        out[:, c] = (patches == c).sum(axis=1)
+    out /= float(p * p)
+    return out
+
+
+def token_row_order(grid=16):
+    """Token i corresponds to action i: row-major, matching row*g + col."""
+    return [(i // grid, i % grid) for i in range(grid * grid)]
