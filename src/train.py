@@ -151,7 +151,8 @@ def fmt(tag, m, steps):
             .format(tag, m["loss"], m["click"], m["uv_mae"], sk, acc))
 
 
-def main():
+def build_parser():
+    """Every knob, so main() below reads as what a run actually does."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch", type=int, default=64)
@@ -234,7 +235,11 @@ def main():
                          "the plan specifies -- full beam is for evaluation")
     ap.add_argument("--sel-score-steps", type=int, default=3,
                     help="ranking depth when --sel-k > 1; ignored at k=1")
-    a = ap.parse_args()
+    return ap
+
+
+def main():
+    a = build_parser().parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     steps = tm.STEPS

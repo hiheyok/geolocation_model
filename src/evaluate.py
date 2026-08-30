@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import splits as sp
 import tile_math as tm
-from baselines import BUCKETS, great_circle_km, print_table, report
+from baselines import great_circle_km, print_table, report
 from beam import TokenSource, search
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent

@@ -70,6 +70,30 @@ class TokenSource:
         return out
 
 
+
+def _views(tiles_, street, source, dev, step):
+    """Every live beam's current tile, flattened into one batch for the model.
+
+    Returns (tokens, street, x0, y0, step, beams_per_image).
+
+    Both callers -- the search loop and the click head that runs after it --
+    need exactly this, and they used to build it separately. Keeping one copy
+    matters more here than the seven lines it saves: when beam.py last held its
+    own version of something model.py also did, the two diverged silently and
+    only the rollout path broke, because training never goes through here.
+    """
+    B = street.shape[0]
+    flat = [tl for img in tiles_ for tl in img]
+    nb = len(flat) // B
+    corners = [tm.norm_corner(*k) for k in flat]      # once per tile, not twice
+    return (torch.from_numpy(source.get(flat)).to(dev),
+            street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1),
+            torch.tensor([c[0] for c in corners], dtype=torch.float32, device=dev),
+            torch.tensor([c[1] for c in corners], dtype=torch.float32, device=dev),
+            torch.full((len(flat),), step, dtype=torch.long, device=dev),
+            nb)
+
+
 @torch.no_grad()
 def search(model, street, source, dev, beam_k=16, top_m=16,
            g=tm.G, steps=tm.STEPS, greedy=False, sink_prune=1.0,
@@ -84,15 +108,7 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
     paths = [[[]] for _ in range(B)]
 
     for t in range(steps):
-        flat = [tl for img in tiles_ for tl in img]
-        tok = torch.from_numpy(source.get(flat)).to(dev)
-        nb = len(flat) // B
-        st = street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1)
-        x0 = torch.tensor([tm.norm_corner(*k)[0] for k in flat],
-                          dtype=torch.float32, device=dev)
-        y0 = torch.tensor([tm.norm_corner(*k)[1] for k in flat],
-                          dtype=torch.float32, device=dev)
-        sp = torch.full((len(flat),), t, dtype=torch.long, device=dev)
+        tok, st, x0, y0, sp, nb = _views(tiles_, street, source, dev, t)
 
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             f, keys = model.fuse_flat(st, tok, x0, y0, sp)
@@ -142,13 +158,7 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
         tiles_, paths, scores = new_tiles, new_paths, new_scores
 
     # click head on the final view of every surviving beam
-    flat = [tl for img in tiles_ for tl in img]
-    tok = torch.from_numpy(source.get(flat)).to(dev)
-    nb = len(flat) // B
-    st = street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1)
-    x0 = torch.tensor([tm.norm_corner(*k)[0] for k in flat], dtype=torch.float32, device=dev)
-    y0 = torch.tensor([tm.norm_corner(*k)[1] for k in flat], dtype=torch.float32, device=dev)
-    sp = torch.full((len(flat),), steps, dtype=torch.long, device=dev)
+    tok, st, x0, y0, sp, nb = _views(tiles_, street, source, dev, steps)
     with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
         f, _ = model.fuse_flat(st, tok, x0, y0, sp)
         uv = model.click_uv(f).float().cpu().numpy()

@@ -26,7 +26,6 @@ import torch
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-import config
 import tile_math as tm
 from dataset import GeoStepDataset
 from evaluate import load_model, street_file_for

@@ -24,7 +24,7 @@ import numpy as np
 
 import config
 import overnight as O
-from overnight import Stage, log, run_stage, save_state, load_state
+from overnight import Stage, load_state, log, run_stage
 
 REL = "s10"
 EXT = "bank_ext"
