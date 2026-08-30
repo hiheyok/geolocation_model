@@ -83,6 +83,42 @@ def norm_corner(z: int, x: int, y: int) -> tuple[float, float]:
 # path <-> address
 # --------------------------------------------------------------------------
 
+
+# Bit layout for packing a tile address into one integer, used as the key of
+# every (z, x, y) -> row lookup table in the project.
+#
+#     bit  63        62 .. 58     57 .. 29     28 .. 0
+#          unused    z (5 bits)   x (29 bits)  y (29 bits)
+#
+# Chosen so the result is always a *positive* signed 64-bit integer, because
+# these keys are built vectorised as numpy int64 (dataset.py, beam.py) and a
+# value that ran into bit 63 would come back negative and silently fail to match
+# the same tile packed as a Python int.
+#
+# The 29-bit coordinate fields are the binding constraint, not the zoom field:
+# at zoom z a coordinate is < 2**z, so 29 bits holds every tile up to z28 --
+# comfortably past the z16 this agent reaches, and past the z22 or so any XYZ
+# server serves. The zoom field is 5 bits, so z <= 31.
+Z_SHIFT = 58
+X_SHIFT = 29
+COORD_BITS = X_SHIFT
+MAX_KEY_ZOOM = X_SHIFT - 1          # 28
+
+
+def tile_key(z, x, y):
+    """Pack a tile address into one integer for use as a dict or lookup key.
+
+    Accepts Python ints or numpy integer arrays and returns the same kind, so
+    the vectorised index build and the per-item lookup produce identical keys --
+    which is the entire point of this living in one place. Pass Python ints when
+    the result is a dict key; numpy scalars hash equal but cost more per lookup.
+
+    There is no unpack function on purpose: nothing needs to read a key back,
+    and adding one would invite the layout being reimplemented at the call site.
+    """
+    return (z << Z_SHIFT) | (x << X_SHIFT) | y
+
+
 def descend(z: int, x: int, y: int, action: int, g: int = G):
     """Apply one action.  This is the entire step recurrence: a digit append."""
     return z + bits(g), x * g + (action % g), y * g + (action // g)

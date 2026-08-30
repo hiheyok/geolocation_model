@@ -49,12 +49,25 @@ def child_prior(nbr_x16, nbr_y16, alpha, x0, y0, step, g=16, max_z=12):
     x = torch.round(x0 * scale).long()
     y = torch.round(y0 * scale).long()
 
-    # a neighbour is inside the current tile iff its z16 address truncates to it
+    # Both tests below are truncation of a z16 address, which is why no tile
+    # coordinates need to be carried around: a z16 tile lies inside the tile at
+    # zoom z exactly when its address right-shifted by (16 - z) equals that
+    # tile's address, because one zoom level is one bit of coordinate.
+    #
+    # Worked example, a neighbour at z16 (32751, 21793) against the current tile
+    # at step 2, i.e. z8:
+    #     shift = 16 - 8 = 8      32751 >> 8 = 127, 21793 >> 8 = 85
+    #     so it is inside iff the current z8 tile is (127, 85)
+    #     csh   = 16 - 8 - 4 = 4  (32751 >> 4) & 15 = 15, (21793 >> 4) & 15 = 1
+    #     so it votes for child (row 1, col 15) = action 31
     shift = (16 - z).unsqueeze(1)
     inside = ((nbr_x16 >> shift) == x.unsqueeze(1)) & \
              ((nbr_y16 >> shift) == y.unsqueeze(1))
 
-    # which child of the current tile it lands in
+    # which of the 16x16 children it lands in: drop the (16 - z - 4) bits
+    # below the child grid, then keep the low 4 bits of what remains.
+    # clamp(min=0) matters at step 3, where z is already max_z and there is
+    # no finer level left to shift away.
     csh = (16 - z - 4).clamp(min=0).unsqueeze(1)
     cx = (nbr_x16 >> csh) & (g - 1)
     cy = (nbr_y16 >> csh) & (g - 1)

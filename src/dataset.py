@@ -84,9 +84,10 @@ class GeoStepDataset(Dataset):
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
         idx = pq.read_table(cache / "index.parquet")
-        key = (np.asarray(idx["z"]).astype(np.int64) << 58
-               | np.asarray(idx["x"]).astype(np.int64) << 29
-               | np.asarray(idx["y"]).astype(np.int64))
+        # one key per cached tile; tile_math.tile_key owns the bit layout
+        key = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
+                          np.asarray(idx["x"]).astype(np.int64),
+                          np.asarray(idx["y"]).astype(np.int64))
         self.lut = dict(zip(key.tolist(),
                             np.asarray(idx["row"]).astype(np.int64).tolist()))
         lut = self.lut
@@ -103,7 +104,7 @@ class GeoStepDataset(Dataset):
         x0 = np.asarray(tg["x0"], dtype=np.float32).reshape(-1, per)
         y0 = np.asarray(tg["y0"], dtype=np.float32).reshape(-1, per)
 
-        tk = (tz << 58) | (tx << 29) | ty
+        tk = tm.tile_key(tz, tx, ty)
         self.tok_row = np.array(
             [[lut[int(k)] for k in row] for row in tk[keep]], dtype=np.int64)
         self.action = act[keep][:, :steps]
@@ -188,7 +189,7 @@ class GeoStepDataset(Dataset):
             a = int(rng.integers(0, self.n_actions - 1))
             a = a + 1 if a >= true_a else a          # any sibling but the right one
             z, x, y = tm.descend(int(pz), int(px), int(py), a, self.g)
-            rows.append(self.lut[(z << 58) | (x << 29) | y])
+            rows.append(self.lut[tm.tile_key(z, x, y)])
             nx, ny = tm.norm_corner(z, x, y)
             x0s.append(nx); y0s.append(ny); sts.append(t)
         return (np.array(rows, dtype=np.int64), np.array(x0s, dtype=np.float32),

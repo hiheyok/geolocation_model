@@ -24,7 +24,8 @@ import tiles as T
 
 
 def _key(z, x, y):
-    return (int(z) << 58) | (int(x) << 29) | int(y)
+    """Cache key for a tile. See tile_math.tile_key for the bit layout."""
+    return tm.tile_key(int(z), int(x), int(y))
 
 
 class TokenSource:
@@ -35,9 +36,9 @@ class TokenSource:
         self.grid = grid
         self.tokens = np.load(cache / "tokens.f16.npy", mmap_mode="r")
         idx = pq.read_table(cache / "index.parquet")
-        k = (np.asarray(idx["z"]).astype(np.int64) << 58
-             | np.asarray(idx["x"]).astype(np.int64) << 29
-             | np.asarray(idx["y"]).astype(np.int64))
+        k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
+                        np.asarray(idx["x"]).astype(np.int64),
+                        np.asarray(idx["y"]).astype(np.int64))
         self.lut = dict(zip(k.tolist(), np.asarray(idx["row"]).astype(np.int64).tolist()))
         self.client = client or T.TileClient(config.TILE_SERVER)
         self.pool = ThreadPoolExecutor(max_workers=threads)
