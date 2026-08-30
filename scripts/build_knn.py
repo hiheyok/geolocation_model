@@ -31,8 +31,9 @@ import config
 import splits as sp
 
 
-def cache_path(street_file, mode, k, bank_limit=0):
+def cache_path(street_file, mode, k, bank_limit=0, ext=None):
     tail = "" if not bank_limit else "_bank{}k".format(bank_limit // 1000)
+    tail += "" if not ext else "_" + ext
     return config.STREET_CACHE / "knn_{}_{}_k{}{}.npz".format(
         street_file.replace(".f16.npy", ""), mode, k, tail)
 
@@ -43,6 +44,12 @@ def main():
     ap.add_argument("--split-mode", default=sp.PRIMARY, choices=sorted(sp.MODES))
     ap.add_argument("--k", type=int, default=32)
     ap.add_argument("--chunk", type=int, default=1024)
+    ap.add_argument("--bank-ext", default=None,
+                    help="stem of a bank extension (build_bank_ext.py): its "
+                         "embeddings are appended to the bank and its rows are "
+                         "addressed as n_release + i. Queries stay the release.")
+    ap.add_argument("--bank-block", type=int, default=200000,
+                    help="bank rows held on the card at once")
     ap.add_argument("--bank-limit", type=int, default=0,
                     help="restrict the bank to the same N train images that "
                          "train.py --limit N uses, so an arm's retrieval "
@@ -68,21 +75,38 @@ def main():
               .format(a.bank_limit))
     dev = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Normalise into fp16 in blocks.  The whole bank in fp32 is 4x its final
-    # size and does not fit beside the query chunk on this card; Windows would
-    # answer that by spilling to system memory rather than failing, and the
-    # matmul would then run over PCIe at a fraction of the speed.
-    B = torch.empty((len(bank_rows), d), dtype=torch.float16, device=dev)
-    for lo in range(0, len(bank_rows), 8192):
-        hi = min(lo + 8192, len(bank_rows))
-        blk = torch.from_numpy(
-            np.asarray(emb[bank_rows[lo:hi]], dtype=np.float32)).to(dev)
-        B[lo:hi] = (blk / blk.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
-        del blk
-    bank_seq = torch.from_numpy(seq_id[bank_rows]).to(dev)
+    # A bank extension is a corpus that never joined the release: bank-only
+    # shards with an embedding and a z16 address but no split, no tiles and no
+    # training rows.  Its embeddings live in the same file, appended after the
+    # release rows, so a neighbour index addresses both spaces uniformly.
+    ext_n = 0
+    if a.bank_ext:
+        m = np.load(config.STREET_CACHE / (a.bank_ext + "_meta.npz"),
+                    allow_pickle=True)
+        ext_n = len(m["x16"])
+        if emb.shape[0] < n + ext_n:
+            raise SystemExit(
+                "{} has {:,} rows but the release has {:,} and the extension "
+                "{:,}; run scripts/stack_bank.py first".format(
+                    a.street_file, emb.shape[0], n, ext_n))
+        ext_rows = np.arange(n, n + ext_n, dtype=np.int64)
+        bank_rows = np.concatenate([bank_rows, ext_rows])
+        # sequence ids must not collide across the two corpora
+        _, ext_seq = np.unique(m["sequence"], return_inverse=True)
+        seq_id = np.concatenate([seq_id, ext_seq + seq_id.max() + 1])
+        print("bank ext   {:,} images from {}".format(
+            ext_n, ", ".join(str(x) for x in m["shards"])))
 
-    print("bank       {:,} train images, dim {}  ({:.2f} GB fp16 resident)"
-          .format(len(bank_rows), d, B.numel() * 2 / 1e9))
+    # The bank no longer fits on the card: at 1.15M x 4608 it is 10.6 GB in
+    # fp16.  Similarity runs against one block at a time and a running top-k is
+    # merged across blocks -- identical result, bounded memory.
+    nb = len(bank_rows)
+    blocks = [(lo, min(lo + a.bank_block, nb))
+              for lo in range(0, nb, a.bank_block)]
+    bank_seq_all = torch.from_numpy(seq_id[bank_rows])
+
+    print("bank       {:,} images, dim {}  ({:.2f} GB fp16, {} block(s) of {:,})"
+          .format(nb, d, nb * d * 2 / 1e9, len(blocks), a.bank_block))
     print("split      {} {}".format(a.split_mode, shash))
 
     idx_out = np.zeros((n, a.k), dtype=np.int64)
@@ -92,22 +116,43 @@ def main():
         hi = min(lo + a.chunk, n)
         Q = torch.from_numpy(np.asarray(emb[lo:hi], dtype=np.float32)).to(dev)
         Q = (Q / Q.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
-        sim = (Q @ B.T).float()
-        same = bank_seq.unsqueeze(0) == torch.from_numpy(seq_id[lo:hi]).to(dev).unsqueeze(1)
-        dropped += int(same.sum())
-        sim = sim.masked_fill(same, -2.0)
-        s, j = sim.topk(a.k, dim=1)
+        qseq = torch.from_numpy(seq_id[lo:hi]).to(dev).unsqueeze(1)
+
+        best_s, best_j = None, None
+        for blo, bhi in blocks:
+            rows = bank_rows[blo:bhi]
+            B = torch.from_numpy(np.asarray(emb[rows], dtype=np.float32)).to(dev)
+            B = (B / B.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
+            sim = (Q @ B.T).float()
+            del B
+            same = bank_seq_all[blo:bhi].to(dev).unsqueeze(0) == qseq
+            dropped += int(same.sum())
+            sim = sim.masked_fill(same, -2.0)
+            kk = min(a.k, sim.shape[1])
+            s, j = sim.topk(kk, dim=1)
+            j = j + blo                       # into bank_rows, not the block
+            del sim, same
+            if best_s is None:
+                best_s, best_j = s, j
+            else:
+                cs = torch.cat([best_s, s], 1)
+                cj = torch.cat([best_j, j], 1)
+                best_s, order = cs.topk(a.k, dim=1)
+                best_j = torch.gather(cj, 1, order)
+
         # store rows in dataset.parquet order, not bank order, so the dataset
         # can index neighbours the same way it indexes everything else
-        idx_out[lo:hi] = bank_rows[j.cpu().numpy()]
-        sim_out[lo:hi] = s.cpu().numpy()
+        idx_out[lo:hi] = bank_rows[best_j.cpu().numpy()]
+        sim_out[lo:hi] = best_s.cpu().numpy()
         if (lo // a.chunk) % 200 == 0:
             print("  {:>7,}/{:,}".format(hi, n), flush=True)
 
-    out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit)
+    out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit,
+                     a.bank_ext)
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),
              split_mode=a.split_mode, split_hash=shash,
-             street_file=a.street_file)
+             street_file=a.street_file,
+             bank_ext=(a.bank_ext or ""), bank_n=len(bank_rows))
     print("excluded   {:,} same-sequence pairs ({:.1f} per query)".format(
         dropped, dropped / n))
     print("top-1 sim  mean {:.4f}   top-{} sim mean {:.4f}".format(

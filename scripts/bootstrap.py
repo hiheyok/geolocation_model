@@ -38,7 +38,8 @@ CACHE = ROOT / "runs" / "errs"
 def errors_for(tag, split, n, beam_k, score_steps, dev, source):
     """Per-image great-circle error, cached by (tag, split, n, k, depth)."""
     CACHE.mkdir(parents=True, exist_ok=True)
-    key = "{}_{}_{}_k{}_d{}.npy".format(tag, split, n, beam_k, score_steps)
+    # "r" marks the seeded random sample; the old caches were the first n rows
+    key = "{}_{}_{}r_k{}_d{}.npy".format(tag, split, n, beam_k, score_steps)
     p = CACHE / key
     if p.exists():
         return np.load(p)

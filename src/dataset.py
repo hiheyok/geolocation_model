@@ -21,7 +21,7 @@ import tile_math as tm
 
 
 
-def street_table(path, dev, budget_gb=1.5):
+def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     """The neighbour lookup table, on the card if it fits and in host RAM if not.
 
     retr_mode pos/dual is keyed on neighbour embeddings, so this is gathered
@@ -32,13 +32,19 @@ def street_table(path, dev, budget_gb=1.5):
     """
     a = np.load(path, mmap_mode="r")
     gb = a.nbytes / 1e9
-    t = torch.from_numpy(np.asarray(a))          # fp16; cast at the gather
-    on_gpu = dev == "cuda" and gb <= budget_gb
-    print("nbr table  {:.2f} GB on {}{}".format(
-        gb, "cuda" if on_gpu else "cpu",
-        "" if on_gpu else "  (too large for the card; gathered host-side)"),
-        flush=True)
-    return t.to(dev) if on_gpu else t
+    if dev == "cuda" and gb <= budget_gb:
+        print("nbr table  {:.2f} GB on cuda".format(gb), flush=True)
+        return torch.from_numpy(np.asarray(a)).to(dev)
+    # Third tier, for a bank extension: 11.5 GB will not sit in host RAM beside
+    # four spawned dataloader workers either.  A gather gathers 64x16 rows, so
+    # paging them in beats holding all of it.
+    if gb <= ram_gb:
+        print("nbr table  {:.2f} GB in host RAM  (too large for the card)"
+              .format(gb), flush=True)
+        return torch.from_numpy(np.asarray(a))
+    print("nbr table  {:.2f} GB left on disk as a memmap  (too large for RAM)"
+          .format(gb), flush=True)
+    return torch.from_numpy(a)
 
 
 def gather_nbr(table, rows, dev):
@@ -124,6 +130,16 @@ class GeoStepDataset(Dataset):
         self.knn_k = knn_k
         if knn_k:
             z = np.load(config.STREET_CACHE / knn_file)
+            ext = str(z["bank_ext"]) if "bank_ext" in z else ""
+            if ext:
+                # neighbours may live past the release: extend the address
+                # tables so nbr index n+i resolves to the extension row i
+                m = np.load(config.STREET_CACHE / (ext + "_meta.npz"),
+                            allow_pickle=True)
+                self.all_x16 = np.concatenate(
+                    [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
+                self.all_y16 = np.concatenate(
+                    [self.all_y16, m["y16"].astype(self.all_y16.dtype)])
             if str(z["split_mode"]) != split_mode:
                 raise SystemExit(
                     "knn cache was built on split {!r} but the dataset is {!r}; "

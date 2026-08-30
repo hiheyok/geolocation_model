@@ -107,8 +107,19 @@ def check_split(ck, mode, split, allow_dirty=False):
 
 def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
              greedy=False, batch=32, sink_prune=1.0, score_steps=None,
-             street_gpu=None):
-    idx = np.arange(len(ds)) if n is None else np.arange(min(n, len(ds)))
+             street_gpu=None, sample_seed=1234):
+    """n < len(ds) draws a *seeded random* subset, not the first n rows.
+
+    Split order is the DuckDB join order over the shards, so the head of the
+    file is not a random draw over geography: the first 5,000 test rows score a
+    test loss 0.87 lower than a random 5,000 of the same split.  Seeded, so the
+    sample is identical across arms and paired tests stay valid.
+    """
+    if n is None or n >= len(ds):
+        idx = np.arange(len(ds))
+    else:
+        idx = np.sort(np.random.default_rng(sample_seed).choice(
+            len(ds), n, replace=False))
     errs, radii, step_hit = [], [], np.zeros(tm.STEPS)
     t0 = time.time()
     for lo in range(0, len(idx), batch):

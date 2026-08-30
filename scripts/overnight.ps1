@@ -12,6 +12,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\overnight.ps1 -Hours 10
 
 param(
+  [string]$Script = "scripts\overnight.py",
   [double]$Hours = 10.0,
   [double]$StartEpoch = 0,
   [int]$MaxRestarts = 40
@@ -42,13 +43,17 @@ for ($i = 1; $i -le $MaxRestarts; $i++) {
   $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
   if ($now -ge $deadline) { Say "deadline reached; stopping"; break }
 
-  Say ("attempt {0}: launching overnight.py ({1:N1} h left)" -f $i, (($deadline - $now) / 3600))
-  & $py "scripts\overnight.py" "--hours" $Hours "--start" $StartEpoch
+  Say ("attempt {0}: launching {1} ({2:N1} h left)" -f $i, $Script, (($deadline - $now) / 3600))
+  if ($Script -like "*overnight.py") {
+    & $py $Script "--hours" $Hours "--start" $StartEpoch
+  } else {
+    & $py $Script $Hours
+  }
   $rc = $LASTEXITCODE
 
-  if ($rc -eq 0) { Say "overnight.py finished cleanly"; break }
+  if ($rc -eq 0) { Say "$Script finished cleanly"; break }
 
-  Say ("overnight.py exited rc={0}; resuming from its done-markers in 60s" -f $rc)
+  Say ("$Script exited rc={0}; resuming from its done-markers in 60s" -f $rc)
   Start-Sleep -Seconds 60
 }
 

@@ -107,12 +107,17 @@ def main():
                     help="keep a PxP pooled grid of DINOv2 patch tokens per crop "
                          "instead of the CLS vector; 0 = CLS as before")
     ap.add_argument("--out", default=None, help="override output filename stem")
+    ap.add_argument("--parquet", default=None,
+                    help="image list to embed instead of the release's "
+                         "dataset.parquet; needs image_id and zip_name. Used "
+                         "for bank-only shards, which never enter the release.")
     ap.add_argument("--no-preload", dest="preload", action="store_false",
                     help="stream from disk instead of loading the zip into RAM")
     ap.set_defaults(preload=True)
     a = ap.parse_args()
 
-    ds = pq.read_table(config.DATASET_PARQUET)
+    ds = pq.read_table(config.PROCESSED / a.parquet if a.parquet
+                       else config.DATASET_PARQUET)
     image_ids = np.asarray(ds["image_id"])
     names = ds["zip_name"].to_pylist()
     n = len(names)
@@ -150,7 +155,9 @@ def main():
         print("patch grid  {}x{} per crop -> {} tokens x {} dims  ({:.1f} GB)"
               .format(a.patch_grid, a.patch_grid, n_tok, dim,
                       n * n_tok * dim * 2 / 1e9), flush=True)
-    np.save(EMB_IDS, image_ids)
+    # a bank extension is not the release: do not overwrite its id map
+    if not a.parquet:
+        np.save(EMB_IDS, image_ids)
     if a.crops > 1:
         print("crops      {} horizontal -> embedding dim {}"
               .format(a.crops, dim * a.crops), flush=True)
