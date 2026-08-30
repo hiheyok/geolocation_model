@@ -110,7 +110,7 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
                     torch.from_numpy(ds.knn_sim[r]).to(dev)]
             if street_gpu is not None:
                 nbrs.append(street_gpu[torch.from_numpy(
-                    ds.knn_idx[r].astype(np.int64)).to(dev)])
+                    ds.knn_idx[r].astype(np.int64)).to(dev)].float())
         res = search(model, street, source, dev, beam_k, top_m, greedy=greedy,
                      sink_prune=sink_prune, score_steps=score_steps, nbrs=nbrs)
         for i, r in zip(sel, res):
@@ -157,7 +157,7 @@ def main():
     street_gpu = None
     if ck.get("retr_mode") in ("pos", "dual"):
         street_gpu = torch.from_numpy(
-            np.load(config.STREET_CACHE / sf, mmap_mode="r")[:]).to(dev).float()
+            np.load(config.STREET_CACHE / sf, mmap_mode="r")[:].copy()).to(dev)
     ds = GeoStepDataset(a.split, street_file=sf, split_mode=mode,
                         knn_file=ck.get("knn_file"),
                         knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
