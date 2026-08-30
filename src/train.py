@@ -295,7 +295,7 @@ def main():
     # exhaustively; only the step-3 z12 view and the z16 click can miss, and
     # TokenSource keeps live fetches for the rest of the run.
     src = rollout = None
-    if a.select == "km":
+    if a.select in ("km", "hit"):
         from beam import TokenSource
         from evaluate import evaluate as rollout
         src = TokenSource(tm.G)
@@ -375,8 +375,14 @@ def main():
                         "val_km": km, "val_hit": hit, "select": a.select,
                         "sel_n": a.sel_n, "sel_k": a.sel_k},
                        config.CHECKPOINTS / (a.tag + ".pt"))
+    if best == float("inf"):
+        raise SystemExit(
+            "no checkpoint was written: the {!r} criterion never produced a "
+            "finite value. A training run that saves nothing is a failure, "
+            "not a result.".format(a.select))
     print("\nbest val {} {:.4f} -> {}".format(
-        "median km" if a.select == "km" else "loss", best, a.tag + ".pt"))
+        {"hit": "-<25km", "km": "median km", "loss": "loss"}[a.select],
+        best, a.tag + ".pt"))
 
 
 if __name__ == "__main__":
