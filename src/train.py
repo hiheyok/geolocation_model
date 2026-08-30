@@ -245,8 +245,7 @@ def main():
 
     knn_file = a.knn_file
     if a.retr and knn_file is None:
-        knn_file = "knn_{}_{}_k32.npz".format(
-            a.street_file.replace(".f16.npy", ""), a.split_mode)
+        knn_file = config.knn_name(a.street_file, a.split_mode)
     kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0)
     tr = GeoStepDataset("train", street_file=a.street_file, n_neg=a.neg,
                         split_mode=a.split_mode, **kn)

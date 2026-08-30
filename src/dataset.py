@@ -55,9 +55,10 @@ def gather_nbr(table, rows, dev):
 
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
-                 street_file="embeddings.f16.npy", n_neg=0, neg_seed=0,
+                 street_file=None, n_neg=0, neg_seed=0,
                  neg_random=True, split_mode=sp.PRIMARY, knn_file=None,
                  knn_k=0):
+        street_file = street_file or config.STREET_DEFAULT
         self.g, self.steps = g, steps
         self.n_neg, self.neg_seed, self.neg_random = n_neg, neg_seed, neg_random
         self.n_actions = g * g
@@ -77,13 +78,13 @@ class GeoStepDataset(Dataset):
 
         # street embeddings: row order matches dataset.parquet
         self._street_path = config.STREET_CACHE / street_file
-        self._tokens_path = cache / "tokens.f16.npy"
+        self._tokens_path, index_p, _ = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
 
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
-        idx = pq.read_table(cache / "index.parquet")
+        idx = pq.read_table(index_p)
         # one key per cached tile; tile_math.tile_key owns the bit layout
         key = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
                           np.asarray(idx["x"]).astype(np.int64),
@@ -135,8 +136,7 @@ class GeoStepDataset(Dataset):
             if ext:
                 # neighbours may live past the release: extend the address
                 # tables so nbr index n+i resolves to the extension row i
-                m = np.load(config.STREET_CACHE / (ext + "_meta.npz"),
-                            allow_pickle=True)
+                m = np.load(config.bank_meta(ext), allow_pickle=True)
                 self.all_x16 = np.concatenate(
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(

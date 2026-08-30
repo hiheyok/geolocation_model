@@ -27,10 +27,10 @@ class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
     def __init__(self, grid=tm.G, cache=None, client=None, threads=16):
-        cache = Path(cache) if cache else config.MAP_CACHE
+        tokens_p, index_p, _ = config.map_files(cache)
         self.grid = grid
-        self.tokens = np.load(cache / "tokens.f16.npy", mmap_mode="r")
-        idx = pq.read_table(cache / "index.parquet")
+        self.tokens = np.load(tokens_p, mmap_mode="r")
+        idx = pq.read_table(index_p)
         k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
                         np.asarray(idx["x"]).astype(np.int64),
                         np.asarray(idx["y"]).astype(np.int64))

@@ -22,9 +22,7 @@ import config
 import tile_math as tm
 import tiles as T
 
-TOKENS = config.MAP_CACHE / "tokens.f16.npy"
-INDEX = config.MAP_CACHE / "index.parquet"
-DONE = config.MAP_CACHE / "done.u8.npy"
+TOKENS, INDEX, DONE = config.map_files()
 
 
 def needed_keys(grid, exhaustive_z8):
@@ -94,9 +92,10 @@ def main():
         # which would otherwise refetch the 65,792 exhaustive tiles the previous
         # release already holds.  Addresses are stable, rows are not.
         src = Path(a.seed_from)
-        sidx = pq.read_table(src / "index.parquet")
-        sdone = np.load(src / "done.u8.npy")
-        stok = np.load(src / "tokens.f16.npy", mmap_mode="r")
+        stok_p, sidx_p, sdone_p = config.map_files(src)
+        sidx = pq.read_table(sidx_p)
+        sdone = np.load(sdone_p)
+        stok = np.load(stok_p, mmap_mode="r")
         skey = {}
         for z, x, y, r in zip(np.asarray(sidx["z"]), np.asarray(sidx["x"]),
                               np.asarray(sidx["y"]), np.asarray(sidx["row"])):

@@ -32,10 +32,9 @@ import splits as sp
 
 
 def cache_path(street_file, mode, k, bank_limit=0, ext=None):
-    tail = "" if not bank_limit else "_bank{}k".format(bank_limit // 1000)
-    tail += "" if not ext else "_" + ext
-    return config.STREET_CACHE / "knn_{}_{}_k{}{}.npz".format(
-        street_file.replace(".f16.npy", ""), mode, k, tail)
+    """config.knn_name owns the convention; train.py derives the same name."""
+    return config.STREET_CACHE / config.knn_name(
+        street_file, mode, k, bank_limit, ext)
 
 
 def main():
@@ -81,8 +80,7 @@ def main():
     # release rows, so a neighbour index addresses both spaces uniformly.
     ext_n = 0
     if a.bank_ext:
-        m = np.load(config.STREET_CACHE / (a.bank_ext + "_meta.npz"),
-                    allow_pickle=True)
+        m = np.load(config.bank_meta(a.bank_ext), allow_pickle=True)
         ext_n = len(m["x16"])
         if emb.shape[0] < n + ext_n:
             raise SystemExit(
