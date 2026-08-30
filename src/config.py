@@ -86,6 +86,19 @@ def knn_name(street_file, mode, k=KNN_K, bank_limit=0, ext=None):
 
 TILE_SERVER = os.environ.get("TILE_SERVER", "http://192.168.50.1:3000")
 
+
+# ---------------------------------------------------------------- boundary --
+#
+# What belongs in this file: deployment wiring -- where things live on this
+# machine, which release is being worked on, and the names several modules must
+# agree on. Anything whose correct value depends on the environment.
+#
+# What does not: a module's own domain contract. The tile server's mask encoding
+# lives in tiles.py, the addressing scheme in tile_math.py, and what a split
+# means in splits.py, because each of those is one module's subject and splitting
+# it across two files makes both harder to read. The test is whether a second
+# module has to agree on the value, or merely uses it.
+
 # Splitting: cells are held out whole, and a sequence never spans splits.
 SPLIT_CELL_ZOOM = 8
 SPLIT_FRACTIONS = (0.80, 0.10, 0.10)
