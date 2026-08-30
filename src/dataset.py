@@ -20,6 +20,39 @@ import splits as sp
 import tile_math as tm
 
 
+
+def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
+    """The neighbour lookup table, on the card if it fits and in host RAM if not.
+
+    retr_mode pos/dual is keyed on neighbour embeddings, so this is gathered
+    from every iteration.  At 50k images it is 0.46 GB of otherwise idle VRAM
+    and belongs there; at 500k it is 4.6 GB and would push the process into
+    Windows' shared-memory spill, where every access is a PCIe round trip and
+    nothing reports an error.  The gather is ~9 MB per batch either way.
+    """
+    a = np.load(path, mmap_mode="r")
+    gb = a.nbytes / 1e9
+    if dev == "cuda" and gb <= budget_gb:
+        print("nbr table  {:.2f} GB on cuda".format(gb), flush=True)
+        return torch.from_numpy(np.asarray(a)).to(dev)
+    # Third tier, for a bank extension: 11.5 GB will not sit in host RAM beside
+    # four spawned dataloader workers either.  A gather gathers 64x16 rows, so
+    # paging them in beats holding all of it.
+    if gb <= ram_gb:
+        print("nbr table  {:.2f} GB in host RAM  (too large for the card)"
+              .format(gb), flush=True)
+        return torch.from_numpy(np.asarray(a))
+    print("nbr table  {:.2f} GB left on disk as a memmap  (too large for RAM)"
+          .format(gb), flush=True)
+    return torch.from_numpy(a)
+
+
+def gather_nbr(table, rows, dev):
+    """rows may live on either device; the table decides where the gather runs."""
+    idx = rows if rows.device == table.device else rows.to(table.device)
+    return table[idx].to(dev, non_blocking=True).float()
+
+
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
                  street_file="embeddings.f16.npy", n_neg=0, neg_seed=0,
@@ -43,11 +76,13 @@ class GeoStepDataset(Dataset):
         self.country = np.asarray(ds["country"].to_pylist(), dtype=object)[keep]
 
         # street embeddings: row order matches dataset.parquet
-        self.street = np.load(config.STREET_CACHE / street_file, mmap_mode="r")
+        self._street_path = config.STREET_CACHE / street_file
+        self._tokens_path = cache / "tokens.f16.npy"
+        self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
 
         # map token cache + (z,x,y) -> row
-        self.tokens = np.load(cache / "tokens.f16.npy", mmap_mode="r")
+        self.tokens = np.load(self._tokens_path, mmap_mode="r")
         idx = pq.read_table(cache / "index.parquet")
         key = (np.asarray(idx["z"]).astype(np.int64) << 58
                | np.asarray(idx["x"]).astype(np.int64) << 29
@@ -95,6 +130,16 @@ class GeoStepDataset(Dataset):
         self.knn_k = knn_k
         if knn_k:
             z = np.load(config.STREET_CACHE / knn_file)
+            ext = str(z["bank_ext"]) if "bank_ext" in z else ""
+            if ext:
+                # neighbours may live past the release: extend the address
+                # tables so nbr index n+i resolves to the extension row i
+                m = np.load(config.STREET_CACHE / (ext + "_meta.npz"),
+                            allow_pickle=True)
+                self.all_x16 = np.concatenate(
+                    [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
+                self.all_y16 = np.concatenate(
+                    [self.all_y16, m["y16"].astype(self.all_y16.dtype)])
             if str(z["split_mode"]) != split_mode:
                 raise SystemExit(
                     "knn cache was built on split {!r} but the dataset is {!r}; "
@@ -107,6 +152,21 @@ class GeoStepDataset(Dataset):
         self.x0 = x0[keep]
         self.y0 = y0[keep]
         self.step_ids = np.arange(per, dtype=np.int64)
+
+    def __getstate__(self):
+        """np.memmap pickles by value, so the default would send the whole
+        street and token caches to every worker -- 8.5 GB at 500k images, which
+        a Windows pipe refuses.  Send the paths; the worker reopens them and the
+        OS shares the pages."""
+        st = self.__dict__.copy()
+        st["street"] = None
+        st["tokens"] = None
+        return st
+
+    def __setstate__(self, st):
+        self.__dict__.update(st)
+        self.street = np.load(self._street_path, mmap_mode="r")
+        self.tokens = np.load(self._tokens_path, mmap_mode="r")
 
     def sample_negatives(self, i, n_neg, rng):
         """Off-path views: sibling tiles that do NOT contain the true point.
