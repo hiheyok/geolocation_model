@@ -70,11 +70,13 @@ class GeoStepDataset(Dataset):
         self.country = np.asarray(ds["country"].to_pylist(), dtype=object)[keep]
 
         # street embeddings: row order matches dataset.parquet
-        self.street = np.load(config.STREET_CACHE / street_file, mmap_mode="r")
+        self._street_path = config.STREET_CACHE / street_file
+        self._tokens_path = cache / "tokens.f16.npy"
+        self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
 
         # map token cache + (z,x,y) -> row
-        self.tokens = np.load(cache / "tokens.f16.npy", mmap_mode="r")
+        self.tokens = np.load(self._tokens_path, mmap_mode="r")
         idx = pq.read_table(cache / "index.parquet")
         key = (np.asarray(idx["z"]).astype(np.int64) << 58
                | np.asarray(idx["x"]).astype(np.int64) << 29
@@ -134,6 +136,21 @@ class GeoStepDataset(Dataset):
         self.x0 = x0[keep]
         self.y0 = y0[keep]
         self.step_ids = np.arange(per, dtype=np.int64)
+
+    def __getstate__(self):
+        """np.memmap pickles by value, so the default would send the whole
+        street and token caches to every worker -- 8.5 GB at 500k images, which
+        a Windows pipe refuses.  Send the paths; the worker reopens them and the
+        OS shares the pages."""
+        st = self.__dict__.copy()
+        st["street"] = None
+        st["tokens"] = None
+        return st
+
+    def __setstate__(self, st):
+        self.__dict__.update(st)
+        self.street = np.load(self._street_path, mmap_mode="r")
+        self.tokens = np.load(self._tokens_path, mmap_mode="r")
 
     def sample_negatives(self, i, n_neg, rng):
         """Off-path views: sibling tiles that do NOT contain the true point.

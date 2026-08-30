@@ -311,9 +311,10 @@ def prep_stages():
     ]
 
 
-def train_argv(tag, release, limit, epochs, sel_n=1000, extra=()):
+def train_argv(tag, release, limit, epochs, sel_n=2000, extra=()):
     a = ["src/train.py", "--tag", tag, "--epochs", str(epochs),
-         "--batch", str(BATCH), "--select", "km", "--sel-n", str(sel_n)] + SHIP
+         "--batch", str(BATCH), "--select", "hit", "--sel-n", str(sel_n),
+         "--val-n", "5000"] + SHIP
     if limit:
         a += ["--limit", str(limit)]
     return a + list(extra)
@@ -401,10 +402,22 @@ def main():
     cal = Stage("calib", train_argv("calib_s10", "s10", 25000, 1, sel_n=256),
                 release="s10", est=12 * 60, retries=1)
     run_stage(cal, state, deadline)
+    # The epoch line, not the stage wall clock: a one-epoch stage is mostly
+    # dataset construction and model build, and dividing that by the step
+    # count overstates the cost of every arm by about a factor of two.
+    ep_secs = 0.0
+    try:
+        import re
+        m = re.findall(r"^ep\s+\d+\s+([\d.]+)s",
+                       (LOGS / "calib.log").read_text(encoding="utf-8",
+                                                      errors="replace"), re.M)
+        ep_secs = float(m[0]) if m else 0.0
+    except Exception:
+        pass
     cal_secs = state["done"].get("calib", {}).get("secs", 0)
-    per_step = (cal_secs / max(1, 25000 / BATCH)) if cal_secs else 0.13
-    log("calibration  {:.0f}s for {:.0f} steps  ->  {:.3f} s/step"
-        .format(cal_secs, 25000 / BATCH, per_step))
+    per_step = (ep_secs / max(1, 25000 / BATCH)) if ep_secs else 0.13
+    log("calibration  stage {:.0f}s, epoch {:.0f}s for {:.0f} steps  ->  "
+        "{:.3f} s/step".format(cal_secs, ep_secs, 25000 / BATCH, per_step))
 
     left = deadline - now()
     reserve = 60 * 60                       # final evaluation + report
@@ -421,19 +434,33 @@ def main():
         S = a.steps
     else:
         share = max(0.0, grid_budget - long_cost) / max(1, len(sizes))
-        S = int(max(3000, share / max(per_step, 1e-6)))
+        # floor: below the 12,520 steps the shipping s01 run used, an arm
+        # is undertrained and the comparison measures the budget instead
+        # of the data.  ceiling: leave room for the evaluation reserve.
+        S = int(min(26000, max(8000, share / max(per_step, 1e-6))))
     log("budget  {:.1f} h left, {:.1f} h reserved for evaluation"
         .format(left / 3600, reserve / 3600))
     log("grid    {:,} optimizer steps per compute-matched arm "
         "(~{:.0f} min each); long arm {:,} steps (~{:.0f} min)"
         .format(S, S * per_step / 60, int(long_steps), long_cost / 60))
 
-    arms = []
-    for n in sizes:
-        ep = max(1, int(round(S * BATCH / n)))
-        tag = "s10_n{}k_e{}".format(n // 1000, ep)
-        arms.append((tag, n, ep, ep * n / BATCH * per_step))
-    arms.append(("s10_n50k_e80", long_n, long_ep, long_cost))
+    # Pinned on first computation.  Re-deriving it on a restart would pick a
+    # smaller step budget from the shorter remaining time, rename every tag, and
+    # so recompute arms that already finished -- at a different number of
+    # optimizer steps, which is exactly what the comparison holds fixed.
+    if state.get("arms"):
+        arms = [tuple(x) for x in state["arms"]]
+        log("arm plan pinned from state.json ({} arms, {:,} steps matched)"
+            .format(len(arms), int(arms[0][2] * arms[0][1] / BATCH)))
+    else:
+        arms = []
+        for n in sizes:
+            ep = max(1, int(round(S * BATCH / n)))
+            tag = "s10_n{}k_e{}".format(n // 1000, ep)
+            arms.append((tag, n, ep, ep * n / BATCH * per_step))
+        arms.append(("s10_n50k_e80", long_n, long_ep, long_cost))
+        state["arms"] = [list(x) for x in arms]
+        save_state(state)
 
     log("arms:")
     for tag, n, ep, cost in arms:

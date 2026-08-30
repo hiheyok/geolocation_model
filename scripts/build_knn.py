@@ -54,12 +54,21 @@ def main():
     bank_rows = np.flatnonzero(labels == "train").astype(np.int64)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
 
-    B = torch.from_numpy(np.asarray(emb[bank_rows], dtype=np.float32)).to(dev)
-    B = B / B.norm(dim=1, keepdim=True).clamp_min(1e-6)
-    B = B.half()
+    # Normalise into fp16 in blocks.  The whole bank in fp32 is 4x its final
+    # size and does not fit beside the query chunk on this card; Windows would
+    # answer that by spilling to system memory rather than failing, and the
+    # matmul would then run over PCIe at a fraction of the speed.
+    B = torch.empty((len(bank_rows), d), dtype=torch.float16, device=dev)
+    for lo in range(0, len(bank_rows), 8192):
+        hi = min(lo + 8192, len(bank_rows))
+        blk = torch.from_numpy(
+            np.asarray(emb[bank_rows[lo:hi]], dtype=np.float32)).to(dev)
+        B[lo:hi] = (blk / blk.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
+        del blk
     bank_seq = torch.from_numpy(seq_id[bank_rows]).to(dev)
 
-    print("bank       {:,} train images, dim {}".format(len(bank_rows), d))
+    print("bank       {:,} train images, dim {}  ({:.2f} GB fp16 resident)"
+          .format(len(bank_rows), d, B.numel() * 2 / 1e9))
     print("split      {} {}".format(a.split_mode, shash))
 
     idx_out = np.zeros((n, a.k), dtype=np.int64)
@@ -78,6 +87,8 @@ def main():
         # can index neighbours the same way it indexes everything else
         idx_out[lo:hi] = bank_rows[j.cpu().numpy()]
         sim_out[lo:hi] = s.cpu().numpy()
+        if (lo // a.chunk) % 200 == 0:
+            print("  {:>7,}/{:,}".format(hi, n), flush=True)
 
     out = cache_path(a.street_file, a.split_mode, a.k)
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),
