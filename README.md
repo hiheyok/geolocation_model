@@ -166,10 +166,13 @@ system DRAM and keeps reporting 100%.
 powershell -ExecutionPolicy Bypass -File scripts/overnight.ps1 -Script scripts/bank25.py -Hours 6
 ```
 
-## Legacy
+## Documents
 
-`model_helper.py`, `data_handler.py`, `preprocess.py` and `model.ipynb` predate
-`src/` and are not used by anything. `data_handler.py` does not parse.
 `project_plan.pdf` is the original 29-page plan, written before the map backend
-existed; where it and this code disagree, the code and `runs/REPORT.md` are
+existed. It specifies a FastAPI + Playwright screenshot service; what got built
+is an XYZ tile server returning segmentation masks, which is better and collapsed
+a quarter of the plan. Where the two disagree, the code and `runs/REPORT.md` are
 current.
+
+`tile-server-documentation.pdf` documents the live server that `src/tiles.py`
+talks to.
