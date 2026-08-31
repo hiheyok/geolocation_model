@@ -122,13 +122,18 @@ def best_cell8_lr():
             hit, src, km = ck.get("val_hit", 0.0), "val", ck.get("val_km", 0.0)
         log("  cell8 {}  <25km {:.4f} ({}, n={})  median {:.1f} km".format(
             tag, hit, src, 5000 if src == "test" else 2000, km))
-        scored.append((hit, tag))
+        scored.append((hit, km, tag))
     if not scored:
         return None
-    scored.sort(reverse=True)
-    if len(scored) == 2 and abs(scored[0][0] - scored[1][0]) < 0.005:
-        log("  the two are within 0.5 pp -- too close to separate at this n")
-    return scored[0][1]
+    scored.sort(key=lambda r: -r[0])
+    # Hit rate decides only when it can. These two landed 0.06 pp apart on the
+    # hit rate -- indistinguishable -- while their medians differ by 45 km and
+    # separate cleanly, so the tie-break is the metric that actually resolved.
+    if len(scored) > 1 and abs(scored[0][0] - scored[1][0]) < 0.005:
+        scored.sort(key=lambda r: r[1])
+        log("  hit rates within 0.5 pp -- indistinguishable at this n; "
+            "breaking the tie on median km instead")
+    return scored[0][-1]
 
 
 def cutoff_at(hh, mm):
