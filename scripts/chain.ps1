@@ -15,7 +15,8 @@ param(
   [string]$Marker  = "watchdog done",
   [string]$Script  = "scripts\marathon.py",
   [double]$Hours   = 8.0,
-  [double]$MaxWaitHours = 6.0
+  [double]$MaxWaitHours = 6.0,
+  [string]$Lock    = "runs\chain.lock"
 )
 
 $ErrorActionPreference = "Continue"
@@ -23,7 +24,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 $log  = Join-Path $root "runs\chain.log"
-$lock = Join-Path $root "runs\chain.lock"
+$lock = Join-Path $root $Lock
 
 function Say($m) {
   $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m
