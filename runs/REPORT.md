@@ -45,7 +45,24 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | concat | 3 | 1 (2) | 705 | 127 | 13 | 44 | 16 | 21.5 |
 | embed_dino | 325 | 79 (100) | 4763 | 186 | 185 | 62 | 19 | 19.6 |
 | embed_siglip | 285 | 68 (100) | 4008 | 182 | 180 | 61 | 20 | 19.6 |
+| key_eval | 8 | 1 (1) | 1717 | 352 | 11 | 39 | 22 | 13.9 |
+| key_s01_eval | 10 | 1 (1) | 2265 | 368 | 11 | 39 | 35 | 12.7 |
+| key_train_cond | 156 | 1 (1) | 4383 | 497 | 11 | 39 | 22 | 23.0 |
+| key_train_dual | 148 | 1 (1) | 4004 | 455 | 11 | 39 | 23 | 24.3 |
+| key_train_none | 154 | 1 (1) | 4269 | 526 | 11 | 39 | 22 | 21.6 |
+| key_train_pos | 156 | 1 (1) | 4372 | 475 | 11 | 39 | 23 | 23.8 |
+| key_train_scalar | 154 | 1 (1) | 4380 | 508 | 11 | 39 | 22 | 22.6 |
 | knn | 8 | 84 (96) | 6643 | 184 | 196 | 57 | 20 | 19.0 |
+| rc_c8_eval | 4 | 1 (1) | 1214 | 206 | 11 | 39 | 28 | 10.3 |
+| rc_c8_lr1 | 297 | 1 (1) | 3566 | 379 | 11 | 39 | 23 | 26.2 |
+| rc_c8_lr3 | 303 | 1 (1) | 3574 | 384 | 11 | 39 | 31 | 26.7 |
+| rc_cont | 146 | 1 (1) | 3507 | 380 | 11 | 39 | 37 | 25.9 |
+| rc_cont_eval | 4 | 1 (1) | 1060 | 404 | 11 | 39 | 100 | 13.5 |
+| rc_depth1 | 4 | 1 (1) | 1361 | 215 | 11 | 39 | 36 | 9.6 |
+| rc_depth2 | 3 | 1 (1) | 1570 | 215 | 11 | 39 | 34 | 10.0 |
+| rc_depth3 | 4 | 1 (1) | 1361 | 214 | 11 | 39 | 35 | 9.7 |
+| rc_depth4 | 3 | 1 (1) | 1570 | 213 | 11 | 39 | 35 | 10.0 |
+| rc_width | 16 | 1 (1) | 2519 | 215 | 11 | 39 | 35 | 10.7 |
 | s01_km | 149 | 92 (98) | 3954 | 357 | 186 | 62 | 18 | 30.1 |
 | s01_km_eval | 12 | 24 (93) | 3586 | 257 | 58 | 45 | 25 | 15.5 |
 | s10_n100k_e10 | 368 | 1 (1) | 3482 | 356 | 11 | 39 | 18 | 18.6 |
@@ -75,3 +92,21 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | c8_train_base_cont | 26.4 |
 | c8_train_ext_cont | 27.2 |
 | c8_eval_cont | 0.7 |
+| key_s01_eval | 1.9 |
+| key_train_none | 26.8 |
+| key_train_scalar | 26.4 |
+| key_train_cond | 26.8 |
+| key_train_pos | 26.8 |
+| key_train_dual | 25.5 |
+| key_eval | 1.3 |
+| key_seed | 0.1 |
+| rc_width | 2.9 |
+| rc_depth1 | 0.6 |
+| rc_depth2 | 0.6 |
+| rc_depth3 | 0.6 |
+| rc_depth4 | 0.6 |
+| rc_cont | 25.0 |
+| rc_cont_eval | 0.7 |
+| rc_c8_lr3 | 52.2 |
+| rc_c8_lr1 | 50.9 |
+| rc_c8_eval | 0.6 |

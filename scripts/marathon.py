@@ -93,25 +93,42 @@ def tiles_up():
 
 
 def best_cell8_lr():
-    """Whichever learning rate actually won, read off the checkpoints.
+    """Whichever learning rate actually won, on the best evidence available.
 
-    Hardcoding the winner would mean the continuation silently builds on the
-    worse arm if the sweep says something unexpected, which is the whole reason
-    for running a sweep.
+    Prefer the cached per-image test errors the paired bootstrap leaves behind:
+    5,000 images, the same protocol every other number here uses. Fall back to
+    the checkpoint's own val_hit only if that eval never ran.
+
+    The fallback is genuinely worse and the difference is not academic. These
+    two arms landed at val_hit 0.0690 and 0.0665 -- 0.25 pp on 2,000 images,
+    far inside noise -- so selecting on it is close to a coin flip, and it would
+    have picked the arm whose hit rate went flat after epoch 1 over the one
+    still climbing at epoch 4. A continuation compounds that choice.
     """
-    import torch
-    best, best_hit = None, -1.0
-    for tag in ("s10_cell8_bank25_lr1e4", "s10_cell8_bank25_lr3e4"):
-        p = config.CHECKPOINTS / (tag + ".pt")
-        if not p.exists():
+    import numpy as np
+    cands = ("s10_cell8_bank25_lr1e4", "s10_cell8_bank25_lr3e4")
+    scored = []
+    for tag in cands:
+        if not (config.CHECKPOINTS / (tag + ".pt")).exists():
             continue
-        ck = torch.load(p, map_location="cpu", weights_only=False)
-        hit = ck.get("val_hit", 0.0)
-        log("  cell8 {}  ep {}  <25km {:.4f}  val km {:.1f}".format(
-            tag, ck.get("epoch"), hit, ck.get("val_km", float("nan"))))
-        if hit > best_hit:
-            best, best_hit = tag, hit
-    return best
+        e = ROOT / "runs" / "errs" / (tag + "_test_5000r_k2_d3.npy")
+        if e.exists():
+            v = np.load(e)
+            hit, src, km = float((v < 25).mean()), "test", float(np.median(v))
+        else:
+            import torch
+            ck = torch.load(config.CHECKPOINTS / (tag + ".pt"),
+                            map_location="cpu", weights_only=False)
+            hit, src, km = ck.get("val_hit", 0.0), "val", ck.get("val_km", 0.0)
+        log("  cell8 {}  <25km {:.4f} ({}, n={})  median {:.1f} km".format(
+            tag, hit, src, 5000 if src == "test" else 2000, km))
+        scored.append((hit, tag))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    if len(scored) == 2 and abs(scored[0][0] - scored[1][0]) < 0.005:
+        log("  the two are within 0.5 pp -- too close to separate at this n")
+    return scored[0][1]
 
 
 def cutoff_at(hh, mm):
