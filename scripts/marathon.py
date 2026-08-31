@@ -216,9 +216,14 @@ def main():
                 "--ext", "bank_ext_bal", "--out", "dual_bal_bank25"],
                release=REL, est=20 * 60, retries=1), False),
         (Stage("mar_balbank_knn",
+               # --bank-ext names the extension's METADATA (image_id, x16,
+               # y16, sequence), which describes the images and is the same
+               # whichever embedding variant was built from them. The variant
+               # is chosen by --street-file. Passing "bank_ext_bal" here sent
+               # it looking for a bank_ext_bal_meta.npz that should not exist.
                ["scripts/build_knn.py", "--street-file", BAL_BANK,
                 "--split-mode", "sequence", "--chunk", "512",
-                "--bank-ext", "bank_ext_bal", "--bank-block", "150000"],
+                "--bank-ext", EXT, "--bank-block", "150000"],
                release=REL, est=70 * 60, retries=1), False),
         (Stage("mar_balbank_train",
                train("s10_bal_bank25", BAL_BANK, KNN_BALBANK_SEQ, "sequence",
