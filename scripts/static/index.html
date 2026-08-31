@@ -74,6 +74,9 @@
   .hint { color:var(--ink-3); font-size:.85rem; }
   .err { color:#b3261e; font-family:var(--mono); font-size:.85rem; }
   @media (prefers-color-scheme: dark){ .err{ color:#ff9b93; } }
+  kbd { font-family:var(--mono); font-size:.78em; border:1px solid var(--line);
+        border-bottom-width:2px; border-radius:4px; padding:.05em .35em;
+        background:var(--ground); color:var(--ink-2); }
   [hidden]{ display:none !important; }
 </style>
 
@@ -86,7 +89,8 @@
 
   <div id="drop" tabindex="0" role="button" aria-label="Choose an image">
     <p><b>Drop an image here</b></p>
-    <p>or click to choose &middot; any size, JPEG or PNG</p>
+    <p>or click to choose, or paste with <kbd id="pastekey">Ctrl-V</kbd>
+       &middot; any size, JPEG or PNG</p>
     <input type="file" id="file" accept="image/*">
   </div>
 
@@ -127,6 +131,24 @@ drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") 
 drop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) go(e.dataTransfer.files[0]); });
 file.addEventListener("change", () => { if (file.files[0]) go(file.files[0]); });
 
+// Paste anywhere on the page. A screenshot arrives as an image/* file on the
+// clipboard, so this is the same path as the picker -- but only when nothing
+// text-editable has focus, or we would hijack an ordinary paste.
+if (/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) {
+  document.getElementById("pastekey").textContent = "⌘V";
+}
+document.addEventListener("paste", e => {
+  const el = document.activeElement;
+  if (el && (el.isContentEditable || /^(INPUT|TEXTAREA)$/.test(el.tagName))) return;
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const it of items) {
+    if (it.kind === "file" && it.type.startsWith("image/")) {
+      const f = it.getAsFile();
+      if (f) { e.preventDefault(); go(f); return; }
+    }
+  }
+});
+
 function fmt(v, d) { return v === null || v === undefined ? "—" : v.toFixed(d); }
 
 async function go(f) {
@@ -136,6 +158,8 @@ async function go(f) {
   $("#coord").textContent = "working…";
   $("#meta").textContent = "";
   $("#link").textContent = "";
+  const prev = $("#preview").src;
+  if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
   $("#preview").src = URL.createObjectURL(f);
 
   let r;

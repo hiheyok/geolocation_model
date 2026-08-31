@@ -9,3 +9,7 @@ duckdb==1.5.5          # filters the 2.9 GB train.csv without a full parse
 pillow==12.3.0         # JPEG draft-mode decode in the embedding pass
 requests==2.32.3       # the tile server is the only network dependency
 psutil==6.1.1          # utilisation sampling in the experiment runners
+
+# Only scripts/serve.py needs these; training and evaluation do not.
+fastapi==0.115.12
+uvicorn==0.34.2
