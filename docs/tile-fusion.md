@@ -180,10 +180,34 @@ within-encoder paths is a defensible inductive bias. What cross-attention does
 not fix is that individual tiles are weak; routing a sky tile through SigLIP
 does not make it informative.
 
-**Cheaper thing to try first:** a per-step scalar gate over the two encoder
-blocks. Two parameters per step, no attention stack, and it targets the measured
-scale split directly -- it would say whether that split is worth an architecture
-or is just a knob nobody turned.
+**The cheap version was tried first, and it failed.** `--enc-gate`: one scalar
+per (step, encoder block), ten parameters, `exp(g)` on each half of the dual
+cache before `StreetProj`, zero-init. Two epochs from the shipping best against
+a matched-epoch control. The gates came out flat -- SigLIP/DINOv2 ratios 0.991,
+0.982, 0.964, 0.978 across s0-s3, s0 against s3 at 1.013, not monotone -- and
+every test-set contrast is inside noise.
+
+The internal control is what makes that informative rather than a null run: in
+the same two epochs, same init, same schedule, `retr.g_sink` moved 0.466,
+`retr.w_pos` 0.322 and `retr.g_neg` 0.110, while the encoder gate moved 0.026
+from a cold start. Scalars train here. This one had nothing pushing it.
+
+Three explanations the run cannot separate. The fusion MLP already sees
+`[street + map + state]` with the step embedding inside `state`, so a nonlinear
+path to per-step street modulation already exists and the gate is redundant with
+it. The retrieval prior is built from the same embeddings and already carries
+per-step gates. Or a continuation from a converged checkpoint cannot reach the
+basin. The first two say the scale information is already being used, just not
+where the knob went.
+
+That raises the prior against the cross-attention head without settling it: a
+fixed per-step scalar and a content-dependent per-image assignment are not the
+same mechanism, and only the second can say "this photograph is textually
+distinctive, lean SigLIP". The gate tested whether the *step* wants a different
+blend. It does not. Whether the *image* does is still open.
+
+Useful by-product: gate against control is [-0.80, +0.30] pp, so on this recipe
+at n=5,000 nothing under about 1 pp is resolvable.
 
 ### The baseline was the whole argument
 
