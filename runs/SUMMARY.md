@@ -1,5 +1,12 @@
 # Per-step accuracy and loss, train vs test
 
+> **Partly stale, 2026-08-30.** The teacher-forced columns (`trn s*`, `tst s*`,
+> `gap s*`, both losses) are unaffected -- they never touch a beam. The `roll s*`
+> and `median km` / `mean km` / `<25km` columns were measured while
+> `beam.search` was dropping the learned retrieval keys, and on a leading rather
+> than random test sample. For corrected km numbers see `REPORT.md`; the rollout
+> per-step accuracies need `scripts/summary_table.py` re-run and have not been.
+
 Teacher-forced accuracy scores each step against the true prefix, so train and test are measured the same way. Rollout accuracy feeds the beam's own choice forward, so errors compound -- it is lower at every step and it is where the km numbers come from.
 
 5,000 images per side; test rollout at k=2, ranked s0-s2.

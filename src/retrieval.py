@@ -12,18 +12,34 @@ distribution over the 256 child cells, plus one "outside" bucket for neighbours
 that do not fall inside T at all.  That last bucket lines up with the sink
 class, which asks the same question -- is the answer even in here?
 
-Three modes, each a strict superset of the last, and every gate initialised to
-zero so all of them start bit-identical to a model with no retrieval at all:
+Four modes, each a strict superset of the last, and every gate initialised to
+zero so all of them start bit-identical to a model with no retrieval at all.
+The bias is always `gate * log(prior + eps)`; what changes is what `gate` is a
+function of, and how `prior` is built.
 
-  scalar   one gate over the frozen-cosine prior.  Ships today.
-  cond     per-step gates modulated by how trustworthy the retrieval looks.
-           Motivated by measurement: the concentration of the prior predicts
-           its own correctness at AUC 0.811 (s0) and 0.728 (s1), and a single
-           scalar cannot use that.
+  scalar   `gate` is a rank-0 tensor -- literally one learned number, shared by
+           all four steps and shared between the 256 cell logits and the sink.
+           That shape is what the name refers to.
+  cond     `gate` becomes *conditional*: a per-step base for the cells and the
+           sink separately, plus a modulation from six features describing how
+           trustworthy this particular retrieval looks (see `quality`).
+           Motivated by measurement, not taste: the concentration of the prior
+           predicts its own correctness at AUC 0.811 (s0) and 0.728 (s1), and a
+           single number cannot use a signal that varies per image.
+  pos      adds a learned *positive key*: re-weight the same neighbours by
+           `w_pos * cos(q_pos(street), k_pos(neighbour))` before the softmax,
+           so the model can depart from raw cosine if it pays.  w_pos starts at
+           zero, so it begins exactly at frozen cosine.
   dual     adds a second, separately keyed retrieval trained to find the
            *misleading* neighbours -- visually close, geographically wrong --
            and subtracts its prior.  The two key spaces let one branch
            specialise in proposal and the other in rejection.
+
+The names are on two axes -- `scalar`/`cond` describe the gate, `pos`/`dual`
+describe how many keyed branches there are -- which hides the fact that this is
+one ladder.  Renaming is worth doing, but `retr_mode` is recorded in every
+checkpoint and read back by `evaluate.load_model`, so it needs an alias table
+rather than a rename in place.
 
 Everything else is integer tile arithmetic on z16 addresses, so it is exact,
 cheap, and works identically in teacher-forced training and in beam search.
