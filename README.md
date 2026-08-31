@@ -292,6 +292,43 @@ system DRAM and keeps reporting 100%.
 powershell -ExecutionPolicy Bypass -File scripts/overnight.ps1 -Script scripts/bank25.py -Hours 6
 ```
 
+## Web demo
+
+`scripts/serve.py` puts the agent behind a page: drop in a photograph of any
+size — drag it, pick it, or just paste it — and it answers with a lat/lon — and, more usefully, with **the descent**.
+The four map tiles the agent actually looked at are rendered in order, each with
+the cell it chose, so the answer arrives with its own explanation rather than as
+a pin.
+
+```bash
+export OSV_RELEASE=s10
+python scripts/serve.py --tag s10_n400k_bank25     # 10.6 GB bank, best
+python scripts/serve.py --tag s10_n400k_e2         # 3.7 GB bank, starts faster
+```
+
+Then open <http://127.0.0.1:8000>. `--host 0.0.0.0` exposes it on the LAN and
+`--port` moves it; `--bank-gpu` holds the bank in VRAM, which is only sane for
+the smaller one on an 8 GB card.
+
+Startup loads both encoders, the policy, and **the bank the checkpoint was
+actually trained against** — read from the kNN cache the checkpoint names, so a
+`bank25` tag brings up all 1,150,180 images and a plain one brings up 400,180.
+That takes a couple of minutes and roughly 11 GB of host RAM for the large bank.
+A request then costs one encoder pass, one matmul against the bank, and four
+tile fetches: **~0.7 s end to end** on the reference machine.
+
+| endpoint | does |
+|---|---|
+| `GET /` | the page |
+| `POST /locate` | raw image bytes in, JSON out: lat/lon, confidence radius, path, the four tiles, the nearest bank images |
+| `GET /map/{z}/{x}/{y}.png` | proxies the tile server, so the browser never needs to reach it |
+
+Two things worth knowing when reading its output. The **confidence radius** is
+the spread of the beam's candidates, and it ranks error at ρ ≈ 0.55 — useful for
+sorting, not a calibrated distance. And a neighbour listed as *bank-only shard*
+has no lat/lon to show: bank-extension images carry a z16 address and nothing
+else, which is exactly why they are cheap.
+
 ## Documents
 
 `project_plan.pdf` is the original 29-page plan, written before the map backend

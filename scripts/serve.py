@@ -1,0 +1,232 @@
+"""Web demo: upload a photograph, watch the agent navigate the map to it.
+
+The interesting thing to show is not a pin on a map -- it is the descent. The
+agent starts holding the whole world in one tile and picks one of 256 children
+four times, so the answer comes with its own explanation: four map views, each
+with the cell it chose. That is what this serves.
+
+Run:
+    python scripts/serve.py --tag s10_n400k_e2          # 3.7 GB bank, quick
+    python scripts/serve.py --tag s10_n400k_bank25      # 10.6 GB bank, best
+
+Everything is loaded once at startup: both encoders, the policy, and the
+retrieval bank the checkpoint was trained against. A request then costs one
+encoder pass, one matmul against the bank, and four map fetches.
+"""
+
+import argparse
+import io
+import json
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import config
+import splits as sp
+import tile_math as tm
+import tiles as T
+from beam import TokenSource, search
+from embed_street import preprocess
+from evaluate import load_model, street_file_for
+
+STATE = {}
+
+
+def load_everything(tag, dev, bank_gpu):
+    """Model, encoders and bank. Done once; a request must not touch disk."""
+    t0 = time.time()
+    model, ck, d_street = load_model(tag, dev)
+    sf = street_file_for(ck, d_street)
+    mode = ck.get("split_mode", sp.PRIMARY)
+    print("checkpoint {}  release {}  split {}  street {}".format(
+        tag, ck.get("release", "s01"), mode, sf), flush=True)
+
+    import pyarrow.parquet as pq
+    ds = pq.read_table(config.DATASET_PARQUET)
+    labels, _ = sp.read(ds, mode)
+    tg = pq.read_table(config.TARGETS_PARQUET)
+    per = tm.STEPS + 1
+    tx = np.asarray(tg["tile_x"]).astype(np.int64).reshape(-1, per)[:, tm.STEPS]
+    ty = np.asarray(tg["tile_y"]).astype(np.int64).reshape(-1, per)[:, tm.STEPS]
+    lat = np.asarray(ds["lat"], dtype=np.float64)
+    lon = np.asarray(ds["lon"], dtype=np.float64)
+
+    # the bank is whatever this checkpoint's kNN cache was built from: the
+    # split's train side, plus a bank extension if it had one
+    knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
+    ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
+    if "bank_rows" in knn:
+        rows = knn["bank_rows"]
+        m = np.load(config.bank_meta(ext), allow_pickle=True) if ext else None
+    else:
+        from build_knn import bank_rows_for
+        rows, m = bank_rows_for(ds, labels, mode, ext or None)
+    if ext:
+        tx = np.concatenate([tx, m["x16"].astype(np.int64)])
+        ty = np.concatenate([ty, m["y16"].astype(np.int64)])
+        lat = np.concatenate([lat, np.full(len(m["x16"]), np.nan)])
+        lon = np.concatenate([lon, np.full(len(m["x16"]), np.nan)])
+        n_ext = int((rows >= len(labels)).sum())
+        print("bank ext   {} contributes {:,} of its {:,} rows"
+              .format(ext, n_ext, len(m["x16"])), flush=True)
+
+    emb = np.load(config.STREET_CACHE / sf, mmap_mode="r")
+    gb = len(rows) * emb.shape[1] * 2 / 1e9
+    print("bank       {:,} images, {:.2f} GB fp16 -> {}".format(
+        len(rows), gb, "gpu" if bank_gpu else "host"), flush=True)
+    dst = dev if bank_gpu else "cpu"
+    B = torch.empty((len(rows), emb.shape[1]), dtype=torch.float16, device=dst)
+    for lo in range(0, len(rows), 8192):
+        hi = min(lo + 8192, len(rows))
+        blk = torch.from_numpy(np.asarray(emb[rows[lo:hi]], dtype=np.float32))
+        B[lo:hi] = (blk / blk.norm(dim=1, keepdim=True).clamp_min(1e-6)).half().to(dst)
+
+    import timm
+    from timm.data import resolve_model_data_config
+    encs = []
+    for name in ("vit_base_patch14_dinov2.lvd142m",
+                 "vit_base_patch16_siglip_224.v2_webli"):
+        m_ = timm.create_model(name, pretrained=True, num_classes=0,
+                               img_size=224).eval().to(dev)
+        cfg = resolve_model_data_config(m_)
+        encs.append((m_,
+                     np.array(cfg["mean"], np.float32).reshape(3, 1, 1),
+                     np.array(cfg["std"], np.float32).reshape(3, 1, 1)))
+        print("encoder    {}".format(name), flush=True)
+
+    STATE.update(model=model, ck=ck, dev=dev, bank=B, rows=rows,
+                 x16=tx, y16=ty, lat=lat, lon=lon, encs=encs,
+                 source=TokenSource(tm.G),
+                 client=T.TileClient(config.TILE_SERVER),
+                 street=torch.from_numpy(np.asarray(emb)) if not bank_gpu else None,
+                 k=ck.get("retr_k", 16))
+    print("ready in {:.1f}s".format(time.time() - t0), flush=True)
+
+
+@torch.no_grad()
+def embed(blob):
+    """Upload bytes -> the same 4608-d vector the training pipeline would make."""
+    dev = STATE["dev"]
+    parts = []
+    for m_, mean, std in STATE["encs"]:
+        x = preprocess(blob, crops=3, mean=mean, std=std)
+        x = torch.from_numpy(x).to(dev)
+        with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
+            f = m_(x)
+        parts.append(f.float().reshape(1, -1))       # 3 crops concatenated
+    return torch.cat(parts, dim=1)                   # dinov2 | siglip
+
+
+@torch.no_grad()
+def locate(blob, beam_k=4, score_steps=3):
+    dev, k = STATE["dev"], STATE["k"]
+    q = embed(blob)
+    qn = (q / q.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
+
+    B = STATE["bank"]
+    sims = torch.empty(len(STATE["rows"]), dtype=torch.float32)
+    step = 200000
+    for lo in range(0, B.shape[0], step):
+        blk = B[lo:lo + step]
+        blk = blk if blk.device.type == dev else blk.to(dev, non_blocking=True)
+        sims[lo:lo + step] = (qn.to(dev) @ blk.T).float().flatten().cpu()
+    s, j = sims.topk(k)
+    rows = STATE["rows"][j.numpy()]
+
+    nbrs = [torch.from_numpy(STATE["x16"][rows][None, :]).to(dev),
+            torch.from_numpy(STATE["y16"][rows][None, :]).to(dev),
+            s[None, :].to(dev)]
+    if STATE["ck"].get("retr_mode") in ("pos", "dual"):
+        nbrs.append(B[j].float()[None, :].to(dev))
+
+    res = search(STATE["model"], q, STATE["source"], dev, beam_k,
+                 max(4, beam_k), score_steps=score_steps, nbrs=nbrs)[0]
+    best = res["best"]
+
+    # rebuild the tile the agent was looking at before each choice, so the page
+    # can show the descent rather than only its conclusion
+    steps, z, x, y = [], 0, 0, 0
+    for t, a in enumerate(best["path"]):
+        steps.append({"step": t, "z": z, "x": x, "y": y, "action": int(a),
+                      "row": int(a) // tm.G, "col": int(a) % tm.G,
+                      "km": [2504, 156, 9.8, 0.611][t]})
+        z, x, y = tm.descend(z, x, y, int(a), tm.G)
+    steps.append({"step": tm.STEPS, "z": z, "x": x, "y": y, "action": None,
+                  "row": None, "col": None, "km": 0.611})
+
+    return {
+        "lat": best["lat"], "lon": best["lon"],
+        "radius_km": res["confidence_radius_km"],
+        "path": [int(a) for a in best["path"]],
+        "steps": steps,
+        "candidates": [{"lat": c["lat"], "lon": c["lon"], "score": c["score"]}
+                       for c in res["candidates"][:beam_k]],
+        "neighbours": [
+            {"sim": float(sv),
+             "lat": None if np.isnan(STATE["lat"][r]) else float(STATE["lat"][r]),
+             "lon": None if np.isnan(STATE["lon"][r]) else float(STATE["lon"][r])}
+            for sv, r in zip(s.tolist(), rows)],
+    }
+
+
+def build_app():
+    from fastapi import FastAPI, Request
+    from fastapi.responses import HTMLResponse, JSONResponse, Response
+
+    app = FastAPI(title="Geolocation agent")
+    page = (Path(__file__).resolve().parent / "static" / "index.html")
+
+    @app.get("/", response_class=HTMLResponse)
+    def index():
+        return page.read_text(encoding="utf-8")
+
+    @app.post("/locate")
+    async def do_locate(request: Request):
+        blob = await request.body()
+        if not blob:
+            return JSONResponse({"error": "no image"}, status_code=400)
+        t0 = time.time()
+        try:
+            out = locate(blob)
+        except Exception as e:                     # a bad upload must not 500
+            return JSONResponse({"error": str(e)}, status_code=400)
+        out["secs"] = round(time.time() - t0, 2)
+        return JSONResponse(out)
+
+    @app.get("/map/{z}/{x}/{y}.png")
+    def map_tile(z: int, x: int, y: int):
+        # proxied so the page never needs to reach the tile server itself
+        try:
+            raw = STATE["client"].png(z, x, y)
+        except Exception:
+            return Response(status_code=404)
+        return Response(raw, media_type="image/png")
+
+    return app
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tag", default="s10_n400k_e2")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--bank-gpu", action="store_true",
+                    help="hold the bank in VRAM; only for the smaller banks")
+    a = ap.parse_args()
+
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    load_everything(a.tag, dev, a.bank_gpu)
+    import uvicorn
+    print("\n  http://{}:{}\n".format(a.host, a.port), flush=True)
+    uvicorn.run(build_app(), host=a.host, port=a.port, log_level="warning")
+
+
+if __name__ == "__main__":
+    main()
