@@ -1,4 +1,13 @@
-"""Property tests for tile addressing.  Run directly: python tests/test_tile_math.py"""
+"""Property tests for tile addressing.
+
+Runs two ways, and both matter: `python tests/test_tile_math.py` prints
+every check with its name, which is what you want when one fails and you
+need to see which property broke; `pytest tests/` collects it as one test,
+which is what you want in a pre-merge loop. The pytest wrapper at the
+bottom exists because the checks here predate pytest being installed and
+are written as a script -- without it, `pytest tests/` reports "no tests
+ran" and passes, which is worse than failing.
+"""
 
 import math
 import random
@@ -156,6 +165,17 @@ def main():
         return 1
     print("all tile_math property tests passed")
     return 0
+
+
+def test_tile_math():
+    """One pytest case over every property check.
+
+    Deliberately not one case per check: `main()` prints its own per-check
+    names, so a failure here still says exactly which property broke, and
+    splitting it would mean either re-running the setup or restructuring
+    checks that are fine as they are.
+    """
+    assert main() == 0, "failed: " + ", ".join(FAILS)
 
 
 if __name__ == "__main__":
