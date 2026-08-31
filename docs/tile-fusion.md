@@ -76,6 +76,43 @@ each crop, before the encoder runs -- the input the encoder was trained on --
 whereas token-level attention reconstructs it after information is gone. A
 reason to expect it to start behind, not a proof it cannot win.
 
+### Positions: rotary, and not equally on both axes
+
+`rope2d_tables` already exists at `src/encoders.py:20` and is proven on the map
+side -- axial 2D rotary plus attention pooling is what took the map from 375 to
+351 km, and `--pos {learned,rope,both}` is already a training flag. Reuse it
+rather than the "learned 2D position" the design below specifies. Two changes
+are needed, and the second is not cosmetic:
+
+    g = int(round(n_actions ** 0.5))
+    assert g * g == n_actions, "grid must be square"      # 3x2 is not
+    ang = torch.cat([col * theta, row * theta], dim=1)    # 50/50 per axis
+
+**The equal channel split between axes is wrong for image tiles.** Per-tile solo
+hit rates put the entire signal on the row axis:
+
+| | tiles | mean |
+|---|---|---|
+| row 0 (sky) | 3.3%, 2.8%, 2.7% | 2.93% |
+| row 1 (ground) | 5.0%, 5.4%, 5.2% | 5.20% |
+
+Between rows 2.27 pp, about 6 sigma at n=3,000; within a row 0.4-0.6 pp, about
+1 sigma. Row is gravity-anchored -- sky, horizon and ground mean the same thing
+in every street photograph -- while column is camera-heading dependent and
+arbitrary.
+
+For retrieval, column position is worse than merely wasted: encoding which
+column a tile came from re-imposes exactly the rigidity that mean pooling was
+introduced to remove, since the same building sits in different columns in two
+photographs of the same street. Sky never moves. So spend most or all of the
+rotation pairs on the row axis, and ablate row-only against 50/50, learned, and
+none.
+
+Rotary also extrapolates to positions it never trained on, where a learned
+position table cannot index a grid it has not seen. That matters for the
+variable-tile-count path: a head trained at 3x2 can be evaluated at 6x4 only if
+its positions are computed rather than looked up.
+
 ### Tiles are not redundant with crops, which is the case for fusing both
 
 | | |
