@@ -99,9 +99,13 @@ def main():
                     help="images to embed. A larger value later is a superset "
                          "of this one and re-embeds nothing.")
     ap.add_argument("--grid", default="3x2", help="cols x rows of 224 tiles")
-    ap.add_argument("--batch", type=int, default=8,
+    ap.add_argument("--batch", type=int, default=32,
                     help="images per forward pass; tiles per forward is this "
-                         "times the grid size")
+                         "times the grid size. Measured flat from 8 to 64 on a "
+                         "3070 -- 18.1-18.5 ms an image, the forward being 96% "
+                         "of the pipeline -- and 2x worse at 96. Spare VRAM is "
+                         "idle capacity here, not headroom: the card is compute "
+                         "saturated at batch 8 and a bigger batch buys nothing.")
     ap.add_argument("--workers", type=int, default=4, help="decode threads")
     ap.add_argument("--no-preload", dest="preload", action="store_false",
                     help="read shard members straight off the disk. Only worth "
@@ -245,7 +249,7 @@ def main():
         zp = Path(config.OSV_ROOT) / "images" / "train" / (shard + ".zip")
         src = slurp(zp) if a.preload else zp
         with zipfile.ZipFile(src) as zf:
-            for i, parts in decoded(items, zf, 4 * a.workers):
+            for i, parts in decoded(items, zf, max(4 * a.workers, 2 * a.batch)):
                 if parts is None:
                     state["bad"] += 1
                     continue
@@ -268,6 +272,23 @@ def main():
         flush=True)
     print("cache      {}  {:,} of {:,} rows filled".format(
         emb_p.name, int(done.sum()), n), flush=True)
+
+    # Windows does not OOM when VRAM runs out -- WDDM pages GPU allocations
+    # into system RAM and the job simply gets slower, which is how a 2x
+    # slowdown at 96 images per forward looked like nothing but a bad number.
+    # torch cannot see that paging (cudaMalloc succeeds), so report the two
+    # things it can see and let the operator compare against nvidia-smi.
+    if dev == "cuda":
+        free, total = torch.cuda.mem_get_info()
+        peak = torch.cuda.max_memory_reserved()
+        retries = torch.cuda.memory_stats().get("num_alloc_retries", 0)
+        print("vram       peak reserved {:.2f} GB of {:.2f} GB, {} alloc "
+              "retries".format(peak / 1e9, total / 1e9, retries), flush=True)
+        if peak > 0.70 * total or retries:
+            print("           ^ close to the limit. On Windows this does not "
+                  "raise, it pages to system RAM and halves throughput -- "
+                  "check Shared Usage in Task Manager and lower --batch.",
+                  flush=True)
 
 
 if __name__ == "__main__":
