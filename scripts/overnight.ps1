@@ -15,6 +15,7 @@ param(
   [string]$Script = "scripts\overnight.py",
   [double]$Hours = 10.0,
   [double]$StartEpoch = 0,
+  [string]$ScriptArg = "",
   [int]$MaxRestarts = 40
 )
 
@@ -47,7 +48,8 @@ for ($i = 1; $i -le $MaxRestarts; $i++) {
   if ($Script -like "*overnight.py") {
     & $py $Script "--hours" $Hours "--start" $StartEpoch
   } else {
-    & $py $Script $Hours
+    if ($ScriptArg -ne "") { & $py $Script $Hours $ScriptArg }
+    else { & $py $Script $Hours }
   }
   $rc = $LASTEXITCODE
 

@@ -42,8 +42,10 @@ ARCH = ["--pool", "attn", "--pool-q", "4", "--pos", "both",
         "--retr", "--retr-k", "16", "--retr-mode", "dual", "--d-key", "128"]
 
 
-def train_argv(tag, street, knn):
-    return (["src/train.py", "--tag", tag, "--epochs", "2", "--batch", "64",
+def train_argv(tag, street, knn, epochs, init=None):
+    a = [] if init is None else ["--init", init]
+    return (["src/train.py", "--tag", tag, "--epochs", str(epochs), "--batch", "64"]
+            + a + [
              "--select", "hit", "--sel-n", "2000", "--val-n", "5000",
              "--split-mode", "cell8", "--street-file", street,
              "--knn-file", knn] + ARCH)
@@ -51,6 +53,15 @@ def train_argv(tag, street, knn):
 
 def main():
     hours = float(sys.argv[1]) if len(sys.argv) > 1 else 4.0
+    # epochs is part of the arm identity: a longer run is a different cosine
+    # schedule, not a continuation, so it gets its own tag and its own marker
+    # "cont" continues the 2-epoch arms for 2 more epochs from their saved
+    # weights; an integer instead trains that many epochs from scratch
+    arg = sys.argv[2] if len(sys.argv) > 2 else "2"
+    cont = arg == "cont"
+    ep = 2 if cont else int(arg)
+    sfx = "_cont" if cont else ("" if ep == 2 else "_e{}".format(ep))
+    init = (lambda t: t if cont else None)
     for d in (O.RUNS, O.LOGS, O.MARKS):
         d.mkdir(parents=True, exist_ok=True)
     state = load_state()
@@ -59,7 +70,8 @@ def main():
     O.SAMPLER = O.Sampler()
     O.SAMPLER.start()
     log("=" * 72)
-    log("cell8: geographic holdout, with the bank held to the same cells")
+    log("cell8: geographic holdout, bank held to the same cells, "
+        "{} epochs".format(ep))
     log("deadline {}  ({:.1f} h)".format(O.hhmm(deadline), hours))
 
     stages = [
@@ -75,11 +87,15 @@ def main():
                "--bank-ext", EXT, "--bank-block", "150000"],
               release=REL, est=40 * 60, critical=True),
 
-        Stage("c8_train_base", train_argv("s10_cell8_base", BASE, KNN_BASE),
-              release=REL, est=60 * 60, retries=1),
+        Stage("c8_train_base" + sfx,
+              train_argv("s10_cell8_base" + sfx, BASE, KNN_BASE, ep,
+                         init("s10_cell8_base")),
+              release=REL, est=(30 * ep + 10) * 60, retries=1),
 
-        Stage("c8_train_ext", train_argv("s10_cell8_bank25", STACKED, KNN_EXT),
-              release=REL, est=70 * 60, retries=1),
+        Stage("c8_train_ext" + sfx,
+              train_argv("s10_cell8_bank25" + sfx, STACKED, KNN_EXT, ep,
+                         init("s10_cell8_bank25")),
+              release=REL, est=(32 * ep + 10) * 60, retries=1),
     ]
 
     ok = True
@@ -90,12 +106,12 @@ def main():
 
     if ok:
         # both arms see the same cell8 test images, so this is paired
-        run_stage(Stage("c8_eval",
+        run_stage(Stage("c8_eval" + sfx,
                         ["scripts/bootstrap.py", "--tags",
-                         "s10_cell8_base,s10_cell8_bank25",
+                         "s10_cell8_base{0},s10_cell8_bank25{0}".format(sfx),
                          "--split", "test", "--n", "5000", "--beam", "2",
                          "--score-steps", "3",
-                         "--out", str(O.RUNS / "BOOTSTRAP_cell8.md")],
+                         "--out", str(O.RUNS / ("BOOTSTRAP_cell8%s.md" % sfx))],
                         release=REL, est=25 * 60, retries=1), state, deadline)
 
     O.finish(state, deadline)

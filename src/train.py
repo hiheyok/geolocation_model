@@ -168,6 +168,16 @@ def build_parser():
     ap.add_argument("--overfit", type=int, default=0,
                     help="train and eval on the same N images; loss must reach ~0")
     ap.add_argument("--tag", default="g16")
+    ap.add_argument("--init", default=None,
+                    help="start from this checkpoint's weights instead of "
+                         "from scratch. Weights only: no optimizer state is "
+                         "stored, so Adam's moments restart, and the LR "
+                         "schedule is a fresh cosine over --epochs. Because "
+                         "the previous run annealed to zero, --lr defaults "
+                         "to 1e-4 here rather than 3e-4.")
+    ap.add_argument("--save-opt", action="store_true",
+                    help="also store optimizer state, so a later --init is "
+                         "exact; roughly triples the checkpoint")
     ap.add_argument("--emb-noise", type=float, default=0.0,
                     help="gaussian noise on street embeddings, in units of their std")
     ap.add_argument("--emb-drop", type=float, default=0.0)
@@ -241,6 +251,13 @@ def build_parser():
 def main():
     a = build_parser().parse_args()
 
+    if a.init:
+        # a warm restart at full LR would undo two epochs before recovering
+        if "--lr" not in sys.argv:
+            a.lr = 1e-4
+        if "--warmup" not in sys.argv:
+            a.warmup = 100
+
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     steps = tm.STEPS
     soft = [float(v) for v in str(a.soft).split(",")]
@@ -313,6 +330,21 @@ def main():
                      mem=a.mem, d_mem=a.d_mem, mem_drop=a.mem_drop,
                      retr=a.retr, retr_tau=a.retr_tau,
                      retr_mode=a.retr_mode, d_key=a.d_key).to(dev)
+    prev_epochs = 0
+    if a.init:
+        prev = torch.load(config.CHECKPOINTS / (a.init + ".pt"),
+                          map_location=dev, weights_only=False)
+        missing, unexpected = model.load_state_dict(prev["model"], strict=False)
+        if missing or unexpected:
+            raise SystemExit(
+                "{} does not match this architecture: {} missing, {} "
+                "unexpected".format(a.init, len(missing), len(unexpected)))
+        prev_epochs = prev.get("epochs_total", prev.get("epoch", 0))
+        print("init from  {}  (its epoch {}, {} epochs of training so far)"
+              .format(a.init, prev.get("epoch"), prev_epochs))
+        print("           lr {:.1e}, warmup {} -- optimizer state restarts"
+              .format(a.lr, a.warmup))
+
     rep, total = param_report(model)
     print("\n" + rep + "\n")
 
@@ -375,6 +407,9 @@ def main():
                         "split_mode": split_mode,
                         "split_hash": split_hash,
                         "release": config.RELEASE,
+                        "init_from": a.init,
+                        "epochs_total": prev_epochs + ep,
+                        "opt": opt.state_dict() if a.save_opt else None,
                         "epoch": ep, "val_loss": mva["loss"],
                         "val_km": km, "val_hit": hit, "select": a.select,
                         "sel_n": a.sel_n, "sel_k": a.sel_k},
