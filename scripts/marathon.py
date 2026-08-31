@@ -75,6 +75,45 @@ def boot(tags, out):
             "--out", str(O.RUNS / out)]
 
 
+def tiles_up():
+    """Is the map server actually answering?
+
+    The cutoff is a promise about when the server goes away, not a guarantee it
+    stays up until then. Without this a dead server turns each remaining
+    rollout stage into its full retry budget of failures, and burns the window
+    that the tile-free stages could have used.
+    """
+    try:
+        import tiles as T
+        T.TileClient(config.TILE_SERVER, timeout=8.0, retries=1).health()
+        return True
+    except Exception as e:
+        log("tile server not answering: {}".format(e))
+        return False
+
+
+def best_cell8_lr():
+    """Whichever learning rate actually won, read off the checkpoints.
+
+    Hardcoding the winner would mean the continuation silently builds on the
+    worse arm if the sweep says something unexpected, which is the whole reason
+    for running a sweep.
+    """
+    import torch
+    best, best_hit = None, -1.0
+    for tag in ("s10_cell8_bank25_lr1e4", "s10_cell8_bank25_lr3e4"):
+        p = config.CHECKPOINTS / (tag + ".pt")
+        if not p.exists():
+            continue
+        ck = torch.load(p, map_location="cpu", weights_only=False)
+        hit = ck.get("val_hit", 0.0)
+        log("  cell8 {}  ep {}  <25km {:.4f}  val km {:.1f}".format(
+            tag, ck.get("epoch"), hit, ck.get("val_km", float("nan"))))
+        if hit > best_hit:
+            best, best_hit = tag, hit
+    return best
+
+
 def cutoff_at(hh, mm):
     """The next occurrence of hh:mm, as an epoch second."""
     now = datetime.now()
@@ -99,6 +138,10 @@ def main():
     log("deadline     {}  ({:.1f} h)".format(O.hhmm(deadline), hours))
     log("tile server  until {}  -- rollouts must finish by then".format(
         O.hhmm(tiles_until)))
+
+    log("cell8 learning-rate sweep:")
+    C8_WIN = best_cell8_lr() or "s10_cell8_bank25_lr1e4"
+    log("  continuing {}".format(C8_WIN))
 
     # (stage, needs_tiles)
     plan = [
@@ -132,12 +175,12 @@ def main():
 
         # -- 3. cell8: continue whichever LR won ---------------------------
         (Stage("mar_c8_cont",
-               train("s10_cell8_bank25_lr1e4_c", STACKED, KNN_C8_BANK,
-                     "cell8", 2, init="s10_cell8_bank25_lr1e4"),
+               train(C8_WIN + "_c", STACKED, KNN_C8_BANK, "cell8", 2,
+                     init=C8_WIN),
                release=REL, est=35 * 60, retries=1), True),
         (Stage("mar_c8_eval",
-               boot("s10_cell8_bank25_lr1e4,s10_cell8_bank25_lr1e4_c,"
-                    "s10_cell8_bank25_cont", "BOOTSTRAP_cell8_c.md"),
+               boot("{0},{0}_c,s10_cell8_bank25_cont".format(C8_WIN),
+                    "BOOTSTRAP_cell8_c.md"),
                release=REL, est=15 * 60, retries=1), True),
 
         # -- 4. the rebalance where it should matter most ------------------
@@ -171,12 +214,31 @@ def main():
                release=REL, est=90 * 60, retries=1), False),
     ]
 
+    alive = True
     for st, needs in plan:
-        if needs and O.now() + st.est > tiles_until:
-            log("skip   {}  -- needs tiles, would run past {}".format(
-                st.name, O.hhmm(tiles_until)))
-            continue
+        if needs:
+            if O.now() + st.est > tiles_until:
+                log("skip   {}  -- needs tiles, would run past {}".format(
+                    st.name, O.hhmm(tiles_until)))
+                continue
+            if not alive:
+                log("skip   {}  -- tile server already gone".format(st.name))
+                continue
+            if not tiles_up():
+                alive = False
+                log("skip   {}  -- tile server down; dropping every remaining "
+                    "rollout stage and going straight to the offline work"
+                    .format(st.name))
+                continue
         run_stage(st, state, deadline)
+
+    # the digest is not a stage: it must run even if everything above failed,
+    # and it reads only cached per-image errors, so it cannot fail on its own
+    try:
+        import subprocess
+        subprocess.call([O.PY, "scripts/digest.py"], cwd=str(ROOT))
+    except Exception as e:
+        log("digest failed: {}".format(e))
 
     O.finish(state, deadline)
 
