@@ -32,6 +32,15 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | bx_knn | 26 | 1 (1) | 3291 | 210 | 11 | 39 | 14 | 25.2 |
 | bx_siglip | 464 | 1 (1) | 4437 | 213 | 11 | 39 | 18 | 19.9 |
 | bx_stack | 9 | 1 (1) | 983 | 112 | 11 | 39 | 10 | 30.5 |
+| c8_eval | 8 | 1 (1) | 1306 | 204 | 11 | 39 | 13 | 11.0 |
+| c8_eval_cont | 4 | 1 (1) | 1391 | 307 | 11 | 39 | 16 | 11.1 |
+| c8_knn_base | 9 | 1 (1) | 4130 | 158 | 11 | 39 | 12 | 22.9 |
+| c8_knn_ext | 23 | 1 (1) | 3819 | 209 | 11 | 39 | 12 | 24.6 |
+| c8_train_base | 161 | 1 (1) | 3884 | 374 | 11 | 39 | 14 | 22.9 |
+| c8_train_base_cont | 153 | 1 (1) | 3675 | 347 | 11 | 39 | 14 | 21.0 |
+| c8_train_base_e4 | 76 | 1 (1) | 3673 | 340 | 11 | 39 | 14 | 19.2 |
+| c8_train_ext | 160 | 1 (1) | 3744 | 364 | 11 | 39 | 16 | 25.6 |
+| c8_train_ext_cont | 157 | 1 (1) | 3683 | 359 | 11 | 39 | 16 | 26.0 |
 | calib | 51 | 1 (7) | 2465 | 259 | 13 | 39 | 25 | 22.5 |
 | concat | 3 | 1 (2) | 705 | 127 | 13 | 44 | 16 | 21.5 |
 | embed_dino | 325 | 79 (100) | 4763 | 186 | 185 | 62 | 19 | 19.6 |
@@ -58,13 +67,11 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 
 | stage | minutes |
 |---|---:|
-| bx_meta | 0.2 |
-| bx_dino | 93.3 |
-| bx_siglip | 80.1 |
-| bx_concat | 0.5 |
-| bx_stack | 2.2 |
-| bx_knn | 4.5 |
-| bank25_train | 26.2 |
-
-**Not completed:** bx_knn (rc=1), bank25_eval (rc=1)
-
+| c8_knn_base | 1.7 |
+| c8_knn_ext | 3.9 |
+| c8_train_base | 27.6 |
+| c8_train_ext | 27.6 |
+| c8_eval | 1.4 |
+| c8_train_base_cont | 26.4 |
+| c8_train_ext_cont | 27.2 |
+| c8_eval_cont | 0.7 |
