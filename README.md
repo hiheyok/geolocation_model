@@ -31,7 +31,12 @@ steps 0–2.
 | 25,000 | 25,000 | 469.0 | 1678 | 12.6% |
 | 25,000 | 400,180 | 116.6 | 1039 | 32.0% |
 | 400,000 | 400,180 | 55.8 | 644 | 39.6% |
-| 400,000 | 1,150,180 | **10.1** | **510** | **60.0%** |
+| 400,000 | 1,150,180 | 10.1 | 510 | 60.0% |
+| 400,000 | 1,150,180, tuned¹ | **7.7** | **387** | **64.2%** |
+
+¹ Same data, same architecture. Six epochs instead of two, and the two encoders
+concatenated at equal norm rather than at their raw activation scale — see
+[Tuning that paid](#tuning-that-paid).
 
 **The headline finding is that the retrieval corpus moves the number further
 than the training set does.** Reading that grid as a 2×2, with paired 95%
@@ -80,6 +85,28 @@ further +4.1 pp over that scalar, monotonically and with every step separated.
 `cond` on its own buys nothing; it is worth carrying only as the substrate the
 keyed branches sit on. `--retr-mode dual` is the default for that reason.
 
+### Tuning that paid
+
+Two non-architectural changes, worth 10.1 → 7.7 km between them.
+
+**The two encoders were combined 81/19 by accident.** `concat_street.py` joined
+the DINOv2 and SigLIP blocks at their native scale and normalised only the
+*joined* vector, so each block's weight in the cosine was whatever its raw
+activation norm happened to be — 82.96 against 20.58. Nobody chose that. Scaling
+SigLIP to equal norm (`--scale-b 4.03`) is worth **+3.0 pp** [+2.16, +3.84] at
+matched epochs, and the sweep that predicted it needed no training at all: just
+k-NN retrieval quality against the cached embeddings.
+
+It buys convergence speed rather than a higher ceiling. Given six epochs the
+unbalanced arm catches back up to within noise — so the honest value is about
+two epochs of training, for a one-line change.
+
+**And the arms were undertrained.** Continuing with `--init` improves
+monotonically, the gains halving each step (+2.6 pp, +0.8, +0.6). The median
+flattens before the hit rate does, and the mean keeps falling long after both —
+510 → 387 — because late epochs recover catastrophic step-0 failures rather than
+sharpening typical answers. That is also where 95% of the mean lives.
+
 ### Every number above is post-fix
 
 `beam.search` built the retrieval bias itself and never passed the neighbour
@@ -110,14 +137,18 @@ same cells*, so neither the weights nor the corpus has seen the region:
 
 | split | arm | median km | mean km | `<25 km` |
 |---|---|---:|---:|---:|
-| cell8 | 400k train, 1.04M bank | 261.5 | 1085 | 8.0% |
+| cell8 | 400k train, 1.04M bank | **247.5** | 1025 | 7.7% |
 | cell8 | 400k train, 400k bank | 267.5 | 1055 | 6.0% |
-| sequence | 400k train, 1.15M bank | 10.1 | 510 | 60.0% |
+| sequence | 400k train, 1.15M bank | 7.7 | 387 | 64.2% |
 
 That gap is the result. Scaling the bank is worth **+20.4 pp** under `sequence`
 and **+2.0 pp** [+1.4, +2.6] under `cell8` — separated, but an order of magnitude
 smaller. Most of what a larger corpus buys on the primary split is recognising
 places it has already seen; a little of it generalises.
+
+That cell8 number is converged, not a floor. Its learning rate was simply wrong:
+3e-4 gives 294.4 km and 1e-4 gives **247.5 km** ([+32.8, +56.5] km, separated),
+and two further epochs on top changed nothing measurable.
 
 For reference, the OSV-5M paper's own baseline reports mean 1,814 km and
 GeoScore 3361 under their protocol.
