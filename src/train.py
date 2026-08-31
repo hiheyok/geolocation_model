@@ -222,6 +222,12 @@ def build_parser():
                     help="off-path negatives per image; >0 enables the sink class")
     ap.add_argument("--sink-w", type=float, default=1.0,
                     help="weight on the sink loss")
+    ap.add_argument("--enc-gate", action="store_true",
+                    help="learn one scalar per (step, encoder block) in front "
+                         "of the street projection. Assumes a dual cache laid "
+                         "out [DINOv2 | SigLIP]. Zero-init, so it starts as "
+                         "the identity and --init from an ungated checkpoint "
+                         "is exact.")
     ap.add_argument("--pos", choices=["learned", "rope", "both"], default="learned",
                     help="map token positions: additive embedding, 2D rotary, or both")
     ap.add_argument("--select", choices=["hit", "km", "loss"], default="hit",
@@ -329,12 +335,18 @@ def main():
                      map_loop=a.map_loop,
                      mem=a.mem, d_mem=a.d_mem, mem_drop=a.mem_drop,
                      retr=a.retr, retr_tau=a.retr_tau,
-                     retr_mode=a.retr_mode, d_key=a.d_key).to(dev)
+                     retr_mode=a.retr_mode, d_key=a.d_key,
+                     enc_gate=a.enc_gate).to(dev)
     prev_epochs = 0
     if a.init:
         prev = torch.load(config.CHECKPOINTS / (a.init + ".pt"),
                           map_location=dev, weights_only=False)
         missing, unexpected = model.load_state_dict(prev["model"], strict=False)
+        # A zero-init gate absent from the source is exactly the identity, so
+        # this architecture is a strict superset of that one and the older
+        # checkpoint transfers without loss. Anything else is a real mismatch.
+        additive = {"street.gate"}
+        missing = [k for k in missing if k not in additive]
         if missing or unexpected:
             raise SystemExit(
                 "{} does not match this architecture: {} missing, {} "
@@ -404,6 +416,7 @@ def main():
                         "retr": a.retr, "retr_k": a.retr_k,
                         "retr_mode": a.retr_mode, "d_key": a.d_key,
                         "retr_tau": a.retr_tau, "knn_file": knn_file,
+                        "enc_gate": a.enc_gate,
                         "split_mode": split_mode,
                         "split_hash": split_hash,
                         "release": config.RELEASE,

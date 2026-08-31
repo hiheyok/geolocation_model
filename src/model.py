@@ -26,7 +26,8 @@ class GeoAgent(nn.Module):
                  n_actions=256, n_steps=5, dropout=0.1, map_layers=0,
                  pool="mean", n_pool_q=4, pos="learned", sink=False,
                  map_loop=False, mem="none", d_mem=64, mem_drop=0.0,
-                 retr=False, retr_tau=0.07, retr_mode="scalar", d_key=128):
+                 retr=False, retr_tau=0.07, retr_mode="scalar", d_key=128,
+                 enc_gate=False):
         super().__init__()
         self.n_actions = n_actions
         self.n_regions = n_actions          # z4 cells and actions are the same grid
@@ -42,7 +43,11 @@ class GeoAgent(nn.Module):
         # threshold to tune.
         self.sink = nn.Parameter(torch.randn(d_tok) * d_tok ** -0.5) if sink else None
 
-        self.street = StreetProj(d_street, d)
+        # enc_gate: one scalar per (step, encoder block) in front of the street
+        # projection.  See StreetProj -- the encoders win at different spatial
+        # scales and the steps decide at different spatial scales, so a single
+        # shared ratio is leaving something on the table.
+        self.street = StreetProj(d_street, d, n_steps=n_steps if enc_gate else 0)
         self.map = MapTokenizer(n_classes, n_actions, d_tok, d,
                                 pool=pool, n_q=n_pool_q, dropout=dropout,
                                 pos=pos)
@@ -106,7 +111,7 @@ class GeoAgent(nn.Module):
         caller now routes through here.
         """
         k, pooled = self.map(tokens)
-        parts = [self.street(street), pooled, self.state(x0, y0, step)]
+        parts = [self.street(street, step), pooled, self.state(x0, y0, step)]
         if self.mem is not None:
             parts.append(self.region_prior(x0, y0, step))
         return self.fusion(torch.cat(parts, dim=-1)), k

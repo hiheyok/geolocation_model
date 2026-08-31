@@ -50,14 +50,44 @@ def apply_rope(x, cos, sin):
 
 
 class StreetProj(nn.Module):
-    """Frozen DINOv2 vector -> model width."""
+    """Frozen encoder vector -> model width, optionally gated per step.
 
-    def __init__(self, d_in=768, d=512):
+    With `n_steps`, the input is read as `n_blocks` equal-width encoder blocks --
+    the dual cache is [DINOv2 | SigLIP] in that order -- and each block is
+    scaled by a learned per-step gate before the projection.
+
+    The reason is measured.  SigLIP alone beats DINOv2 alone by 5 pp at a
+    2500 km threshold and loses to it by 2.2 pp at 25 km, and this agent's cells
+    are 2504 km wide at step 0 and 611 m at step 3.  So the encoder that
+    deserves the weight is a different one at each step, while a single Linear
+    shared across steps can only learn one ratio for all of them.
+
+    Only the *ratio* between blocks is a real degree of freedom: scaling both
+    equally is a pure rescale, which the LayerNorm below removes.  That is the
+    intended behaviour, not a defect -- it keeps the parameter symmetric and
+    readable as "how much SigLIP at step t".
+
+    Gates are zero-init and applied as exp(g), so an untrained gate is exactly
+    the identity and a checkpoint saved without one loads into this unchanged.
+    """
+
+    def __init__(self, d_in=768, d=512, n_steps=0, n_blocks=2):
         super().__init__()
         self.proj = nn.Linear(d_in, d)
         self.norm = nn.LayerNorm(d)
+        self.n_blocks = n_blocks if n_steps else 0
+        if n_steps:
+            if d_in % n_blocks:
+                raise ValueError(
+                    "street width {} does not split into {} encoder blocks; "
+                    "the gate assumes a dual cache".format(d_in, n_blocks))
+            self.gate = nn.Parameter(torch.zeros(n_steps, n_blocks))
 
-    def forward(self, x):
+    def forward(self, x, step=None):
+        if self.n_blocks and step is not None:
+            w = x.shape[-1] // self.n_blocks
+            g = torch.exp(self.gate[step.long()])
+            x = x * g.repeat_interleave(w, dim=-1)
         return self.norm(self.proj(x))
 
 
