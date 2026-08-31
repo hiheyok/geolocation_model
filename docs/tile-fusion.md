@@ -126,9 +126,20 @@ its positions are computed rather than looked up.
 
 150 queries were retrievable only from tiles. Tiles are individually weaker and
 carry *different* information, so the live proposal is not tiles *instead of*
-crops but a learned head over the **union of 9 tokens**, with a falsifiable
-target: convert part of that +5.00 pp of oracle headroom into real retrieval
-gain. Draw counts are unequal (9 against 3) so the magnitude is inflated; the
+crops but a learned head over the union of all 9 regions -- **18 tokens of
+768-d, one per (region, encoder)** -- with a falsifiable target: convert part of
+that +5.00 pp of oracle headroom into real retrieval gain.
+
+The token decomposition is not a detail. With the two encoders concatenated into
+a single 1536-d token per region they are *channels*: a projection can mix them
+but attention cannot select between them, so cross-attention between the
+encoders is not expressible on that layout at all. Splitting them into separate
+tokens is what makes the encoder axis attendable, and it is what the +1.33 pp
+selection ceiling is a ceiling *on*. The costs are an input projection per
+encoder group, since the two occupy different native spaces, and an
+encoder-type embedding alongside the row rotary, since position alone no longer
+identifies a token. Sequence length is irrelevant at this scale. The bank is
+unaffected either way -- it stores the pooled output. Draw counts are unequal (9 against 3) so the magnitude is inflated; the
 existence of the complement is not.
 
 ### The two encoders split by spatial scale, and nothing exploits that
