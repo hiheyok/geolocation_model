@@ -23,34 +23,37 @@ a 156 km one.
 
 ## Results
 
-Trained on OSV-5M. Test split, 5,000 images, beam k=2, ranked on steps 0–2.
+Trained on OSV-5M. Test split, 5,000 seeded-random images, beam k=2, ranked on
+steps 0–2.
 
-| release | training images | retrieval bank | median km | mean km | `<25 km` |
-|---|---:|---:|---:|---:|---:|
-| s01 — 1 shard | 40,079 | 40,079 | 242.7 | — | 20.1% |
-| s10 — 10 shards | 400,000 | 400,180 | **81.6** | 779 | **35.6%** |
+| training images | retrieval bank | median km | mean km | `<25 km` |
+|---:|---:|---:|---:|---:|
+| 25,000 | 25,000 | 469.0 | 1678 | 12.6% |
+| 25,000 | 400,180 | 116.6 | 1039 | 32.0% |
+| 400,000 | 400,180 | 55.8 | 644 | 39.6% |
+| 400,000 | 1,150,180 | **10.1** | **510** | **60.0%** |
 
-**The headline finding is that almost none of that came from the training set.**
-Holding the training images fixed at 25,000 and varying only the retrieval bank:
+**The headline finding is that the retrieval corpus moves the number further
+than the training set does.** Reading that grid as a 2×2, with paired 95%
+intervals:
 
-| training images | bank | median km | `<25 km` |
-|---:|---:|---:|---:|
-| 25,000 | 400,180 | 115.8 | 32.5% |
-| 25,000 | 25,000 | 465.1 | 13.1% |
+| holding fixed | varying | `<25 km` |
+|---|---|---|
+| 25k training images | bank 25k → 400k | **+19.4 pp** [+18.1, +20.8] |
+| 400k bank | training 25k → 400k | **+7.6 pp** [+6.4, +8.7] |
+| 400k training images | bank 400k → 1.15M | **+20.4 pp** [+19.0, +21.9] |
 
-Scaling the bank 25k → 400k is worth **+19.4 pp** (paired 95% CI [+18.1, +20.7]);
-scaling the training set over the same range at a fixed bank is worth **+3.1 pp**.
-The non-parametric memory is worth roughly six times the parametric data — so
-data binds as *retrieval corpus*, not as gradient signal, and the corpus is the
-cheaper axis: a bank entry costs one embedding forward pass, a training example
-costs optimizer steps.
+So at this scale the corpus is worth about **2.6×** the parametric data over the
+same range — and it is also the cheaper axis, because a bank entry costs one
+embedding forward pass while a training example costs optimizer steps. Bank-only
+shards never enter `dataset.parquet` at all, so adding them invalidates nothing.
 
 Two further results:
 
 - **Epochs do not substitute for data.** 50k images × 80 epochs peaks at
   **epoch 3 of 80** and decays to 29.4% by the end, val loss 12.7 → 39.5. It ties
   50k × 19 inside noise: 61 extra epochs bought nothing measurable.
-- **The mean is 30× the median because 95% of it is step 0.** A z4 cell is
+- **The mean is 50× the median because 95% of it is step 0.** A z4 cell is
   2,504 km across, so one wrong first digit costs thousands of kilometres by
   construction. 24.5% of images miss step 0 and average 6,386 km; 6.3% land over
   10,000 km away and carry half of all error mass.
@@ -58,18 +61,47 @@ Two further results:
 Full write-up, including the seven scale-dependent defects the 10× release
 exposed, is in [`runs/REPORT.md`](runs/REPORT.md).
 
+### Every number above is post-fix
+
+`beam.search` built the retrieval bias itself and never passed the neighbour
+embeddings, so at inference the learned positive key and the entire negative
+branch were dropped — a `dual` model was *trained* with them and *evaluated*
+without them, and nothing failed loudly. `GeoAgent.retr_prior` is now the one
+owner of that bias and every caller goes through it. Fixing it moved the best
+arm from 81.6 km to 55.8 km on the same weights, and roughly doubled the
+measured value of the training set, which is why the ratio above is 2.6× and not
+the 6× this file used to claim.
+
+If you are reading older notes: numbers measured before that fix, and before
+`--n` started drawing a random rather than a leading subset, are not comparable
+to these.
+
 ### These numbers are not the OSV-5M leaderboard
 
 The [OSV-5M benchmark](https://osv5m.github.io/) holds test points out by 1 km of
 physical distance and keeps one image per capture sequence, so that a model
 "cannot simply rely on memorizing places". **The split here only guarantees that
 a sequence never spans train/test** — 10.2% of val sits within 1 km of a training
-image. Given the control above, that difference is likely to matter a lot here
-specifically, because this system is built to exploit exactly what their split
-removes.
+image. Given the control above, that difference matters a lot here specifically,
+because this system is built to exploit exactly what their split removes.
 
-For an external comparison use the `cell8` stress split, which holds out whole z8
-cells; at 50k scale it cost 1.6× the median error. It has not been run at s10.
+The honest external comparison is therefore the `cell8` stress split, which holds
+out whole z8 cells (156 km across) from training *and filters the bank to the
+same cells*, so neither the weights nor the corpus has seen the region:
+
+| split | arm | median km | mean km | `<25 km` |
+|---|---|---:|---:|---:|
+| cell8 | 400k train, 1.04M bank | 261.5 | 1085 | 8.0% |
+| cell8 | 400k train, 400k bank | 267.5 | 1055 | 6.0% |
+| sequence | 400k train, 1.15M bank | 10.1 | 510 | 60.0% |
+
+That gap is the result. Scaling the bank is worth **+20.4 pp** under `sequence`
+and **+2.0 pp** [+1.4, +2.6] under `cell8` — separated, but an order of magnitude
+smaller. Most of what a larger corpus buys on the primary split is recognising
+places it has already seen; a little of it generalises.
+
+For reference, the OSV-5M paper's own baseline reports mean 1,814 km and
+GeoScore 3361 under their protocol.
 
 ## Layout
 
