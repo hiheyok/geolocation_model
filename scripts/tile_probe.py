@@ -25,6 +25,14 @@ bytes per image, different amounts of the photograph behind them.
 Retrieval quality is the metric because that is what the bank is for. Same
 -sequence neighbours are dropped exactly as build_knn does, or a query
 retrieves its own near-duplicates and every scheme looks perfect.
+
+Superseded by `tile_cache.py` + `tile_pool.py`, and do not re-run this one: it
+throws its embeddings away on exit, and it reads shard members straight off the
+spinning disk, where 12,000 scattered reads into a 2.5 GB archive run at the
+drive's seek rate of ~3 MB/s. One sequential slurp of the archive is 83 MB/s --
+the fix `embed_street.py` has had all along and this script never inherited.
+Together those are the difference between 51 ms and 19 ms an image, plus a cache
+at the end of it.
 """
 
 import argparse

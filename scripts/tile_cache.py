@@ -32,6 +32,14 @@ Two other things the probe did not do:
     time -- its `--batch` argument was accepted and then never used -- which
     leaves an RTX 3070 mostly idle between kernel launches.  Grouping images
     into one forward is the same arithmetic at a fraction of the wall time.
+  * **Preloaded, which is the whole ballgame.**  The shards live on a spinning
+    disk, and 12,000 scattered `ZipFile.read` calls into a 2.5 GB archive run at
+    the drive's seek-bound rate -- ~3 MB/s, which is ~38 ms per image with the
+    GPU at 1% utilisation.  `embed_street.py` already solved this and the probe
+    never inherited it: one sequential read of the archive turns every later
+    member read into a memory hit.  A shard is ~20 s to slurp against ~8 min to
+    seek through, so this is not a tuning knob, it is the difference between
+    a disk-bound job and a compute-bound one.
 
 Sampling is `rng.permutation(N)[:n]`, deliberately, so a later run with a larger
 --n is a *superset* of this one and only embeds the difference.  That is worth
@@ -56,8 +64,10 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+from embed_street import slurp
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
 SIGLIP = "vit_base_patch16_siglip_224.v2_webli"
@@ -93,6 +103,10 @@ def main():
                     help="images per forward pass; tiles per forward is this "
                          "times the grid size")
     ap.add_argument("--workers", type=int, default=4, help="decode threads")
+    ap.add_argument("--no-preload", dest="preload", action="store_false",
+                    help="read shard members straight off the disk. Only worth "
+                         "it if RAM is tighter than a 2.5 GB shard.")
+    ap.set_defaults(preload=True)
     ap.add_argument("--out", default=None, help="stem, default tile{n_tiles}")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
@@ -229,7 +243,8 @@ def main():
     chunk = []
     for shard, items in sorted(by_zip.items()):
         zp = Path(config.OSV_ROOT) / "images" / "train" / (shard + ".zip")
-        with zipfile.ZipFile(zp) as zf:
+        src = slurp(zp) if a.preload else zp
+        with zipfile.ZipFile(src) as zf:
             for i, parts in decoded(items, zf, 4 * a.workers):
                 if parts is None:
                     state["bad"] += 1
@@ -238,6 +253,7 @@ def main():
                 if len(chunk) == a.batch:
                     flush(chunk)
                     chunk = []
+        del src                       # the next shard wants the 2.5 GB back
     flush(chunk)
     pool.shutdown()
 
