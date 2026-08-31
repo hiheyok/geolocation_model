@@ -119,6 +119,54 @@ So the fused head does not merely make tiling affordable; it makes the corpus
 substantially larger at the same RAM, which is independently worth more than any
 architecture change measured so far.
 
+## Higher-resolution inputs, and why only the fused version can use them
+
+Today a better photograph buys the user nothing. `preprocess` scales the short
+side to 224 **first**, so a 4032×3024 phone photo and a 682×512 dataset frame
+are reduced to the same thing before either encoder runs. The demo advertises
+"any size, JPEG or PNG" and then discards everything above 224 on the short
+edge. That is a real capability gap, not just wasted bytes: the system cannot
+reward a user for taking a better picture.
+
+Tiling changes that, because the amount of the photograph reaching the encoders
+scales with the tile count:
+
+| source | grid | pixels reaching the encoders | downsample |
+|---|---|---:|---:|
+| 682×512 dataset frame | 3×2 | 672×448 | ~1.0× |
+| 4032×3024 phone photo | 3×2 | 672×448 | 6.0× |
+| 4032×3024 phone photo | 6×4 | 1344×896 | 3.0× |
+| 4032×3024 phone photo | 9×6 | 2016×1344 | 2.0× |
+
+A *fixed* grid only makes each tile sharper; it does not use more of the frame.
+To actually exploit a 12-megapixel upload you need **more tiles for the query
+than the bank has** — and that is the point where the two designs diverge:
+
+- **Concatenation cannot do it.** The output width is `n_tiles × 1536`, so a
+  query with 24 tiles produces a vector of a different length than a bank entry
+  with 6. There is nothing to take a cosine against.
+- **Attention pooling can.** It consumes a *set* and emits a fixed 512-d vector
+  regardless of how many tokens went in. Query and bank stay comparable while
+  the query uses four times the tiles.
+
+So resolution-adaptive inference is not an extra feature bolted onto this
+design — it is a property that falls out of choosing set-based fusion over
+concatenation, and it is unavailable in the version that was already measured
+and rejected.
+
+Two honest limits on it:
+
+- **The gain is query-side only.** The bank is built from 512px OSV-5M frames
+  and stays capped by them. What improves is the *query* embedding, hence which
+  neighbours come back, hence the retrieval prior — which is worth having, since
+  the prior is most of the system, but it is one-sided.
+- **Variable `n` is a distribution shift.** Pooling over 24 tokens has different
+  statistics than pooling over 6, so a head trained only at `n=6` may not be
+  calibrated at `n=24`. The mitigation is cheap and should be built in from the
+  start: **sample the tile count during training** so the head sees a range of
+  `n`, and verify the similarity distributions of a `n=6` and `n=24` embedding of
+  the *same* image match before trusting a mixed-`n` bank query.
+
 ## What trains it
 
 The objective is the hard choice; the adapter is not.
@@ -173,8 +221,13 @@ Each step is a decision point, not a formality.
 4. **Attention pooling with no self-attention layer** — separates "learned
    weighting of tiles" from "tiles talking to each other".
 5. **Full self-attention head**, trained contrastively, evaluated on retrieval
-   quality at equal bank bytes against crop3.
-6. **Only then**, rebuild the kNN cache and retrain the agent end to end.
+   quality at equal bank bytes against crop3. Sample the tile count during
+   training from the start — retrofitting variable `n` to a head trained only at
+   `n=6` means retraining it.
+6. **Variable-`n` check**: embed the same image at `n=6` and `n=24` and confirm
+   the two agree well enough to share a bank. Cheap, and it is what licenses the
+   high-resolution upload path.
+7. **Only then**, rebuild the kNN cache and retrain the agent end to end.
 
 Steps 2–4 are minutes each once step 1 exists. Step 5 is the first that needs
 training. Step 6 is the first that needs the tile server.
