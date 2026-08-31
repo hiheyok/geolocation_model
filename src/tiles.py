@@ -98,6 +98,12 @@ class TileClient:
         raw = self._get(f"/tile/{z}/{x}/{y}.png")
         return np.asarray(Image.open(io.BytesIO(raw)).convert("L"), dtype=np.uint8)
 
+    def png(self, z, x, y):
+        """The cartographic render as raw PNG bytes, for passing straight to a
+        browser. image() decodes it to an array instead, which a proxy would
+        only have to re-encode."""
+        return self._get(f"/tile/{z}/{x}/{y}.png")
+
     def labels(self, z, x, y, layers=None, limit=None, lang="latin"):
         import json
         q = [f"lang={lang}"]

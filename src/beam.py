@@ -112,13 +112,11 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
 
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             f, keys = model.fuse_flat(st, tok, x0, y0, sp)
-            prior = None
-            if model.retr is not None and nbrs is not None:
-                K = nbrs[0].shape[1]
-                rep = lambda t: t.unsqueeze(1).expand(B, nb, K).reshape(-1, K)
-                prior = model.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
-                                   x0, y0, sp,
-                                   keys.shape[1] + (1 if model.sink is not None else 0))
+            # one row per live beam per image, and the learned keys come
+            # with it -- see GeoAgent.retr_prior
+            prior = model.retr_prior(
+                nbrs, street, x0, y0, sp, nb,
+                keys.shape[1] + (1 if model.sink is not None else 0))
             logits = model.policy_logits(f, keys, prior).float()
         # With a sink class the softmax spans A+1: log p(a) already decomposes
         # into log p(not-sink) + log p(a | not-sink), so a beam the model
