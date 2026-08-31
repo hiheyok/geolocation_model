@@ -1,7 +1,114 @@
 # Tile fusion by self-attention — design note
 
-Status: **designed, not built.** Written 2026-08-31, after the concatenation
-version was measured and lost. No code exists for any of this.
+Status: **falsified, not built.** Written 2026-08-31 after the concatenation
+version lost; measured the same day and abandoned. The verdict is first, the
+design that motivated it is kept below it.
+
+## Verdict, 2026-08-31: measured, and it stops at step 2
+
+Steps 1-3 ran. **The premise below is falsified and the fusion head should not be
+built.** The reasoning is kept because the way it failed is worth having.
+
+The hypothesis was that concatenation, not tiling, was the defect: cosine over
+concatenated blocks compares tile *i* of the query only to tile *i* of the bank
+image, so a ten-metre camera shift misses every term at once. Mean pooling
+removes that rigid correspondence completely -- it is order-free by
+construction. If the hypothesis held, mean pooling had to close the gap.
+
+It does not. With 120,000 cached tile embeddings, 3,000 queries against a
+117,000 bank, same-sequence masked, tiles against crops at **identical width and
+identical pooling**, on any-of-32 `<25 km`:
+
+| joining | width | tile6 - crop3 |
+|---|---:|---|
+| concat | 4,608 | -1.47 pp [-2.33, -0.57] |
+| concat + PCA | 512 | -1.60 pp [-2.53, -0.70] |
+| **mean** | **1,536** | **-1.57 pp [-2.47, -0.63]** |
+| mean + PCA | 512 | -1.27 pp [-2.17, -0.37] |
+| per-block norm + mean | 1,536 | -0.87 pp [-1.77, +0.03] |
+| per-block norm + mean + PCA | 512 | -0.73 pp [-1.67, +0.20] |
+
+Order-free pooling changes nothing: -1.57 pp against concatenation's -1.47 pp.
+The ladder's own stop criterion at step 2 is met in its second branch -- the
+tiles carry less than full-height crops, and attention cannot add signal that is
+not there. Per-block normalisation brings tiles to within noise of crops, which
+is the best case available, and "break-even at twice the encoder cost" is not a
+reason to build anything.
+
+### The baseline was the whole argument
+
+Read against the *shipping* crop3 vector, every one of those comparisons spans
+zero and per-block normalisation looks like a +1.93 pp win. Read against the
+**equal-norm** crop3 vector, tiles lose by 1.3-1.6 pp and per-block
+normalisation is worth nothing.
+
+Both readings come from the same 3,000 queries. The difference is entirely that
+the shipping vector still carries the 81/19 DINOv2/SigLIP imbalance, and
+per-block normalisation inside a token is *the same fix* as `--scale-b 4.03`
+across the whole vector -- it was re-deriving a correction the project already
+had, and crediting it to tiling. Against a baseline that already has that fix,
+there is nothing left for it to recover.
+
+So the earlier probe's conclusion was right by accident. Its actual measurement,
+`tile6 concat` against the unbalanced `crop3 concat`, is -0.20 pp
+[-1.03, +0.63] -- **not separated**, and it was reported as "tiling loses at
+every compressed width". The claim is true; the evidence offered for it was not.
+Fixing the baseline is what makes it true.
+
+### What did come out of it: width is nearly free
+
+Orthogonal to tiling, and the one result here worth acting on. Against the
+equal-norm shipping representation, same queries, any-of-32 `<25 km`:
+
+| representation | width | bank bytes | vs shipping |
+|---|---:|---:|---|
+| 3 crops concatenated (ships today) | 4,608 | 1.00x | -- |
+| 3 crops **mean-pooled** | 1,536 | **0.33x** | +0.20 pp [-0.30, +0.70] |
+| 3 crops mean-pooled, PCA | 512 | **0.11x** | -0.57 pp [-1.20, +0.03] |
+
+Mean-pooling the three crop tokens instead of concatenating them is a **3x
+smaller bank at no measurable cost**, with no training, no new encoder pass, and
+no architecture change -- it is one line in `concat_street.py`. At 512-d the
+interval touches zero, so 9x is arguable rather than free.
+
+This matters because it is the memory argument the fusion head was invented to
+make. Bank RAM caps corpus size, corpus size is the axis that moved this metric
+most (+20.4 pp for 400k -> 1.15M), and a 3x smaller bank is 3x more corpus at
+the same RAM. The fused head was the expensive way to get there.
+
+Three things to check before believing it at system level, none of them done:
+the measurement is bank retrieval quality at 117k, not the agent's metric at
+1.15M; `StreetProj` is `Linear(4608 -> 512)` and would have to be retrained, as
+would the `dual` retrieval keys; and PCA-512 is known to drop recall@32 to 0.82,
+which is a different quantity from geographic hit rate and may matter to the
+prior.
+
+### Also measured, also negative
+
+Generalised mean (p=3) over normalised tokens: -3.2 pp top-1 and -5.7 pp
+any-of-32 against the shipping vector, worse at 512-d. Whatever selectivity
+attention pooling would provide, a fixed power law is not a cheap stand-in for
+it.
+
+Doing per-block *and* per-token normalisation is not a separate arm: after
+per-block normalisation every token has norm sqrt(2) exactly, so per-token
+normalisation is a constant divide and the cosine is unchanged. The two are
+alternatives. Per-token normalisation alone -- equalising tiles without
+equalising encoders -- is worth +0.13 pp [-0.27, +0.53], i.e. nothing, which
+locates the entire effect in the encoder blend rather than in tile weighting.
+
+### Reproducing
+
+    python scripts/tile_cache.py --n 120000 --batch 32     # 38 min, 2.2 GB
+    python scripts/tile_pool.py --crop3 dual_bal.f16.npy   # the baseline that matters
+
+Logs in `runs/logs/tile_cache.log`, `tile_pool.log`, `tile_pool_bal.log`.
+
+---
+
+*Everything below is the design as written on 2026-08-31 before the measurement,
+kept for the record.*
+
 
 ## What this is trying to fix
 
@@ -216,8 +323,10 @@ Each step is a decision point, not a formality.
      the upgrade path, continue
    - still worse than crop3 → the tiles genuinely carry less than full-height
      crops, and attention will not rescue that; stop here
-3. **Per-block normalisation** before pooling, isolating the 81/19 effect at
-   token level.
+3. ~~**Per-block normalisation** before pooling~~ **Done.** Worth +1.93 pp
+   against the *shipping* crop3 and nothing at all against the *equal-norm*
+   one -- it re-derives `--scale-b 4.03` inside a token. Tiles reach
+   -0.87 pp [-1.77, +0.03], i.e. break-even at twice the encoder cost.
 4. **Attention pooling with no self-attention layer** — separates "learned
    weighting of tiles" from "tiles talking to each other".
 5. **Full self-attention head**, trained contrastively, evaluated on retrieval

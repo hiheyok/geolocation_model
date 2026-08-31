@@ -187,7 +187,7 @@ def main():
 
     def emit(tag, width, d1, hk):
         hit = (d1 < 25)
-        hits[tag] = hit
+        hits[tag] = (width, hit, hk)
         rows.append((tag, width, np.median(d1), hit.mean(), hk.mean()))
         print("%-22s %7d %11.1f %12.1f%% %13.1f%%" % (
             tag, width, rows[-1][2], 100 * rows[-1][3], 100 * rows[-1][4]),
@@ -211,25 +211,50 @@ def main():
             del P
         print()
 
-    # The decision the ladder actually turns on, with an interval on it: does
-    # order-free pooling close the gap the concatenated probe reported?
-    print("paired 95% intervals on top1 <25km, in percentage points")
-    print("-" * 70)
+    # Every arm against the representation that actually ships, on both
+    # metrics and with the storage it would cost.  The shipping bank is the
+    # only baseline that makes a width comparison mean anything: an arm is
+    # interesting when it is no worse at fewer bytes, not when it wins at more.
     base = "crop3 concat"
-    for tag in hits:
-        if tag == base or "pca" in tag:
+    w0 = hits[base][0]
+    print()
+    print("paired against the shipping representation ({}, {}-d)".format(
+        base, w0))
+    print("%-22s %7s %20s %20s" % ("arm", "bytes", "top1 <25km", "any32 <25km"))
+    print("-" * 72)
+    for tag, (w, h1, hk) in hits.items():
+        if tag == base:
             continue
-        lo, hi = paired(hits[base], hits[tag], rng)
-        print("%-22s vs %-14s %+6.2f pp  [%+.2f, %+.2f]%s" % (
-            tag, base, 100 * (hits[tag].mean() - hits[base].mean()), lo, hi,
-            "" if lo * hi > 0 else "   (spans zero)"))
+        cell = []
+        for a_, b_ in ((hits[base][1], h1), (hits[base][2], hk)):
+            lo, hi = paired(a_, b_, rng)
+            cell.append("%+5.2f [%+.2f,%+.2f]%s" % (
+                100 * (b_.mean() - a_.mean()), lo, hi,
+                " " if lo * hi > 0 else "~"))
+        print("%-22s %6.2fx %20s %20s" % (tag, w / w0, cell[0], cell[1]))
+    print("~ marks an interval spanning zero")
+
+    # And the ladder's own question: tiles against crops, joining held fixed.
+    print()
+    print("{} - crop3, at identical width and identical pooling".format(
+        a.tiles))
+    print("%-22s %7s %20s %20s" % ("scheme", "dims", "top1 <25km",
+                                   "any32 <25km"))
+    print("-" * 72)
     for scheme in a.schemes.split(","):
-        lhs, rhs = "crop3 " + scheme, a.tiles + " " + scheme
-        if lhs != base and lhs in hits and rhs in hits:
-            lo, hi = paired(hits[lhs], hits[rhs], rng)
-            print("%-22s vs %-14s %+6.2f pp  [%+.2f, %+.2f]%s" % (
-                rhs, lhs, 100 * (hits[rhs].mean() - hits[lhs].mean()), lo, hi,
-                "" if lo * hi > 0 else "   (spans zero)"))
+        for suffix in ("", " pca{}".format(dims[0]) if dims else ""):
+            lhs = "crop3 " + scheme + suffix
+            rhs = a.tiles + " " + scheme + suffix
+            if lhs not in hits or rhs not in hits:
+                continue
+            cell = []
+            for i in (1, 2):
+                lo, hi = paired(hits[lhs][i], hits[rhs][i], rng)
+                cell.append("%+5.2f [%+.2f,%+.2f]%s" % (
+                    100 * (hits[rhs][i].mean() - hits[lhs][i].mean()), lo, hi,
+                    " " if lo * hi > 0 else "~"))
+            print("%-22s %7d %20s %20s" % (
+                scheme + suffix, hits[lhs][0], cell[0], cell[1]))
 
 
 if __name__ == "__main__":
