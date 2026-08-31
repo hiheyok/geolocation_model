@@ -123,6 +123,15 @@ def main():
     ap.add_argument("--queries", type=int, default=1000)
     ap.add_argument("--dims", default="256,512,1024")
     ap.add_argument("--batch", type=int, default=48, help="tiles per forward")
+    ap.add_argument("--crop3-cached", action="store_true",
+                    help="read the crop3 arm from dual_c3.f16.npy instead of "
+                         "recomputing it. Strictly better: it is the shipping "
+                         "pipeline rather than a re-implementation of it "
+                         "(they agree to cosine 0.994, the gap being draft()'s "
+                         "DCT-scaled decode), and it cuts the encoder work per "
+                         "image from nine passes to six -- which buys a bigger "
+                         "bank, and bank size is what this measurement is "
+                         "starved of.")
     a = ap.parse_args()
 
     import pyarrow.parquet as pq
@@ -153,6 +162,10 @@ def main():
         print("encoder    {}".format(name), flush=True)
 
     n_tile = GRID[0] * GRID[1]
+    cached = None
+    if a.crop3_cached:
+        cached = np.load(config.STREET_CACHE / "dual_c3.f16.npy", mmap_mode="r")
+        print("crop3      from dual_c3.f16.npy (shipping pipeline)", flush=True)
     E3 = np.zeros((a.n, 3 * 768 * 2), dtype=np.float32)
     E6 = np.zeros((a.n, n_tile * 768 * 2), dtype=np.float32)
 
@@ -171,7 +184,11 @@ def main():
                         img = img.convert("RGB")
                     except Exception:
                         continue
-                    for scheme, store in ((crops_today, E3), (tiles, E6)):
+                    if cached is not None:
+                        E3[i] = np.asarray(cached[sel[i]], dtype=np.float32)
+                    todo = ([(tiles, E6)] if cached is not None
+                            else [(crops_today, E3), (tiles, E6)])
+                    for scheme, store in todo:
                         parts = scheme(img, None, None)
                         vecs = []
                         for m, mean, std in encs:
@@ -188,7 +205,7 @@ def main():
                             done, a.n, el, el * (a.n - done) / max(done, 1)),
                             flush=True)
 
-    ok = np.abs(E3).sum(1) > 0
+    ok = (np.abs(E3).sum(1) > 0) & (np.abs(E6).sum(1) > 0)
     print("\nembedded {:,} of {:,} in {:.0f}s".format(
         int(ok.sum()), a.n, time.time() - t0), flush=True)
     sel, E3, E6 = sel[ok], E3[ok], E6[ok]

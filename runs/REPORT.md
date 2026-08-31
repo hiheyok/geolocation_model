@@ -53,6 +53,20 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | key_train_pos | 156 | 1 (1) | 4372 | 475 | 11 | 39 | 23 | 23.8 |
 | key_train_scalar | 154 | 1 (1) | 4380 | 508 | 11 | 39 | 22 | 22.6 |
 | knn | 8 | 84 (96) | 6643 | 184 | 196 | 57 | 20 | 19.0 |
+| mar_bal_concat | 5 | 1 (1) | 735 | 212 | 11 | 39 | 20 | 13.9 |
+| mar_bal_eval | 2 | 1 (1) | 1121 | 376 | 11 | 39 | 26 | 9.9 |
+| mar_bal_knn | 8 | 1 (1) | 4265 | 214 | 11 | 39 | 22 | 18.5 |
+| mar_bal_train | 143 | 1 (1) | 3561 | 373 | 11 | 39 | 23 | 20.2 |
+| mar_balbank_eval | 2 | 1 (1) | 1262 | 376 | 11 | 39 | 28 | 10.6 |
+| mar_balbank_knn | 24 | 1 (1) | 3247 | 203 | 11 | 39 | 21 | 20.2 |
+| mar_balbank_stack | 8 | 1 (1) | 735 | 128 | 11 | 39 | 19 | 26.7 |
+| mar_balbank_train | 143 | 1 (1) | 3561 | 376 | 11 | 39 | 23 | 25.8 |
+| mar_balext_concat | 8 | 1 (1) | 735 | 126 | 11 | 39 | 19 | 19.1 |
+| mar_c8_cont | 151 | 1 (1) | 3546 | 380 | 11 | 39 | 23 | 24.9 |
+| mar_c8_eval | 2 | 1 (1) | 1262 | 378 | 11 | 39 | 27 | 10.3 |
+| mar_cont4 | 143 | 1 (1) | 3545 | 371 | 11 | 39 | 24 | 26.0 |
+| mar_cont4_eval | 2 | 1 (1) | 1105 | 294 | 11 | 39 | 27 | 9.9 |
+| mar_tile_probe | 281 | 1 (1) | 1899 | 197 | 11 | 39 | 41 | 11.5 |
 | rc_c8_eval | 4 | 1 (1) | 1214 | 206 | 11 | 39 | 28 | 10.3 |
 | rc_c8_lr1 | 297 | 1 (1) | 3566 | 379 | 11 | 39 | 23 | 26.2 |
 | rc_c8_lr3 | 303 | 1 (1) | 3574 | 384 | 11 | 39 | 31 | 26.7 |
@@ -110,3 +124,20 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | rc_c8_lr3 | 52.2 |
 | rc_c8_lr1 | 50.9 |
 | rc_c8_eval | 0.6 |
+| mar_cont4 | 24.6 |
+| mar_cont4_eval | 0.4 |
+| mar_bal_concat | 0.7 |
+| mar_bal_knn | 1.4 |
+| mar_bal_train | 24.6 |
+| mar_bal_eval | 0.3 |
+| mar_c8_cont | 26.0 |
+| mar_c8_eval | 0.4 |
+| mar_balext_concat | 1.4 |
+| mar_balbank_stack | 1.9 |
+| mar_balbank_knn | 3.9 |
+| mar_balbank_train | 24.6 |
+| mar_balbank_eval | 0.4 |
+| mar_tile_probe | 48.5 |
+
+**Not completed:** mar_balbank_knn (rc=1), mar_balbank_train (rc=1), mar_balbank_eval (rc=1)
+

@@ -1,13 +1,16 @@
 # Results digest
 
-Generated 2026-08-31 02:19 by `scripts/digest.py`. Every arm below is the test split, 5,000 seeded-random images, beam k=2, ranked on s0-s2 -- the shipping protocol. Read the paired intervals further down before believing any ordering here: the median carries a ~16 km 95% interval at this sample size.
+Generated 2026-08-31 06:26 by `scripts/digest.py`. Every arm below is the test split, 5,000 seeded-random images, beam k=2, ranked on s0-s2 -- the shipping protocol. Read the paired intervals further down before believing any ordering here: the median carries a ~16 km 95% interval at this sample size.
 
 ## Arms, best hit rate first
 
 | arm | rel | split | mode | ep | median km | mean km | `<1km` | `<25km` | street file |
 |---|---|---|---|---:|---:|---:|---:|---:|---|
+| `s10_n400k_bank25_c4` | s10 | sequence | dual | 5 | 8.4 | 401.8 | 23.1% | 63.4% | dual_c3_bank25 |
+| `s10_bal_bank25` | s10 | sequence | dual | 2 | 8.4 | 428.9 | 23.3% | 63.0% | dual_bal_bank25 |
 | `s10_n400k_bank25_cont` | s10 | sequence | dual | 3 | 8.6 | 430.1 | 23.1% | 62.6% | dual_c3_bank25 |
 | `s10_n400k_bank25` | s10 | sequence | dual | 1 | 10.1 | 510.2 | 22.0% | 60.0% | dual_c3_bank25 |
+| `s10_bal` | s10 | sequence | dual | 2 | 48.7 | 604.1 | 3.6% | 40.9% | dual_bal |
 | `s10_key_dual` | s10 | sequence | dual | 2 | 54.0 | 629.5 | 3.4% | 40.0% | dual_c3 |
 | `s10_n400k_e2` | s10 | sequence | dual | 2 | 55.8 | 644.1 | 3.2% | 39.6% | dual_c3 |
 | `s10_key_pos` | s10 | sequence | pos | 2 | 62.5 | 667.1 | 3.1% | 37.9% | dual_c3 |
@@ -26,11 +29,14 @@ Generated 2026-08-31 02:19 by `scripts/digest.py`. Every arm below is the test s
 | `retr_dual32` | s01 | sequence | dual | 6 | 231.7 | 1090.6 | 0.6% | 18.0% | dual_c3 |
 | `s10_n25k_bank25k` | s10 | sequence | dual | 1 | 469.0 | 1677.6 | 0.6% | 12.6% | dual_c3 |
 | `s10_cell8_bank25_cont` | s10 | cell8 | dual | 3 | 261.5 | 1084.9 | 0.1% | 8.0% | dual_c3_bank25 |
+| `s10_cell8_bank25_lr1e4_c` | s10 | cell8 | dual | 6 | 247.5 | 1024.5 | 0.1% | 7.7% | dual_c3_bank25 |
+| `s10_cell8_bank25_lr3e4` | s10 | cell8 | dual | 1 | 294.4 | 1171.1 | 0.1% | 7.6% | dual_c3_bank25 |
+| `s10_cell8_bank25_lr1e4` | s10 | cell8 | dual | 4 | 249.0 | 1046.5 | 0.1% | 7.5% | dual_c3_bank25 |
 | `s10_cell8_bank25` | s10 | cell8 | dual | 1 | 288.7 | 1156.2 | 0.1% | 7.5% | dual_c3_bank25 |
 | `s10_cell8_base_cont` | s10 | cell8 | dual | 3 | 267.5 | 1054.5 | 0.0% | 6.0% | dual_c3 |
 | `s10_cell8_base` | s10 | cell8 | dual | 1 | 298.5 | 1145.5 | 0.0% | 5.8% | dual_c3 |
 
-**Headline.** Best by hit rate is `s10_n400k_bank25_cont`: 8.6 km median, 62.6% under 25 km.
+**Headline.** Best by hit rate is `s10_n400k_bank25_c4`: 8.4 km median, 63.4% under 25 km.
 
 **Quote this one externally instead.** The best `cell8` arm is `s10_cell8_bank25_cont`: 261.5 km median, 8.0% under 25 km. `cell8` holds whole z8 cells out of training *and* filters the bank to the same cells, so neither the weights nor the corpus has seen the region -- which is the condition the OSV-5M protocol enforces and the `sequence` split does not.
 
@@ -105,29 +111,53 @@ A difference without one of these next to it is not a claim.
 |---|---|---|---|---|
 | s10_n400k_bank25 vs s10_n400k_bank25_cont | [+0.9, +2.1] km | separated | [-3.34, -1.88] pp | separated |
 
+### `BOOTSTRAP_cell8_lr.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_cell8_bank25_cont vs s10_cell8_bank25_lr3e4 | [-43.7, -22.3] km | separated | [+0.02, +0.82] pp | separated |
+| s10_cell8_bank25_cont vs s10_cell8_bank25_lr1e4 | [+1.5, +20.4] km | separated | [+0.00, +0.94] pp | inside noise |
+| s10_cell8_bank25_lr3e4 vs s10_cell8_bank25_lr1e4 | [+32.8, +56.5] km | separated | [-0.40, +0.54] pp | inside noise |
+
+### `BOOTSTRAP_cont4.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_n400k_bank25_cont vs s10_n400k_bank25_c4 | [-0.0, +0.6] km | inside noise | [-1.36, -0.32] pp | separated |
+
+### `BOOTSTRAP_blend.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_key_dual vs s10_bal | [+0.7, +9.3] km | separated | [-1.82, -0.04] pp | separated |
+
+### `BOOTSTRAP_cell8_c.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_cell8_bank25_lr1e4 vs s10_cell8_bank25_lr1e4_c | [-3.4, +8.9] km | inside noise | [-0.46, +0.18] pp | inside noise |
+| s10_cell8_bank25_lr1e4 vs s10_cell8_bank25_cont | [-20.4, -1.5] km | separated | [-0.94, +0.00] pp | separated |
+| s10_cell8_bank25_lr1e4_c vs s10_cell8_bank25_cont | [-23.7, -4.3] km | separated | [-0.82, +0.14] pp | inside noise |
+
+### `BOOTSTRAP_balbank.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_n400k_bank25_cont vs s10_bal_bank25 | [-0.3, +0.8] km | inside noise | [-1.24, +0.40] pp | inside noise |
+
+### `BOOTSTRAP_balbank_ep2.md`
+
+| contrast | median diff, 95% CI | | <25km diff, 95% CI | |
+|---|---|---|---|---|
+| s10_n400k_bank25 vs s10_bal_bank25 | [+1.1, +2.4] km | separated | [-3.84, -2.16] pp | separated |
+
 ## Stages
 
-46 stages completed: `bank25_train`, `bx_concat`, `bx_dino`, `bx_knn`, `bx_meta`, `bx_siglip`, `bx_stack`, `c8_eval`, `c8_eval_cont`, `c8_knn_base`, `c8_knn_ext`, `c8_train_base`, `c8_train_base_cont`, `c8_train_ext`, `c8_train_ext_cont`, `calib`, `concat`, `dataset`, `embed_dino`, `embed_siglip`, `key_eval`, `key_s01_eval`, `key_seed`, `key_train_cond`, `key_train_dual`, `key_train_none`, `key_train_pos`, `key_train_scalar`, `knn`, `rc_cont`, `rc_cont_eval`, `rc_depth1`, `rc_depth2`, `rc_depth3`, `rc_depth4`, `rc_width`, `s01_km`, `s01_km_eval`, `s10_n100k_e10`, `s10_n200k_e5`, `s10_n25k_e38`, `s10_n25k_e38_eval_test`, `s10_n400k_e2`, `s10_n50k_e19`, `s10_n50k_e80`, `tiles`
+63 stages completed: `bank25_train`, `bx_concat`, `bx_dino`, `bx_knn`, `bx_meta`, `bx_siglip`, `bx_stack`, `c8_eval`, `c8_eval_cont`, `c8_knn_base`, `c8_knn_ext`, `c8_train_base`, `c8_train_base_cont`, `c8_train_ext`, `c8_train_ext_cont`, `calib`, `concat`, `dataset`, `embed_dino`, `embed_siglip`, `key_eval`, `key_s01_eval`, `key_seed`, `key_train_cond`, `key_train_dual`, `key_train_none`, `key_train_pos`, `key_train_scalar`, `knn`, `mar_bal_concat`, `mar_bal_eval`, `mar_bal_knn`, `mar_bal_train`, `mar_balbank_eval`, `mar_balbank_knn`, `mar_balbank_stack`, `mar_balbank_train`, `mar_balext_concat`, `mar_c8_cont`, `mar_c8_eval`, `mar_cont4`, `mar_cont4_eval`, `mar_tile_probe`, `rc_c8_eval`, `rc_c8_lr1`, `rc_c8_lr3`, `rc_cont`, `rc_cont_eval`, `rc_depth1`, `rc_depth2`, `rc_depth3`, `rc_depth4`, `rc_width`, `s01_km`, `s01_km_eval`, `s10_n100k_e10`, `s10_n200k_e5`, `s10_n25k_e38`, `s10_n25k_e38_eval_test`, `s10_n400k_e2`, `s10_n50k_e19`, `s10_n50k_e80`, `tiles`
 
 Skipped or failed:
 
 ```
-[07:30:23] skip   dataset  (already done)
-[07:30:23] skip   embed_dino  (already done)
-[07:30:23] skip   embed_siglip  (already done)
-[07:30:23] skip   concat  (already done)
-[07:30:23] skip   tiles  (already done)
-[07:30:23] skip   knn  (already done)
-[07:30:23] skip   s01_km  (already done)
-[07:30:23] skip   s01_km_eval  (already done)
-[07:30:23] skip   calib  (already done)
-[07:30:23] skip   s10_n25k_e38  (already done)
-[07:30:23] skip   s10_n50k_e19  (already done)
-[15:49:04] FAIL   bx_knn  rc=1 after 0.1 min
-[15:49:07] FAIL   bx_knn  rc=1 after 0.1 min
-[15:49:10] FAIL   bx_knn  rc=1 after 0.1 min
-[16:38:43] skip   bx_meta  (already done)
-[16:38:43] skip   bx_dino  (already done)
 [16:38:43] skip   bx_siglip  (already done)
 [16:38:43] skip   bx_concat  (already done)
 [16:38:43] skip   bx_stack  (already done)
@@ -137,4 +167,20 @@ Skipped or failed:
 [19:09:26] skip   c8_knn_ext  (already done)
 [19:24:06] skip   c8_knn_base  (already done)
 [19:24:06] skip   c8_knn_ext  (already done)
+[05:07:13] FAIL   mar_balbank_knn  rc=1 after 0.1 min
+[05:07:17] FAIL   mar_balbank_knn  rc=1 after 0.1 min
+[05:07:20] FAIL   mar_balbank_train  rc=1 after 0.1 min
+[05:07:24] FAIL   mar_balbank_train  rc=1 after 0.1 min
+[05:07:27] FAIL   mar_balbank_eval  rc=1 after 0.0 min
+[05:07:29] FAIL   mar_balbank_eval  rc=1 after 0.0 min
+[05:09:19] skip   mar_cont4  (already done)
+[05:09:19] skip   mar_cont4_eval  (already done)
+[05:09:19] skip   mar_bal_concat  (already done)
+[05:09:19] skip   mar_bal_knn  (already done)
+[05:09:19] skip   mar_bal_train  (already done)
+[05:09:19] skip   mar_bal_eval  (already done)
+[05:09:19] skip   mar_c8_cont  (already done)
+[05:09:19] skip   mar_c8_eval  (already done)
+[05:09:19] skip   mar_balext_concat  (already done)
+[05:09:19] skip   mar_balbank_stack  (already done)
 ```

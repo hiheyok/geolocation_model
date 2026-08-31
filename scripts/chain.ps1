@@ -57,8 +57,12 @@ try {
   # down; a couple of minutes costs nothing against an 8 hour run.
   Start-Sleep -Seconds 120
 
-  $out = Join-Path $root "runs\marathon.out"
-  $err = Join-Path $root "runs\marathon.err"
+  # Derive the child's log from its script name. Hardcoding one filename meant
+  # a second chain wrote over the first's log and, worse, that anything waiting
+  # on <script>.out waited for a file that was never going to be created.
+  $stem = [IO.Path]::GetFileNameWithoutExtension($Script)
+  $out = Join-Path $root ("runs\" + $stem + ".out")
+  $err = Join-Path $root ("runs\" + $stem + ".err")
   Say "launching $Script for $Hours h"
   & powershell -ExecutionPolicy Bypass -File (Join-Path $root "scripts\overnight.ps1") `
       -Script $Script -Hours $Hours *> $out 2> $err
