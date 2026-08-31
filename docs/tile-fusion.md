@@ -1,8 +1,10 @@
 # Tile fusion by self-attention — design note
 
-Status: **falsified, not built.** Written 2026-08-31 after the concatenation
-version lost; measured the same day and abandoned. The verdict is first, the
-design that motivated it is kept below it.
+Status: **partly falsified, not built.** Written 2026-08-31 after the
+concatenation version lost, then measured the same day. Tiles as a replacement
+for crops are dead; a head over the *union* of crops and tiles, and
+cross-attention between the two encoders, both survive with measured headroom.
+The verdict is first, the design that motivated it is kept below it.
 
 ## Verdict, 2026-08-31: measured, and it stops at step 2
 
@@ -29,11 +31,111 @@ identical pooling**, on any-of-32 `<25 km`:
 | per-block norm + mean + PCA | 512 | -0.73 pp [-1.67, +0.20] |
 
 Order-free pooling changes nothing: -1.57 pp against concatenation's -1.47 pp.
-The ladder's own stop criterion at step 2 is met in its second branch -- the
-tiles carry less than full-height crops, and attention cannot add signal that is
-not there. Per-block normalisation brings tiles to within noise of crops, which
-is the best case available, and "break-even at twice the encoder cost" is not a
-reason to build anything.
+Per-block normalisation brings tiles to within noise of crops, and "break-even
+at twice the encoder cost" is not a reason to build anything.
+
+**Scope this correctly.** What is closed is *tiles as a drop-in replacement for
+crops under fixed pooling*. I first wrote that "attention cannot add signal that
+is not there" -- an assertion about every possible head, with no upper bound
+behind it. Two bounds were then measured and the second reopens part of the
+question; see below.
+
+### How far the bounds actually reach
+
+`scripts/tile_match.py`, same 3,000 queries, per-block-normalised tokens
+throughout so no arm is flattered by the 81/19 imbalance.
+
+**Chamfer** -- `mean_i max_j <q_i, b_j>`, every query tile matched to its best
+partner anywhere in the bank image -- upper-bounds what any *pooled*
+representation can do, since no single vector can represent a data-dependent
+assignment. Under it the tile deficit narrows to -0.67 pp [-1.60, +0.30]:
+parity, not a win, and unshippable at 36x the compare cost and 6x the storage.
+
+**The oracle over query tiles**, which peeks at the label, bounds tile
+*selection*. Raw it looks like tiles winning by +2.23 pp -- but that is 6 draws
+against 3, and more independent retrievals win by arithmetic. At matched k=3 it
+inverts to **-1.72 pp [-2.54, -0.90]**. Individually every tile is weaker than
+every crop:
+
+| | each member alone, top-1 `<25 km` |
+|---|---|
+| crop3 | 6.8%, 7.3%, 7.4% |
+| tile6 | 3.3%, 2.8%, 2.7% (top row), 5.0%, 5.4%, 5.2% (bottom row) |
+
+The top/bottom split is the mechanism: a sky tile carries ~2.8%, a ground tile
+~5.2%, and a full-height crop containing sky *and* horizon *and* road carries
+~7%. For a frozen scene encoder a tile is not "more detail about that region",
+it is a less confident embedding of an input it never trained on.
+
+**Neither bound covers cross-tile contextualisation.** Chamfer matches *fixed*
+tokens; self-attention would change the tokens before matching, so a road-and-
+dirt tile that is an outlier alone becomes a different vector once a sky tile
+has informed it. That is outside every ceiling measured here. The counter-
+consideration is that crop3 already gets that context at pixel level, inside
+each crop, before the encoder runs -- the input the encoder was trained on --
+whereas token-level attention reconstructs it after information is gone. A
+reason to expect it to start behind, not a proof it cannot win.
+
+### Tiles are not redundant with crops, which is the case for fusing both
+
+| | |
+|---|---|
+| a crop lands (oracle over 3) | 10.5% |
+| a tile lands (oracle over 6) | 12.7% |
+| **either lands** | **15.5%** |
+| a tile lands where *every* crop missed | 5.6% -- 150 of 2,686 |
+| a crop lands where *every* tile missed | 3.2% -- 83 of 2,619 |
+| union - crops alone | **+5.00 pp [+4.23, +5.80]** |
+
+150 queries were retrievable only from tiles. Tiles are individually weaker and
+carry *different* information, so the live proposal is not tiles *instead of*
+crops but a learned head over the **union of 9 tokens**, with a falsifiable
+target: convert part of that +5.00 pp of oracle headroom into real retrieval
+gain. Draw counts are unequal (9 against 3) so the magnitude is inflated; the
+existence of the complement is not.
+
+### The two encoders split by spatial scale, and nothing exploits that
+
+`scripts/enc_cross.py`. Top-1 error under increasing thresholds, crop3 tokens:
+
+| within | DINOv2 | SigLIP | both | both - DINOv2 |
+|---|---|---|---|---|
+| 1 km | 0.2% | 0.1% | 0.3% | -- |
+| 25 km | 7.2% | 5.0% | 7.8% | +0.6 pp |
+| 200 km | 16.6% | 14.6% | 18.4% | +1.80 [+1.00, +2.60] |
+| 750 km | 27.2% | 26.0% | 30.6% | +3.43 [+2.37, +4.47] |
+| **2500 km** | 36.2% | **41.2%** | 40.9% | **+4.77 [+3.57, +5.97]** |
+
+**SigLIP alone beats DINOv2 alone by 5 pp at continent scale and loses by 2.2 pp
+at 25 km.** The benefit of the second encoder grows monotonically with the
+threshold. Reading complementarity off the 25 km hit rate alone -- where SigLIP
+rescues just 2.0% of DINOv2's misses -- badly understates it, and an earlier
+version of this note called the encoders "more redundant with each other than
+tiles are with crops" on exactly that mistake. Pick the threshold to match the
+decision being made, or the metric hides the effect.
+
+This lines up with the agent's own structure. Cell widths are 2504 km at s0,
+156 km at s1, 9.8 km at s2, 611 m at s3, so **the encoder that wins is different
+at different steps** -- SigLIP owns the s0 regime, DINOv2 owns s2-s3 -- while the
+blend is one fixed ratio applied identically at every step. `--retr-mode cond`
+already learns per-step gates on the retrieval *prior*; nothing gates the
+*encoders*.
+
+Ceiling on any rule that picks between the encoders per query: **+1.33 pp
+[+0.70, +2.00]** at 25 km for crops, +1.63 pp [+1.00, +2.27] for tiles. That is
+the fine-grained ceiling only; the coarse-scale gap above is where the mass is.
+
+**Cross-attention and tiling are not competing designs.** One head over 12
+tokens -- 6 DINOv2 plus 6 SigLIP -- with cross-attention between the encoder
+groups and self-attention after it reaches both headrooms, and dropping the
+within-encoder paths is a defensible inductive bias. What cross-attention does
+not fix is that individual tiles are weak; routing a sky tile through SigLIP
+does not make it informative.
+
+**Cheaper thing to try first:** a per-step scalar gate over the two encoder
+blocks. Two parameters per step, no attention stack, and it targets the measured
+scale split directly -- it would say whether that split is worth an architecture
+or is just a knob nobody turned.
 
 ### The baseline was the whole argument
 
