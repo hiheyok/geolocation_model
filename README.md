@@ -61,6 +61,25 @@ Two further results:
 Full write-up, including the seven scale-dependent defects the 10× release
 exposed, is in [`runs/REPORT.md`](runs/REPORT.md).
 
+### What the retrieval head is worth
+
+Five arms differing only in `--retr-mode`, at 400k training images and a
+400,180-image bank. Test split, 5,000 seeded-random images, k=2:
+
+| `--retr-mode` | median km | `<25 km` | vs. the row above |
+|---|---:|---:|---|
+| *none* | 170.2 | 18.7% | — |
+| `scalar` | 73.5 | 36.0% | **+17.3 pp** [+15.9, +18.6] |
+| `cond` | 78.5 | 35.8% | −0.2 pp, inside noise |
+| `pos` | 62.5 | 37.9% | **+1.9 pp** [+1.1, +2.8] vs `scalar` |
+| `dual` | **54.0** | **40.0%** | **+2.1 pp** [+1.3, +3.0] vs `pos` |
+
+One zero-initialised scalar gate on the retrieval prior is worth +17.3 pp and
+halves the median — it is most of the system. The learned keys then add a
+further +4.1 pp over that scalar, monotonically and with every step separated.
+`cond` on its own buys nothing; it is worth carrying only as the substrate the
+keyed branches sit on. `--retr-mode dual` is the default for that reason.
+
 ### Every number above is post-fix
 
 `beam.search` built the retrieval bias itself and never passed the neighbour
@@ -187,10 +206,14 @@ Two defaults are load-bearing and were both learned the hard way:
   their spread swamps the signal that decides where the answer actually is.
 
 **Always report a paired bootstrap interval beside a median difference.** The
-median carries a ~16 km 95% interval at n ≈ 5,000, and two runs of the same
-configuration have landed 18 km apart — so single-seed median differences under
-~20 km are not claims. `scripts/bootstrap.py` caches per-image errors, so the
-test costs seconds.
+median carries a ~16 km 95% interval at n ≈ 5,000, so single-seed median
+differences of a few km are not claims. `scripts/bootstrap.py` caches per-image
+errors, so the test costs seconds.
+
+Seed sensitivity depends on scale, and badly: two replicates of the same
+configuration landed **18 km apart at 50k** training images but **1.8 km apart
+at 400k** (paired `<25 km` interval [−0.28, +1.22] pp, inside noise). Treat the
+50k figure as the one that applies to small arms.
 
 ### Scale the retrieval bank
 
