@@ -98,7 +98,12 @@ def fmt_km(v):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(RUNS / "REPORT.md"))
+    # NOT REPORT.md. This regenerates its whole output from state.json,
+    # and overnight.finish() calls it at the end of every run -- so
+    # pointing it at REPORT.md silently destroyed the hand-written
+    # analysis there once per run. REPORT.md is curated; this is the
+    # generated table it can cite.
+    ap.add_argument("--out", default=str(RUNS / "ARMS.md"))
     a = ap.parse_args()
 
     state = {}

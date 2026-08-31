@@ -78,6 +78,88 @@ the +1.9 and +2.1 pp steps in the ladder above sit outside it. It is also much
 tighter than the 18 km spread seen between replicates at 50k, which suggests
 seed sensitivity falls with training-set size.
 
+### Overnight of 2026-08-31 --- tuning, and two negative results
+
+Everything below is the test split, 5,000 seeded-random images, k=2, ranked on
+s0-s2. `scripts/recheck.py`, `scripts/marathon.py`, `scripts/followup.py` and
+`scripts/tiles2.py`; 45 of 48 stages, the three failures a bad `--bank-ext`
+argument that was fixed and rerun. Generated per-arm tables in `runs/FINAL.md`
+and `runs/ARMS.md`.
+
+**The compute curve, re-measured with the retrieval keys live.**
+
+| beam k | median km | mean km | `<25 km` | s / 5,000 |
+|---:|---:|---:|---:|---:|
+| 1 | 11.3 | 526.4 | 58.5% | 16.2 |
+| 2 | 10.1 | 510.2 | 60.0% | 13.5 |
+| 4 | 9.8 | 542.8 | 60.2% | 22.5 |
+| 8 | 9.8 | 550.3 | 60.2% | 41.4 |
+| 16 | 9.8 | 549.8 | 60.2% | 74.2 |
+
+The recorded finding was that the curve *slopes down* past k=2, which was a
+direct problem for a thesis whose headline figure is accuracy against test-time
+compute. It does not: it rises and flattens, saturating at k=4. **Saturation,
+not degradation.** Ranking depth re-swept at k=4 confirms `--score-steps 3`
+(58.5, 59.3, **60.2**, 60.0% at depths 1-4), though depth 3 vs 4 is inside
+noise and depth 4 is better on `<1 km`. Some of this is the keys fix and some is
+a better-calibrated model; this run cannot separate them.
+
+**Encoder blend.** `concat_street.py` normalised only the joined vector, so the
+two encoders entered the cosine at their raw activation norms: 82.96 against
+20.58, an 81/19 split nobody chose. Equal-norm is worth **+3.0 pp**
+[+2.16, +3.84] at matched epochs and roughly two epochs of training at
+convergence, where the unbalanced arm catches up to within noise.
+
+**Continuation.** Two epochs was never checked against three. Gains halve each
+step and the mean keeps improving after the median stops:
+
+| arm | epochs | median km | mean km | `<25 km` |
+|---|---:|---:|---:|---:|
+| `s10_n400k_bank25` | 2 | 10.1 | 510.2 | 60.0% |
+| `s10_bal_bank25` | 2 | 8.4 | 428.9 | 63.0% |
+| `s10_bal_bank25_c4` | 4 | 7.8 | 408.2 | 63.6% |
+| `s10_bal_bank25_c6` | 6 | **7.7** | **386.9** | **64.2%** |
+
+**cell8 was mistuned, and is now converged.** 3e-4 gives 294.4 km, 1e-4 gives
+247.5 ([+32.8, +56.5] km, separated); two further epochs then changed nothing.
+The best cell8 arm is **247.5 km / 7.66%**, and that is the figure to quote
+externally.
+
+**Negative: image tiling.** `preprocess` scales the short side to 224 before
+cropping, so a 682x512 frame loses 2.3x of linear resolution. A 3x2 grid of 224
+tiles doubles the pixels at near-native resolution -- and does not help. At a
+118,500-image bank, 3,000 queries:
+
+| scheme | dims | top-1 `<25 km` | any-of-32 `<25 km` |
+|---|---:|---:|---:|
+| crop3 | 4608 | 8.0% | 21.4% |
+| tile6 | 9216 | 7.8% | 21.8% |
+| crop3 | 512 | **7.7%** | **20.9%** |
+| tile6 | 512 | 7.3% | 20.1% |
+
+At equal bank bytes tiling loses, consistently at every compressed width; at
+full width it is a wash for twice the storage. Two likely reasons: the 3-crop
+scheme takes full-height slices that contain sky, horizon and road -- scene-like
+framing the encoders were trained on -- while a tile can be pure road or pure
+sky; and at 512-d tile6 is compressed 18x against crop3's 9x, which is why the
+equal-bytes gap exceeds the full-width one.
+
+**A methodological note that nearly cost a wrong conclusion.** The first version
+of this probe used a 30,000-image bank, where the hit rate is 0.7% -- about ten
+successful queries out of 1,500 -- and it showed tiling winning at every width.
+The same cached embeddings score 0.67% and 5.47% at bank sizes of 28,500 and
+40,000, because each draw changes the queries as well as the corpus. Sampling
+variance at that scale dwarfed the effect, and the sign flipped once the bank
+was large enough to resolve it.
+
+**Offline compression, measured but not yet shipped.** int8 with a single global
+scale halves the bank (10.60 -> 5.30 GB) with the top-1 neighbour unchanged in
+512/512 queries, recall@32 0.9945, and reconstruction cosine 0.99981 -- and there
+is no outlier-channel problem, the worst column being 2.0x the median. PCA to
+512-d preserves geographic retrieval quality while recall@32 against the full
+space falls to 0.82, so the discarded dimensions carry visual detail with no
+geographic content. Both matter because bank RAM is what caps corpus size.
+
 ## Beam width sweep (val)
 
 | arm | k=1 | k=2 | k=4 |
