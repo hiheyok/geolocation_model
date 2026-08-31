@@ -33,7 +33,71 @@ CHECKPOINTS = ROOT / "checkpoints"
 DATASET_PARQUET = PROCESSED / "dataset.parquet"
 TARGETS_PARQUET = PROCESSED / "targets.parquet"
 
+
+# ---------------------------------------------------------------- artefacts --
+#
+# Names of the files inside a cache directory, and the conventions for deriving
+# one name from another.  These live here because more than one module has to
+# agree on them and a disagreement is silent: beam.py reading a token cache
+# under a name fetch_tiles.py did not write would simply miss every lookup and
+# refetch the whole split over HTTP.
+
+MAP_TOKENS = "tokens.f16.npy"       # [n_tiles, g*g, n_classes] float16
+MAP_INDEX = "index.parquet"         # (z, x, y) -> row
+MAP_DONE = "done.u8.npy"            # which rows have been fetched; makes it resumable
+
+STREET_DEFAULT = "embeddings.f16.npy"
+STREET_IDS = "image_ids.i64.npy"
+
+KNN_K = 32                          # neighbours stored per query
+
+
+def map_files(cache=None):
+    """(tokens, index, done) paths inside a map cache directory.
+
+    `cache` overrides the release's own, which is how fetch_tiles --seed-from
+    reads an older release's tiles.
+    """
+    d = Path(cache) if cache else MAP_CACHE
+    return d / MAP_TOKENS, d / MAP_INDEX, d / MAP_DONE
+
+
+def bank_meta(stem):
+    """Metadata for a bank extension: z16 addresses and sequences of the
+    bank-only shards, written by build_bank_ext.py and read by build_knn.py and
+    dataset.py."""
+    return STREET_CACHE / (stem + "_meta.npz")
+
+
+def knn_name(street_file, mode, k=KNN_K, bank_limit=0, ext=None):
+    """Filename of a kNN cache.
+
+    A cache is identified by everything that changes its contents: the
+    embeddings it was built from, the split whose train side is the bank, how
+    many neighbours it stores, and whether the bank was restricted or extended.
+    The stored k is the *cache* size; --retr-k selects a prefix of it at
+    training time and does not change the file.
+    """
+    stem = street_file.replace(".f16.npy", "")
+    tail = "" if not bank_limit else "_bank{}k".format(bank_limit // 1000)
+    tail += "" if not ext else "_" + ext
+    return "knn_{}_{}_k{}{}.npz".format(stem, mode, k, tail)
+
+
 TILE_SERVER = os.environ.get("TILE_SERVER", "http://192.168.50.1:3000")
+
+
+# ---------------------------------------------------------------- boundary --
+#
+# What belongs in this file: deployment wiring -- where things live on this
+# machine, which release is being worked on, and the names several modules must
+# agree on. Anything whose correct value depends on the environment.
+#
+# What does not: a module's own domain contract. The tile server's mask encoding
+# lives in tiles.py, the addressing scheme in tile_math.py, and what a split
+# means in splits.py, because each of those is one module's subject and splitting
+# it across two files makes both harder to read. The test is whether a second
+# module has to agree on the value, or merely uses it.
 
 # Splitting: cells are held out whole, and a sequence never spans splits.
 SPLIT_CELL_ZOOM = 8

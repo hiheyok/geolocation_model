@@ -52,8 +52,12 @@ def preprocess(blob, size=224, crops=1, mean=None, std=None):
     img.draft("RGB", (size, size))          # decode at a reduced DCT scale
     img = img.convert("RGB")
     w, h = img.size
+    # Scale so the short side is exactly `size`. OSV-5M frames are 910x512 so
+    # this only ever shrinks them, but the demo server feeds this arbitrary
+    # uploads and an image smaller than 224 has to be grown or the crop below
+    # would run off the edge.
     sc = size / min(w, h)
-    if sc < 1.0:
+    if sc != 1.0:
         img = img.resize((max(size, round(w * sc)), max(size, round(h * sc))),
                          Image.BILINEAR)
     w, h = img.size

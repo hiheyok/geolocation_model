@@ -22,15 +22,18 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np
 
+import config
 import overnight as O
-from overnight import Stage, log, run_stage, save_state, load_state
+from overnight import Stage, load_state, log, run_stage
 
 REL = "s10"
 EXT = "bank_ext"
 DINO = O.DINO
 SIGLIP = O.SIGLIP
 STACKED = "dual_c3_bank25"
-KNN = "knn_dual_c3_bank25_sequence_k32_bank_ext.npz"
+# derived, not written out: build_knn generates the same name from the
+# same function, so the two cannot disagree
+KNN = config.knn_name(STACKED + ".f16.npy", "sequence", ext=EXT)
 
 # same arm as s10_n400k_e2 in every respect but the bank it reads
 SHIP_BANK = ["--street-file", STACKED + ".f16.npy",

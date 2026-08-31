@@ -107,7 +107,7 @@ def main():
         "sequence": pa.array(seq.tolist()),
     }), out_pq)
 
-    meta = config.STREET_CACHE / (a.out + "_meta.npz")
+    meta = config.bank_meta(a.out)
     np.savez(meta, image_id=image_id, x16=x16, y16=y16,
              sequence=seq.astype(str), shards=np.array(shards),
              release=config.RELEASE)

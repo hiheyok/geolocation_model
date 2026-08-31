@@ -23,21 +23,17 @@ import tile_math as tm
 import tiles as T
 
 
-def _key(z, x, y):
-    return (int(z) << 58) | (int(x) << 29) | int(y)
-
-
 class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
     def __init__(self, grid=tm.G, cache=None, client=None, threads=16):
-        cache = Path(cache) if cache else config.MAP_CACHE
+        tokens_p, index_p, _ = config.map_files(cache)
         self.grid = grid
-        self.tokens = np.load(cache / "tokens.f16.npy", mmap_mode="r")
-        idx = pq.read_table(cache / "index.parquet")
-        k = (np.asarray(idx["z"]).astype(np.int64) << 58
-             | np.asarray(idx["x"]).astype(np.int64) << 29
-             | np.asarray(idx["y"]).astype(np.int64))
+        self.tokens = np.load(tokens_p, mmap_mode="r")
+        idx = pq.read_table(index_p)
+        k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
+                        np.asarray(idx["x"]).astype(np.int64),
+                        np.asarray(idx["y"]).astype(np.int64))
         self.lut = dict(zip(k.tolist(), np.asarray(idx["row"]).astype(np.int64).tolist()))
         self.client = client or T.TileClient(config.TILE_SERVER)
         self.pool = ThreadPoolExecutor(max_workers=threads)
@@ -49,7 +45,7 @@ class TokenSource:
         out = np.zeros((len(keys), self.grid * self.grid, T.N_CLASSES), np.float32)
         misses = []
         for i, (z, x, y) in enumerate(keys):
-            kk = _key(z, x, y)
+            kk = tm.tile_key(z, x, y)
             row = self.lut.get(kk)
             if row is not None:
                 out[i] = self.tokens[row]
@@ -74,6 +70,30 @@ class TokenSource:
         return out
 
 
+
+def _views(tiles_, street, source, dev, step):
+    """Every live beam's current tile, flattened into one batch for the model.
+
+    Returns (tokens, street, x0, y0, step, beams_per_image).
+
+    Both callers -- the search loop and the click head that runs after it --
+    need exactly this, and they used to build it separately. Keeping one copy
+    matters more here than the seven lines it saves: when beam.py last held its
+    own version of something model.py also did, the two diverged silently and
+    only the rollout path broke, because training never goes through here.
+    """
+    B = street.shape[0]
+    flat = [tl for img in tiles_ for tl in img]
+    nb = len(flat) // B
+    corners = [tm.norm_corner(*k) for k in flat]      # once per tile, not twice
+    return (torch.from_numpy(source.get(flat)).to(dev),
+            street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1),
+            torch.tensor([c[0] for c in corners], dtype=torch.float32, device=dev),
+            torch.tensor([c[1] for c in corners], dtype=torch.float32, device=dev),
+            torch.full((len(flat),), step, dtype=torch.long, device=dev),
+            nb)
+
+
 @torch.no_grad()
 def search(model, street, source, dev, beam_k=16, top_m=16,
            g=tm.G, steps=tm.STEPS, greedy=False, sink_prune=1.0,
@@ -88,25 +108,15 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
     paths = [[[]] for _ in range(B)]
 
     for t in range(steps):
-        flat = [tl for img in tiles_ for tl in img]
-        tok = torch.from_numpy(source.get(flat)).to(dev)
-        nb = len(flat) // B
-        st = street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1)
-        x0 = torch.tensor([tm.norm_corner(*k)[0] for k in flat],
-                          dtype=torch.float32, device=dev)
-        y0 = torch.tensor([tm.norm_corner(*k)[1] for k in flat],
-                          dtype=torch.float32, device=dev)
-        sp = torch.full((len(flat),), t, dtype=torch.long, device=dev)
+        tok, st, x0, y0, sp, nb = _views(tiles_, street, source, dev, t)
 
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             f, keys = model.fuse_flat(st, tok, x0, y0, sp)
-            prior = None
-            if model.retr is not None and nbrs is not None:
-                K = nbrs[0].shape[1]
-                rep = lambda t: t.unsqueeze(1).expand(B, nb, K).reshape(-1, K)
-                prior = model.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
-                                   x0, y0, sp,
-                                   keys.shape[1] + (1 if model.sink is not None else 0))
+            # one row per live beam per image, and the learned keys come
+            # with it -- see GeoAgent.retr_prior
+            prior = model.retr_prior(
+                nbrs, street, x0, y0, sp, nb,
+                keys.shape[1] + (1 if model.sink is not None else 0))
             logits = model.policy_logits(f, keys, prior).float()
         # With a sink class the softmax spans A+1: log p(a) already decomposes
         # into log p(not-sink) + log p(a | not-sink), so a beam the model
@@ -146,13 +156,7 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
         tiles_, paths, scores = new_tiles, new_paths, new_scores
 
     # click head on the final view of every surviving beam
-    flat = [tl for img in tiles_ for tl in img]
-    tok = torch.from_numpy(source.get(flat)).to(dev)
-    nb = len(flat) // B
-    st = street.unsqueeze(1).expand(B, nb, -1).reshape(B * nb, -1)
-    x0 = torch.tensor([tm.norm_corner(*k)[0] for k in flat], dtype=torch.float32, device=dev)
-    y0 = torch.tensor([tm.norm_corner(*k)[1] for k in flat], dtype=torch.float32, device=dev)
-    sp = torch.full((len(flat),), steps, dtype=torch.long, device=dev)
+    tok, st, x0, y0, sp, nb = _views(tiles_, street, source, dev, steps)
     with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
         f, _ = model.fuse_flat(st, tok, x0, y0, sp)
         uv = model.click_uv(f).float().cpu().numpy()

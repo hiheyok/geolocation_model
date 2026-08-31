@@ -1,5 +1,10 @@
 """The only module that speaks HTTP to the tile server.
 
+A client library for an external service, not part of this application's
+wiring: it takes the server address as an argument and imports no config, so
+it can be pointed at a different server or a stub without touching anything
+else.
+
 Fetches single-channel class masks and turns them into the per-patch class
 histograms the map encoder consumes.  A class-id mask is never interpolated --
 only aggregated -- so the illegal-id failure mode cannot occur downstream.
@@ -13,8 +18,11 @@ import numpy as np
 import requests
 from PIL import Image
 
-DEFAULT_BASE = "http://192.168.50.1:3000"
-
+# The tile server's wire format. These belong here rather than in config
+# because they are the external service's contract, not this application's
+# settings: they change when the server changes, and LEGAL_IDS is derived
+# from the two above it. The server *address* is the opposite -- that is
+# deployment wiring, so it lives in config.TILE_SERVER and is passed in.
 CLASS_STEP = 23          # ids are spaced 23 apart: 0, 23, ..., 253
 N_CLASSES = 12
 TILE_PX = 512
@@ -28,7 +36,14 @@ class TileError(RuntimeError):
 class TileClient:
     """Thread-safe: each thread gets its own pooled session."""
 
-    def __init__(self, base=DEFAULT_BASE, timeout=20.0, retries=3):
+    def __init__(self, base, timeout=20.0, retries=3):
+        """base: the tile server root, e.g. config.TILE_SERVER.
+
+        Required rather than defaulted. It used to default to a hardcoded
+        LAN address that duplicated config.TILE_SERVER, so a change to the
+        config would leave any caller relying on the default pointing at
+        the old server with nothing to indicate it.
+        """
         self.base = base.rstrip("/")
         self.timeout = timeout
         self.retries = retries
@@ -82,6 +97,12 @@ class TileClient:
         """Greyscale cartographic render as (512, 512) uint8 -- ablation only."""
         raw = self._get(f"/tile/{z}/{x}/{y}.png")
         return np.asarray(Image.open(io.BytesIO(raw)).convert("L"), dtype=np.uint8)
+
+    def png(self, z, x, y):
+        """The cartographic render as raw PNG bytes, for passing straight to a
+        browser. image() decodes it to an array instead, which a proxy would
+        only have to re-encode."""
+        return self._get(f"/tile/{z}/{x}/{y}.png")
 
     def labels(self, z, x, y, layers=None, limit=None, lang="latin"):
         import json

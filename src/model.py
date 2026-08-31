@@ -143,6 +143,32 @@ class GeoAgent(nn.Module):
             logits = logits + prior.to(logits.dtype)
         return logits
 
+    def retr_prior(self, nbrs, street, x0, y0, step, per_image, n_logits):
+        """The retrieval bias for a batch of rows, keys included.
+
+        nbrs is per *image* -- (nbr_x, nbr_y, nbr_sim) and optionally the
+        neighbours' own embeddings -- while x0/y0/step are per *row*, because an
+        image contributes several rows: one per zoom step when training, one per
+        live beam when searching. per_image says how many, and the 4,608-d key
+        projections run once per image before that expansion.
+
+        Every caller must come through here. When beam.search had its own
+        version it omitted a_pos and a_neg, which silently disables the learned
+        positive key and the entire negative branch -- so pos/dual models were
+        trained with them and evaluated without them, and nothing failed.
+        """
+        if self.retr is None or nbrs is None:
+            return None
+        K = nbrs[0].shape[1]
+        rep = lambda t: (t.unsqueeze(1).expand(t.shape[0], per_image, K)
+                         .reshape(-1, K))
+        a_pos, a_neg = self.retr.weights(
+            nbrs[2], street, nbrs[3] if len(nbrs) > 3 else None)
+        return self.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
+                         x0, y0, step, n_logits,
+                         a_pos=rep(a_pos),
+                         a_neg=None if a_neg is None else rep(a_neg))
+
     def policy_from(self, street, tokens, x0, y0, step, nbrs=None):
         """Policy logits for arbitrary (image, tile, step) rows -- used for the
         off-path negatives, which have no place in the teacher-forced prefix.
@@ -152,26 +178,11 @@ class GeoAgent(nn.Module):
         passed through here rather than only on the on-path rows.
         """
         f, k = self.fuse(street, tokens, x0, y0, step)
-        prior = None
-        if self.retr is not None and nbrs is not None:
-            B, S = step.shape
-            K = nbrs[0].shape[1]
-            rep = lambda t: t.unsqueeze(1).expand(B, S, K).reshape(-1, K)
-            a_pos, a_neg = self.retr.weights(nbrs[2], street, nbrs[3]
-                                             if len(nbrs) > 3 else None)
-            prior = self.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
-                              x0.reshape(-1), y0.reshape(-1), step.reshape(-1),
-                              k.shape[1] + (1 if self.sink is not None else 0),
-                              a_pos=rep(a_pos),
-                              a_neg=None if a_neg is None else rep(a_neg))
+        prior = self.retr_prior(
+            nbrs, street, x0.reshape(-1), y0.reshape(-1), step.reshape(-1),
+            step.shape[1],
+            k.shape[1] + (1 if self.sink is not None else 0))
         return self.policy_logits(f, k, prior)
-
-    def retrieval_bias(self, batch_or_none, x0, y0, step, n_logits):
-        """Additive logit bias from the query's visual neighbours, or None."""
-        if self.retr is None or batch_or_none is None:
-            return None
-        nx, ny, sim = batch_or_none
-        return self.retr(nx, ny, sim, x0, y0, step, n_logits)
 
     def click_uv(self, fused):
         return torch.sigmoid(self.click(fused))
@@ -186,21 +197,17 @@ class GeoAgent(nn.Module):
         fp = f[:, :n_policy].reshape(B * n_policy, -1)
         kp = k[:, :n_policy].reshape(B * n_policy, k.shape[2], k.shape[3])
         prior = None
-        if self.retr is not None and "nbr_x" in batch:
-            K = batch["nbr_x"].shape[1]
-            # the 4,608-d key projections run once per image, then expand
-            a_pos, a_neg = self.retr.weights(batch["nbr_sim"],
-                                             batch.get("street"),
-                                             batch.get("nbr_emb"))
-            rep = lambda t: t.unsqueeze(1).expand(B, n_policy, K).reshape(-1, K)
-            prior = self.retr(rep(batch["nbr_x"]), rep(batch["nbr_y"]),
-                              rep(batch["nbr_sim"]),
-                              batch["x0"][:, :n_policy].reshape(-1),
-                              batch["y0"][:, :n_policy].reshape(-1),
-                              batch["step"][:, :n_policy].reshape(-1),
-                              kp.shape[1] + (1 if self.sink is not None else 0),
-                              a_pos=rep(a_pos),
-                              a_neg=None if a_neg is None else rep(a_neg))
+        if "nbr_x" in batch:
+            nbrs = (batch["nbr_x"], batch["nbr_y"], batch["nbr_sim"],
+                    batch["nbr_emb"]) if "nbr_emb" in batch else (
+                    batch["nbr_x"], batch["nbr_y"], batch["nbr_sim"])
+            prior = self.retr_prior(
+                nbrs, batch.get("street"),
+                batch["x0"][:, :n_policy].reshape(-1),
+                batch["y0"][:, :n_policy].reshape(-1),
+                batch["step"][:, :n_policy].reshape(-1),
+                n_policy,
+                kp.shape[1] + (1 if self.sink is not None else 0))
         logits = self.policy_logits(fp, kp, prior).view(B, n_policy, -1)
         uv = self.click_uv(f[:, -1])
         return logits, uv

@@ -112,7 +112,7 @@ A **release** is the set of shards everything downstream derives from. The
 parquet, the embeddings, the token cache and the kNN bank are all indexed by row
 order in `dataset.parquet`, so adding shards invalidates all of them at once —
 hence `OSV_RELEASE`, which keeps generations side by side. `s01` is 1 shard
-(50k images), `s10` is 10 (500k). Checkpoints record theirs and `evaluate.py`
+(50k images), `s10` is 10 (500k). Checkpoints record theirs and `src/evaluate.py`
 refuses a cross-release comparison.
 
 ```bash
@@ -139,6 +139,12 @@ python src/evaluate.py --tag myrun --split test --n 5000 --ks 2 --score-steps 3
 python scripts/bootstrap.py --tags myrun,other --split test
 ```
 
+`--n` draws a **seeded random** subset, not the first n rows. It used to take the
+first n, and split order is the order shards were joined, so that sample was
+geographic rather than random — worth 34 km of median error on the s10 test
+split. The seed is fixed, so every arm still sees the same images and paired
+comparisons stay valid.
+
 Two defaults are load-bearing and were both learned the hard way:
 
 - **`--select hit`** keeps the epoch with the best `<25 km` rate. The median of a
@@ -154,6 +160,40 @@ configuration have landed 18 km apart — so single-seed median differences unde
 ~20 km are not claims. `scripts/bootstrap.py` caches per-image errors, so the
 test costs seconds.
 
+### Scale the retrieval bank
+
+Given the result above, the cheap axis is the corpus. Bank-only shards never
+enter `dataset.parquet`, so the split hash and every existing checkpoint are
+untouched — and because a bank entry votes with its z16 address, which is
+arithmetic on lat/lon, **no tiles are fetched for them**.
+
+```bash
+python scripts/build_bank_ext.py --shards 10,11,12,13,14 --out bank_ext
+python scripts/embed_street.py --parquet bank_ext.parquet --model vit_base_patch14_dinov2.lvd142m --crops 3 --out bank_ext_dino
+python scripts/embed_street.py --parquet bank_ext.parquet --model vit_base_patch16_siglip_224.v2_webli --crops 3 --out bank_ext_siglip
+python scripts/concat_street.py --a bank_ext_dino --b bank_ext_siglip --out bank_ext_dual
+python scripts/stack_bank.py --base dual_c3 --ext bank_ext_dual --out dual_c3_bank
+python scripts/build_knn.py --street-file dual_c3_bank.f16.npy --split-mode sequence --bank-ext bank_ext
+```
+
+The stacked file keeps release rows first, so row *i* is still image *i* and a
+neighbour index addresses both corpora. Train against it by passing
+`--street-file dual_c3_bank.f16.npy`; the kNN filename is derived from that, so
+it does not need to be given.
+
+To go the other way and *shrink* the bank — the control that separates corpus
+from training set — use `--bank-limit N`, which restricts the bank to exactly
+the images `train.py --limit N` trains on.
+
+### Analysis
+
+| script | answers |
+|---|---|
+| `scripts/bootstrap.py` | is this difference real? paired CIs on median and `<25 km` |
+| `scripts/summary_table.py` | per-step accuracy and loss, train vs test |
+| `scripts/error_profile.py` | which step's failures the mean is made of |
+| `scripts/standard_metrics.py` | GeoScore and the 1/25/200/750/2500 km recalls |
+
 ### Experiment runners
 
 `scripts/overnight.py` and `scripts/bank25.py` run multi-stage experiments under
@@ -166,10 +206,13 @@ system DRAM and keeps reporting 100%.
 powershell -ExecutionPolicy Bypass -File scripts/overnight.ps1 -Script scripts/bank25.py -Hours 6
 ```
 
-## Legacy
+## Documents
 
-`model_helper.py`, `data_handler.py`, `preprocess.py` and `model.ipynb` predate
-`src/` and are not used by anything. `data_handler.py` does not parse.
 `project_plan.pdf` is the original 29-page plan, written before the map backend
-existed; where it and this code disagree, the code and `runs/REPORT.md` are
+existed. It specifies a FastAPI + Playwright screenshot service; what got built
+is an XYZ tile server returning segmentation masks, which is better and collapsed
+a quarter of the plan. Where the two disagree, the code and `runs/REPORT.md` are
 current.
+
+`tile-server-documentation.pdf` documents the live server that `src/tiles.py`
+talks to.

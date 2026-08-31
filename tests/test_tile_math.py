@@ -102,6 +102,54 @@ def main():
     check("haversine 1 deg lon at equator is ~111.3 km",
           111.0 < eq_km < 111.6, f"{eq_km:.3f} km")
 
+    # tile_key: the cache-key layout. Four call sites used to write this out by
+    # hand, so what matters is that one definition still produces exactly what
+    # they did, and that it never collides or goes negative.
+    import numpy as np
+    check("tile_key matches the layout it replaced",
+          all(tm.tile_key(z, x, y) == (z << 58) | (x << 29) | y
+              for z, x, y in [(0, 0, 0), (4, 15, 15), (8, 255, 255),
+                              (12, 4095, 4095), (16, 65535, 65535)]))
+    check("tile_key stays positive at the largest address this agent reaches",
+          tm.tile_key(16, 65535, 65535) > 0
+          and tm.tile_key(16, 65535, 65535) < 2 ** 63)
+    check("tile_key is positive at the layout's own limit",
+          0 < tm.tile_key(31, 2 ** 29 - 1, 2 ** 29 - 1) < 2 ** 63)
+    keys = {}
+    dup = None
+    for z in range(0, 17, 4):
+        n = 1 << z
+        for x in (0, 1, n // 2, n - 1):
+            for y in (0, 1, n // 2, n - 1):
+                k = tm.tile_key(z, x, y)
+                if k in keys and keys[k] != (z, x, y):
+                    dup = (keys[k], (z, x, y))
+                keys[k] = (z, x, y)
+    check("tile_key is injective across every zoom the agent uses",
+          dup is None, str(dup))
+    # scalars normalise to Python int whatever they arrive as, so a key built
+    # from numpy coordinates hashes identically to one built from Python ints --
+    # the index is written from numpy and read back with either
+    k_py = tm.tile_key(8, 127, 85)
+    k_np = tm.tile_key(np.int64(8), np.int32(127), np.int64(85))
+    check("tile_key normalises numpy scalars to Python int",
+          type(k_np) is int and k_np == k_py, "{} {}".format(type(k_np), k_np))
+    check("tile_key handles a 0-d array as a scalar",
+          tm.tile_key(np.array(8), np.array(127), np.array(85)) == k_py)
+    check("a numpy-built key finds a Python-built dict entry",
+          {k_py: "hit"}.get(k_np) == "hit")
+
+    # the vectorised build in dataset.py / beam.py must agree with the scalar
+    # lookup, or the index is written with one key and read with another
+    z = np.array([0, 4, 8, 12, 16], dtype=np.int64)
+    x = np.array([0, 15, 255, 4095, 65535], dtype=np.int64)
+    y = np.array([0, 15, 255, 4095, 65535], dtype=np.int64)
+    vec = tm.tile_key(z, x, y)
+    check("tile_key vectorised == scalar, and stays int64",
+          vec.dtype == np.int64
+          and all(int(v) == tm.tile_key(int(a), int(b), int(c))
+                  for v, a, b, c in zip(vec, z, x, y)))
+
     print()
     if FAILS:
         print(f"{len(FAILS)} FAILED: {', '.join(FAILS)}")

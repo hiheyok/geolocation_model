@@ -30,7 +30,7 @@ model.load_state_dict(sd)
 model.eval()
 print("{}  d_street={}  map_layers={}".format(ck_path.name, d_street, map_layers))
 
-tokens = np.load(config.MAP_CACHE / "tokens.f16.npy", mmap_mode="r")
+tokens = np.load(config.map_files()[0], mmap_mode="r")
 rng = np.random.default_rng(0)
 pick = rng.choice(len(tokens), 512, replace=False)
 x = torch.from_numpy(np.asarray(tokens[np.sort(pick)], dtype=np.float32))  # (N,A,C)

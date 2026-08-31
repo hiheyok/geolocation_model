@@ -35,15 +35,29 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     if dev == "cuda" and gb <= budget_gb:
         print("nbr table  {:.2f} GB on cuda".format(gb), flush=True)
         return torch.from_numpy(np.asarray(a)).to(dev)
-    # Third tier, for a bank extension: 11.5 GB will not sit in host RAM beside
-    # four spawned dataloader workers either.  A gather gathers 64x16 rows, so
-    # paging them in beats holding all of it.
-    if gb <= ram_gb:
-        print("nbr table  {:.2f} GB in host RAM  (too large for the card)"
-              .format(gb), flush=True)
+    # Third tier, for a bank extension. Whether it fits is measured, not
+    # assumed: a fixed threshold is either too timid on an idle machine or an
+    # OOM on a busy one, and this decision is made while dataloader workers are
+    # about to be spawned.
+    #
+    # The margin is deliberately wide because the tier below is cheap. Measured
+    # on the 11.52 GB table against the same run held in RAM: 805.1s vs 737.8s
+    # on the first epoch and 747.9 vs 720.3 warm, about 4%. A gather touches
+    # 64x16 rows, so the OS pages in exactly those and the file stays shared
+    # between the workers that also read it. Trading a 4% saving for a chance of
+    # losing a half-hour arm is not a trade worth making.
+    try:
+        import psutil
+        free = psutil.virtual_memory().available / 1e9
+    except Exception:
+        free = 0.0
+    budget = max(ram_gb, 0.4 * free)
+    if gb <= budget:
+        print("nbr table  {:.2f} GB in host RAM  ({:.1f} GB free, too large "
+              "for the card)".format(gb, free), flush=True)
         return torch.from_numpy(np.asarray(a))
-    print("nbr table  {:.2f} GB left on disk as a memmap  (too large for RAM)"
-          .format(gb), flush=True)
+    print("nbr table  {:.2f} GB as a memmap  ({:.1f} GB free; holding it would "
+          "cost more than the ~4% paging does)".format(gb, free), flush=True)
     return torch.from_numpy(a)
 
 
@@ -55,9 +69,10 @@ def gather_nbr(table, rows, dev):
 
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
-                 street_file="embeddings.f16.npy", n_neg=0, neg_seed=0,
+                 street_file=None, n_neg=0, neg_seed=0,
                  neg_random=True, split_mode=sp.PRIMARY, knn_file=None,
                  knn_k=0):
+        street_file = street_file or config.STREET_DEFAULT
         self.g, self.steps = g, steps
         self.n_neg, self.neg_seed, self.neg_random = n_neg, neg_seed, neg_random
         self.n_actions = g * g
@@ -77,16 +92,17 @@ class GeoStepDataset(Dataset):
 
         # street embeddings: row order matches dataset.parquet
         self._street_path = config.STREET_CACHE / street_file
-        self._tokens_path = cache / "tokens.f16.npy"
+        self._tokens_path, index_p, _ = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
 
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
-        idx = pq.read_table(cache / "index.parquet")
-        key = (np.asarray(idx["z"]).astype(np.int64) << 58
-               | np.asarray(idx["x"]).astype(np.int64) << 29
-               | np.asarray(idx["y"]).astype(np.int64))
+        idx = pq.read_table(index_p)
+        # one key per cached tile; tile_math.tile_key owns the bit layout
+        key = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
+                          np.asarray(idx["x"]).astype(np.int64),
+                          np.asarray(idx["y"]).astype(np.int64))
         self.lut = dict(zip(key.tolist(),
                             np.asarray(idx["row"]).astype(np.int64).tolist()))
         lut = self.lut
@@ -103,7 +119,7 @@ class GeoStepDataset(Dataset):
         x0 = np.asarray(tg["x0"], dtype=np.float32).reshape(-1, per)
         y0 = np.asarray(tg["y0"], dtype=np.float32).reshape(-1, per)
 
-        tk = (tz << 58) | (tx << 29) | ty
+        tk = tm.tile_key(tz, tx, ty)
         self.tok_row = np.array(
             [[lut[int(k)] for k in row] for row in tk[keep]], dtype=np.int64)
         self.action = act[keep][:, :steps]
@@ -134,8 +150,7 @@ class GeoStepDataset(Dataset):
             if ext:
                 # neighbours may live past the release: extend the address
                 # tables so nbr index n+i resolves to the extension row i
-                m = np.load(config.STREET_CACHE / (ext + "_meta.npz"),
-                            allow_pickle=True)
+                m = np.load(config.bank_meta(ext), allow_pickle=True)
                 self.all_x16 = np.concatenate(
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(
@@ -188,7 +203,7 @@ class GeoStepDataset(Dataset):
             a = int(rng.integers(0, self.n_actions - 1))
             a = a + 1 if a >= true_a else a          # any sibling but the right one
             z, x, y = tm.descend(int(pz), int(px), int(py), a, self.g)
-            rows.append(self.lut[(z << 58) | (x << 29) | y])
+            rows.append(self.lut[tm.tile_key(z, x, y)])
             nx, ny = tm.norm_corner(z, x, y)
             x0s.append(nx); y0s.append(ny); sts.append(t)
         return (np.array(rows, dtype=np.int64), np.array(x0s, dtype=np.float32),

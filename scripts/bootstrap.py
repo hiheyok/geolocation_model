@@ -47,7 +47,7 @@ def errors_for(tag, split, n, beam_k, score_steps, dev, source):
     model, ck, d_street = load_model(tag, dev)
     mode = ck.get("split_mode", sp.PRIMARY)
     check_split(ck, mode, split)
-    sf = street_file_for(d_street)
+    sf = street_file_for(ck, d_street)
     tbl = None
     if ck.get("retr_mode") in ("pos", "dual"):
         tbl = street_table(config.STREET_CACHE / sf, dev)

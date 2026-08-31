@@ -13,7 +13,6 @@ geographic-holdout arm is trained.
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
