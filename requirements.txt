@@ -13,3 +13,6 @@ psutil==6.1.1          # utilisation sampling in the experiment runners
 # Only scripts/serve.py needs these; training and evaluation do not.
 fastapi==0.115.12
 uvicorn==0.34.2
+
+# Test runner. tests/test_tile_math.py also runs standalone without it.
+pytest==9.1.1
