@@ -25,9 +25,11 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 
 | stage | samples | GPU % (peak) | VRAM MB | shared MB | W | degC | CPU % | RAM GB |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
+| bank25_eval | 1 | 1 (1) | 1211 | 365 | 11 | 39 | 14 | 11.6 |
+| bank25_train | 151 | 1 (1) | 4035 | 374 | 11 | 39 | 16 | 29.9 |
 | bx_concat | 3 | 1 (1) | 983 | 139 | 11 | 39 | 11 | 21.7 |
 | bx_dino | 543 | 1 (1) | 5196 | 200 | 11 | 39 | 18 | 21.2 |
-| bx_knn | 1 | 1 (1) | 982 | nan | 11 | 39 | 11 | 12.3 |
+| bx_knn | 26 | 1 (1) | 3291 | 210 | 11 | 39 | 14 | 25.2 |
 | bx_siglip | 464 | 1 (1) | 4437 | 213 | 11 | 39 | 18 | 19.9 |
 | bx_stack | 9 | 1 (1) | 983 | 112 | 11 | 39 | 10 | 30.5 |
 | calib | 51 | 1 (7) | 2465 | 259 | 13 | 39 | 25 | 22.5 |
@@ -61,6 +63,8 @@ Selection criterion is greedy-decode **val median km**, not val loss. Beam ranki
 | bx_siglip | 80.1 |
 | bx_concat | 0.5 |
 | bx_stack | 2.2 |
+| bx_knn | 4.5 |
+| bank25_train | 26.2 |
 
-**Not completed:** bx_knn (rc=1)
+**Not completed:** bx_knn (rc=1), bank25_eval (rc=1)
 

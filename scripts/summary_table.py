@@ -71,7 +71,7 @@ def main():
 
     for tag in [t.strip() for t in a.tags.split(",") if t.strip()]:
         model, ck, d_street = load_model(tag, dev)
-        sf = street_file_for(d_street)
+        sf = street_file_for(ck, d_street)
         tbl = (street_table(config.STREET_CACHE / sf, dev)
                if ck.get("retr_mode") in ("pos", "dual") else None)
         kn = dict(knn_file=ck.get("knn_file"),

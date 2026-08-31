@@ -37,7 +37,7 @@ def main():
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model, ck, d_street = load_model(a.tag, dev)
-    sf = street_file_for(d_street)
+    sf = street_file_for(ck, d_street)
     tbl = (street_table(config.STREET_CACHE / sf, dev)
            if ck.get("retr_mode") in ("pos", "dual") else None)
     ds = GeoStepDataset("test", street_file=sf,

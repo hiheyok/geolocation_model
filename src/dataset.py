@@ -35,15 +35,29 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     if dev == "cuda" and gb <= budget_gb:
         print("nbr table  {:.2f} GB on cuda".format(gb), flush=True)
         return torch.from_numpy(np.asarray(a)).to(dev)
-    # Third tier, for a bank extension: 11.5 GB will not sit in host RAM beside
-    # four spawned dataloader workers either.  A gather gathers 64x16 rows, so
-    # paging them in beats holding all of it.
-    if gb <= ram_gb:
-        print("nbr table  {:.2f} GB in host RAM  (too large for the card)"
-              .format(gb), flush=True)
+    # Third tier, for a bank extension. Whether it fits is measured, not
+    # assumed: a fixed threshold is either too timid on an idle machine or an
+    # OOM on a busy one, and this decision is made while dataloader workers are
+    # about to be spawned.
+    #
+    # The margin is deliberately wide because the tier below is cheap. Measured
+    # on the 11.52 GB table against the same run held in RAM: 805.1s vs 737.8s
+    # on the first epoch and 747.9 vs 720.3 warm, about 4%. A gather touches
+    # 64x16 rows, so the OS pages in exactly those and the file stays shared
+    # between the workers that also read it. Trading a 4% saving for a chance of
+    # losing a half-hour arm is not a trade worth making.
+    try:
+        import psutil
+        free = psutil.virtual_memory().available / 1e9
+    except Exception:
+        free = 0.0
+    budget = max(ram_gb, 0.4 * free)
+    if gb <= budget:
+        print("nbr table  {:.2f} GB in host RAM  ({:.1f} GB free, too large "
+              "for the card)".format(gb, free), flush=True)
         return torch.from_numpy(np.asarray(a))
-    print("nbr table  {:.2f} GB left on disk as a memmap  (too large for RAM)"
-          .format(gb), flush=True)
+    print("nbr table  {:.2f} GB as a memmap  ({:.1f} GB free; holding it would "
+          "cost more than the ~4% paging does)".format(gb, free), flush=True)
     return torch.from_numpy(a)
 
 

@@ -40,12 +40,33 @@ def load_model(tag, dev):
     return m, ck, d_street
 
 
-def street_file_for(dim, override=None):
-    """Pick the embedding cache whose width matches the checkpoint."""
+def street_file_for(ck, dim, override=None):
+    """The embedding cache this checkpoint was trained against.
+
+    Order of trust: an explicit override, then the name the checkpoint recorded,
+    then -- only for checkpoints predating that field -- a scan for a cache of
+    the right width.
+
+    The scan cannot be the primary answer any more. Several caches now share
+    width 4608: the release's own, a bank extension's, and the two stacked into
+    one index space. They are not interchangeable -- the extension holds no
+    release rows at all -- and a scan would silently return whichever sorts
+    first.
+    """
     if override:
         return override
+    named = ck.get("street_file")
+    if named and (config.STREET_CACHE / named).exists():
+        got = np.load(config.STREET_CACHE / named, mmap_mode="r").shape[1]
+        if got != dim:
+            raise SystemExit(
+                "checkpoint names {} (width {}) but the model wants {}".format(
+                    named, got, dim))
+        return named
     for f in sorted(config.STREET_CACHE.glob("*.f16.npy")):
         if np.load(f, mmap_mode="r").shape[1] == dim:
+            print("street     {}  (checkpoint records none; matched on width)"
+                  .format(f.name))
             return f.name
     raise SystemExit("no cached embeddings with dim {}".format(dim))
 
@@ -178,7 +199,7 @@ def main():
     model, ck, d_street = load_model(a.tag, dev)
     mode = a.split_mode or ck.get("split_mode", sp.PRIMARY)
     check_split(ck, mode, a.split, a.allow_dirty)
-    sf = street_file_for(d_street, a.street_file)
+    sf = street_file_for(ck, d_street, a.street_file)
     street_gpu = None
     if ck.get("retr_mode") in ("pos", "dual"):
         street_gpu = street_table(config.STREET_CACHE / sf, dev)

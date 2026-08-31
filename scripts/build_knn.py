@@ -29,6 +29,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
 import splits as sp
+import tile_math as tm
 
 
 def cache_path(street_file, mode, k, bank_limit=0, ext=None):
@@ -91,12 +92,31 @@ def main():
                 "{:,}; run scripts/stack_bank.py first".format(
                     a.street_file, emb.shape[0], n_rel, ext_n))
         ext_rows = np.arange(n_rel, n_rel + ext_n, dtype=np.int64)
+        ext_keep = np.ones(ext_n, dtype=bool)
+
+        zc = sp.MODES[a.split_mode]
+        if zc is not None:
+            # A cell split holds whole cells out of training to ask whether the
+            # model transfers to unseen regions. The extension has no split
+            # label, so without this it would serve neighbours from exactly the
+            # held-out cells and the question would go unasked.
+            cell = np.asarray(ds["cell_z8"])
+            held = set(np.unique(cell[labels != "train"]).tolist())
+            shift = 4 * tm.STEPS - zc
+            ex = (m["x16"].astype(np.int64) >> shift)
+            ey = (m["y16"].astype(np.int64) >> shift)
+            ext_cell = ex * (1 << zc) + ey
+            ext_keep = ~np.isin(ext_cell, np.fromiter(held, dtype=np.int64))
+            print("bank ext   {:,} of {:,} dropped: they sit in z{} cells this "
+                  "split holds out".format(int((~ext_keep).sum()), ext_n, zc))
+
+        ext_rows = ext_rows[ext_keep]
         bank_rows = np.concatenate([bank_rows, ext_rows])
         # sequence ids must not collide across the two corpora
         _, ext_seq = np.unique(m["sequence"], return_inverse=True)
         seq_id = np.concatenate([seq_id, ext_seq + seq_id.max() + 1])
-        print("bank ext   {:,} images from {}".format(
-            ext_n, ", ".join(str(x) for x in m["shards"])))
+        print("bank ext   {:,} images kept from {}".format(
+            len(ext_rows), ", ".join(str(x) for x in m["shards"])))
 
     # The bank no longer fits on the card: at 1.15M x 4608 it is 10.6 GB in
     # fp16.  Similarity runs against one block at a time and a running top-k is
