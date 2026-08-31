@@ -62,17 +62,20 @@ def load_everything(tag, dev, bank_gpu):
     # split's train side, plus a bank extension if it had one
     knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
-    rows = np.flatnonzero(labels == "train").astype(np.int64)
+    if "bank_rows" in knn:
+        rows = knn["bank_rows"]
+        m = np.load(config.bank_meta(ext), allow_pickle=True) if ext else None
+    else:
+        from build_knn import bank_rows_for
+        rows, m = bank_rows_for(ds, labels, mode, ext or None)
     if ext:
-        m = np.load(config.bank_meta(ext), allow_pickle=True)
-        n_rel = len(labels)
-        keep = np.unique(knn["idx"][knn["idx"] >= n_rel])   # ext rows actually used
-        rows = np.concatenate([rows, keep])
         tx = np.concatenate([tx, m["x16"].astype(np.int64)])
         ty = np.concatenate([ty, m["y16"].astype(np.int64)])
         lat = np.concatenate([lat, np.full(len(m["x16"]), np.nan)])
         lon = np.concatenate([lon, np.full(len(m["x16"]), np.nan)])
-        print("bank ext   {} contributes {:,} rows".format(ext, len(keep)), flush=True)
+        n_ext = int((rows >= len(labels)).sum())
+        print("bank ext   {} contributes {:,} of its {:,} rows"
+              .format(ext, n_ext, len(m["x16"])), flush=True)
 
     emb = np.load(config.STREET_CACHE / sf, mmap_mode="r")
     gb = len(rows) * emb.shape[1] * 2 / 1e9

@@ -38,6 +38,39 @@ def cache_path(street_file, mode, k, bank_limit=0, ext=None):
         street_file, mode, k, bank_limit, ext)
 
 
+
+def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
+    """The rows that make up the bank, in the order they are addressed.
+
+    Release train rows first, then a bank extension appended after them, minus
+    any extension image sitting in a cell this split holds out. Exported because
+    the demo server has to reconstruct exactly the same bank the cache was built
+    from -- it used to approximate it by the extension rows that happened to be
+    someone's neighbour, which quietly lost 29,469 images.
+    """
+    import config
+    rows = np.flatnonzero(labels == "train").astype(np.int64)
+    if bank_limit and bank_limit < len(rows):
+        keep = np.random.default_rng(config.SPLIT_SEED).choice(
+            len(rows), bank_limit, replace=False)
+        rows = rows[np.sort(keep)]
+    if not ext_stem:
+        return rows, None
+    m = np.load(config.bank_meta(ext_stem), allow_pickle=True)
+    n_rel = len(labels)
+    keep = np.ones(len(m["x16"]), dtype=bool)
+    zc = sp.MODES[mode]
+    if zc is not None:
+        cell = np.asarray(ds["cell_z8"])
+        held = np.fromiter(set(np.unique(cell[labels != "train"]).tolist()),
+                           dtype=np.int64)
+        sh = 4 * tm.STEPS - zc
+        ec = ((m["x16"].astype(np.int64) >> sh) * (1 << zc)
+              + (m["y16"].astype(np.int64) >> sh))
+        keep = ~np.isin(ec, held)
+    return np.concatenate([rows, np.arange(n_rel, n_rel + len(keep))[keep]]), m
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--street-file", default="dual_c3.f16.npy")
@@ -189,7 +222,8 @@ def main():
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),
              split_mode=a.split_mode, split_hash=shash,
              street_file=a.street_file,
-             bank_ext=(a.bank_ext or ""), bank_n=len(bank_rows))
+             bank_ext=(a.bank_ext or ""), bank_n=len(bank_rows),
+             bank_rows=bank_rows)
     print("excluded   {:,} same-sequence pairs ({:.1f} per query)".format(
         dropped, dropped / n_rel))
     print("top-1 sim  mean {:.4f}   top-{} sim mean {:.4f}".format(
