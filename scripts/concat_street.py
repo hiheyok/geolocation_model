@@ -24,6 +24,13 @@ def main():
     ap.add_argument("--a", default="embeddings_c3")
     ap.add_argument("--b", default="siglip_c3")
     ap.add_argument("--out", default="dual_c3")
+    ap.add_argument("--scale-b", type=float, default=1.0,
+                    help="multiply the second block before joining. Only "
+                         "the joined vector is L2-normalised downstream, so "
+                         "each block's weight in the cosine is its raw "
+                         "activation norm -- DINOv2 is 82.96 against SigLIP's "
+                         "20.58, i.e. 81/19, which nobody chose. 4.03 makes "
+                         "them equal-norm.")
     ap.add_argument("--chunk", type=int, default=20000)
     a = ap.parse_args()
 
@@ -41,6 +48,8 @@ def main():
     n, d = A.shape[0], A.shape[1] + B.shape[1]
     out = config.STREET_CACHE / (a.out + ".f16.npy")
     print("release    {}".format(config.RELEASE))
+    if a.scale_b != 1.0:
+        print("scale b    {:.3f}".format(a.scale_b))
     print("inputs     {} {}  +  {} {}".format(a.a, A.shape, a.b, B.shape))
     print("output     {}  ({:,}, {})  {:.2f} GB".format(
         out.name, n, d, n * d * 2 / 1e9), flush=True)
@@ -50,7 +59,9 @@ def main():
     for lo in range(0, n, a.chunk):
         hi = min(lo + a.chunk, n)
         C[lo:hi, :A.shape[1]] = A[lo:hi]
-        C[lo:hi, A.shape[1]:] = B[lo:hi]
+        C[lo:hi, A.shape[1]:] = (B[lo:hi] if a.scale_b == 1.0 else
+                                 np.asarray(B[lo:hi], dtype=np.float32)
+                                 * a.scale_b)
         # A zero row means an image the embedding pass never wrote, which would
         # otherwise show up as a mysteriously bad arm rather than as an error.
         zeros += int((np.abs(np.asarray(C[lo:hi], dtype=np.float32)).sum(1) == 0).sum())
