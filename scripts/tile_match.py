@@ -11,7 +11,7 @@ which adds every cross pair at equal weight, including a query sky tile against
 a bank road tile.  Attention would assign selectively.  Showing that mean
 pooling does not help says nothing about whether selective matching would.
 
-So bound it.  Two matchers that no single pooled vector can represent:
+So bound it.  Two matchers that drop the index constraint entirely:
 
   chamfer   mean_i max_j <q_i, b_j>   -- every query tile finds its own best
             partner anywhere in the bank image, with no index constraint and no
@@ -28,10 +28,14 @@ And one that peeks at the label, to bound tile *selection*:
 
 None of the three is shippable -- they need per-tile storage and 36x the
 compare cost, where the bank is the memory-bound part of the system.  That is
-the point.  They are ceilings.  If tiles lose to crops under Chamfer and under
-the oracle, then the information is genuinely not in the tiles and no fusion
-head can retrieve it.  If they win, the fusion head is back on and this script
-says how much is on the table.
+the point: they are references, not products.
+
+Be careful what they bound.  Chamfer says how much the *index constraint* was
+costing, given these tokens and a fixed cosine.  It is NOT a ceiling on a
+learned metric over the same tokens, which could weight the dimensions that
+carry geography and beat a fixed heuristic, and it is not a ceiling on
+contextualisation, which changes the tokens before matching.  What it does
+settle is whether rearranging matches is enough on its own.
 
 Tokens are per-block L2-normalised throughout, which also disposes of the
 baseline question: normalising the DINOv2 and SigLIP halves of a token

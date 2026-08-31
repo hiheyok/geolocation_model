@@ -46,10 +46,26 @@ question; see below.
 throughout so no arm is flattered by the 81/19 imbalance.
 
 **Chamfer** -- `mean_i max_j <q_i, b_j>`, every query tile matched to its best
-partner anywhere in the bank image -- upper-bounds what any *pooled*
-representation can do, since no single vector can represent a data-dependent
-assignment. Under it the tile deficit narrows to -0.67 pp [-1.60, +0.30]:
-parity, not a win, and unshippable at 36x the compare cost and 6x the storage.
+partner anywhere in the bank image -- is soft assignment done optimally, which
+is precisely the job attention is supposed to do. Under it the tile deficit
+narrows from -1.10 pp to **-0.67 pp [-1.60, +0.30]**: parity, not a win, and
+unshippable at 36x the compare cost and 6x the storage.
+
+The differential is the part that supports the mechanism. Order-free matching
+buys **tile6 +0.53 pp** over its own concatenation and **crop3 only +0.10 pp** --
+tiles gain about five times more from dropping the index constraint, exactly as
+predicted if crops already get correspondence free from their 83% overlap and
+tiles do not. Neither figure separates from zero at n=3,000 and it closes under
+half the gap, but the direction and the relative size are both right.
+
+Be careful what this bounds. It says how much the *index constraint* was
+costing, given these tokens and a fixed cosine. It is **not** a ceiling on a
+learned metric over the same tokens, which could weight the dimensions that
+carry geography and beat a fixed heuristic. An earlier version of this note
+claimed it upper-bounded "any pooled representation", which was too strong.
+What it does settle is that rearranging matches is not enough on its own: the
+residual -0.67 pp is the tokens being individually weaker, which no
+reassignment fixes.
 
 **The oracle over query tiles**, which peeks at the label, bounds tile
 *selection*. Raw it looks like tiles winning by +2.23 pp -- but that is 6 draws
@@ -75,6 +91,11 @@ consideration is that crop3 already gets that context at pixel level, inside
 each crop, before the encoder runs -- the input the encoder was trained on --
 whereas token-level attention reconstructs it after information is gone. A
 reason to expect it to start behind, not a proof it cannot win.
+
+Put the comparison one way and it stays honest: **crop3's 83% overlap is a
+hand-designed translation-tolerance mechanism that costs nothing.** Attention
+is a learned one that costs parameters, storage and compute. It does not have
+to work in the abstract; it has to beat the free version.
 
 ### Positions: rotary, and not equally on both axes
 
