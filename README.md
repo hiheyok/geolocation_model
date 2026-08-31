@@ -209,7 +209,7 @@ powershell -ExecutionPolicy Bypass -File scripts/overnight.ps1 -Script scripts/b
 ## Web demo
 
 `scripts/serve.py` puts the agent behind a page: drop in a photograph of any
-size and it answers with a lat/lon — and, more usefully, with **the descent**.
+size — drag it, pick it, or just paste it — and it answers with a lat/lon — and, more usefully, with **the descent**.
 The four map tiles the agent actually looked at are rendered in order, each with
 the cell it chose, so the answer arrives with its own explanation rather than as
 a pin.
