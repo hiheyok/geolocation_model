@@ -119,12 +119,27 @@ is possible from what is on disk. Read τ=0.02 as "no worse, plausibly better at
 the fine end", not as a win. `fh_seed1` in `after.py` re-runs it under a second
 seed for exactly this reason.
 
-**`fh_pos1` is confounded and must not be read as it stands.** Tightening
-positives 5 km → 1 km cut the pair count 377,302 → 25,532, so it trained for
-1,188 steps against 17,676 — a 15× smaller budget. A weaker result is what
-undertraining looks like. `fh_pos1m` in `after.py` re-runs it at `--epochs 179`,
-which restores the step count at 99 steps/epoch, so radius and budget stop being
-the same knob.
+**`fh_pos1`: the confound hypothesis was tested and is false.** Tightening
+positives 5 km → 1 km cuts the pair count 377,302 → 25,532, so the 12-epoch run
+trained for 1,188 steps against 17,676. I predicted a weaker result was
+undertraining and ran `fh_pos1m` at `--epochs 179` to restore the step count
+(17,721 steps, matched). It is **much worse, not better**:
+
+| vs `L0+L1` mean pool | `fh_pos1`, 12 ep | `fh_pos1m`, 179 ep |
+|---|---|---|
+| head alone, `<200 km` | -0.80 [-2.4, +0.8]~ | **-17.63** [-19.6, -15.7] |
+| head alone, median km | 141.4 | 681.2 |
+| combination, `<25 km` | +0.93 [-0.4, +2.2]~ | **-4.93** [-6.6, -3.4] |
+
+179 passes over 25,532 pairs overfits, and the 12-epoch version was the better
+of the two. **Radius and pair count are not separable knobs here**: at 1 km
+there are not enough distinct pairs to support a real budget, so the 15× pair
+advantage *is* the mechanism by which 5 km wins rather than a confound sitting
+on top of it. `fh_combo` and `fh_tau` at 5 km stand as the right configuration.
+
+Worth keeping as a method note: "the losing arm was undertrained" is a
+comfortable hypothesis and it was wrong. Matching the budget cost eight minutes
+and turned a caveat into a result.
 
 ### Higher resolution (`scripts/kartaview_harvest.py`, `res_probe.py`)
 
