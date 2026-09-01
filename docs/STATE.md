@@ -25,9 +25,34 @@ log, which is unusually detailed and worth `git log --oneline -25`.
   geographic holdout as it did on `sequence`? Baseline to beat is
   `s10_cell8_bank25_lr1e4_c` at 247.5 km / 7.66%.
 * `cache/street/s10/bank_ext2_pool.f16.npy` — if it exists, 750k more bank
-  images are embedded and pooled. Next steps then are `stack_bank.py` to join
-  train + ext + ext2, `build_knn.py`, and one training arm. That is the +20.4 pp
-  axis.
+  images are embedded and pooled, and the corpus can go to 2.0M. That is the
+  +20.4 pp axis. The chain is written out below.
+
+### The corpus chain, once `ext2_pool` lands
+
+`build_knn.py --bank-ext` takes one stem and reads one `_meta.npz`, so two
+extensions have to be made to look like one. `scripts/merge_bank_meta.py` does
+that; it was written and tested while block 3 was running.
+
+```
+set OSV_RELEASE=s10
+python scripts/stack_bank.py      --base pool_bal_bank25 --ext bank_ext2_pool                                   --out  pool_bal_bank40
+python scripts/merge_bank_meta.py --parts bank_ext,bank_ext2 --out bank_ext40                                   --emb  pool_bal_bank40.f16.npy
+python scripts/build_knn.py       --street-file pool_bal_bank40.f16.npy                                   --split-mode sequence --k 32                                   --bank-ext bank_ext40
+```
+
+**The part order is a contract.** `stack_bank.py` writes release rows first,
+then the extension in the order given, and `build_knn` reads metadata row *i*
+for embedding row `n_rel + i`. Listing the parts in the other order does not
+fail — every row keeps a valid-looking z16 address, just the wrong one — so
+`--emb` checks the row count, which is the only cheap way to catch it. Expect
+`2,000,000 rows = 500,000 release + 1,500,000 extension`, 6.14 GB at 1536-d,
+against the 3.75M ceiling pooling bought.
+
+Pooling composes with stacking because `pool_street.py` is strictly
+row-independent: it averages three crop tokens per row with no normalisation
+and no fitted statistic, so pooling a stacked bank and stacking pooled banks
+give the same file.
 
 Nothing in block 3 touches `dataset.parquet` or the split hash, so the benchmark
 is intact whatever happens.
