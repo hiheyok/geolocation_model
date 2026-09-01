@@ -82,9 +82,49 @@ negatives to one z6 bucket made it too hard instead — loss 5.08 against a chan
 level of ln(256) = 5.55, i.e. it never learned. Both failure modes recorded.
 
 **The combination works**, and survives an equal-bytes control (PCA back to
-1536-d). After *one* epoch, against the mean pool: +3.80 pp [+0.4, +7.0] at
-200 km, +6.00 [+2.4, +9.6] at 2500 km. Same pattern as crops+tiles — two
-representations that fail differently beat either alone.
+1536-d). Same pattern as crops+tiles — two representations that fail
+differently beat either alone.
+
+#### The four-arm block, settled at 12 epochs (2026-09-01 03:11–03:52)
+
+All figures are `mean + head` PCA'd back to **1536-d**, against the `L0+L1`
+level-weighted mean pool at identical width, so no arm wins on bytes. `~` spans
+zero.
+
+| arm | `<25 km` | `<200 km` | `<2500 km` | median km |
+|---|---|---|---|---|
+| `fh_combo` τ=0.05, d=256, 12 ep | +2.83 [+1.4, +4.4] | +5.73 [+4.1, +7.3] | +7.40 [+6.1, +8.8] | 98.3 |
+| `fh_tau` τ=0.02 | **+3.67** [+2.4, +4.9] | **+6.33** [+4.8, +7.7] | +7.03 [+5.8, +8.3] | **95.9** |
+| `fh_big` d=384, 24 ep | +2.00 [+0.4, +3.6] | +4.40 [+2.6, +6.2] | +5.70 [+4.3, +7.1] | 110.4 |
+| `fh_pos1` 1 km positives | +0.93 [-0.4, +2.2]~ | +1.97 [+0.6, +3.3] | +3.47 [+2.3, +4.7] | 141.4 |
+
+Three things this says, in order of confidence.
+
+**The combination is robust to how the head is trained.** The head *alone* sits
+at -3.7 to -5.6 pp at `<25 km` in every variant; the combination sits at +2.0 to
++3.7. Neither temperature nor capacity nor positive radius changes that
+structure, which is what makes it a property of the two representations rather
+than of one lucky hyperparameter.
+
+**Capacity is not the constraint; the objective is.** `fh_big` has 4.74M
+parameters against 2.50M and twice the steps, and is worse at every threshold.
+Its head-alone `<25 km` falls to -5.57 [-7.5, -3.8], the worst of the four. More
+capacity against globally-drawn negatives buys a better "same continent?"
+answer, which is the wrong axis.
+
+**`fh_tau` is not separated from `fh_combo`.** Those intervals are each against
+the baseline, not paired against each other, and they overlap heavily.
+`fuse_head.py` does not persist per-query errors, so no paired test between arms
+is possible from what is on disk. Read τ=0.02 as "no worse, plausibly better at
+the fine end", not as a win. `fh_seed1` in `after.py` re-runs it under a second
+seed for exactly this reason.
+
+**`fh_pos1` is confounded and must not be read as it stands.** Tightening
+positives 5 km → 1 km cut the pair count 377,302 → 25,532, so it trained for
+1,188 steps against 17,676 — a 15× smaller budget. A weaker result is what
+undertraining looks like. `fh_pos1m` in `after.py` re-runs it at `--epochs 179`,
+which restores the step count at 99 steps/epoch, so radius and budget stop being
+the same knob.
 
 ### Higher resolution (`scripts/kartaview_harvest.py`, `res_probe.py`)
 
