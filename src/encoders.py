@@ -294,7 +294,15 @@ class GeoMem(nn.Module):
         self.unk = n                       # one row for every uncovered tile
         self.emb = nn.Embedding(n + 1, width)
         nn.init.zeros_(self.emb.weight)
-        self.gate = nn.Parameter(torch.zeros(()))
+        # The gate starts at ONE, not zero. The contribution is gate * emb, so
+        # zero-initialising both is a multiplicative deadlock: d/d(emb) = gate
+        # and d/d(gate) = emb, so with both at zero neither ever receives
+        # gradient and the table stays bit-for-bit zero forever. That is not a
+        # null result, it is an untrained parameter, and it looks identical to
+        # one in the metrics. A zero table alone already makes the mechanism
+        # exactly inert at init, which is all the safety that was wanted; the
+        # gate is a readout, and it can only read once the table moves.
+        self.gate = nn.Parameter(torch.ones(()))
         self.q_geo = nn.Linear(d, d_geo) if mode == "key" else None
 
     def rows(self, x0, y0, step):
