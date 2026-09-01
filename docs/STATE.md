@@ -155,8 +155,21 @@ answer, which is the wrong axis.
 the baseline, not paired against each other, and they overlap heavily.
 `fuse_head.py` does not persist per-query errors, so no paired test between arms
 is possible from what is on disk. Read τ=0.02 as "no worse, plausibly better at
-the fine end", not as a win. `fh_seed1` in `after.py` re-runs it under a second
-seed for exactly this reason.
+the fine end", not as a win.
+
+**The result is seed-stable, though** (`fh_seed1`, 09:17). Re-running τ=0.02
+under seed 1, combination against `L0+L1` at equal width:
+
+| seed | `<25 km` | `<200 km` | `<750 km` | `<2500 km` |
+|---|---|---|---|---|
+| 0 | +3.67 | +6.33 | +7.87 | +7.03 |
+| 1 | +3.47 | +6.30 | +8.10 | +6.93 |
+
+Every threshold reproduces within 0.25 pp. That was worth checking: seeds have
+differed by 18 km on the *agent's* metric here
+([[select-on-hit-rate-not-median]]). At retrieval level, 3,000 queries against a
+fixed bank, run-to-run variance is far below the effect, so the fusion-head win
+is not a seed artifact.
 
 **`fh_pos1`: the confound hypothesis was tested and is false.** Tightening
 positives 5 km → 1 km cuts the pair count 377,302 → 25,532, so the 12-epoch run
