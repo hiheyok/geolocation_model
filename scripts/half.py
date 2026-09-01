@@ -91,7 +91,7 @@ def main():
                est=30 * 60, retries=1), True),
         (Stage("w768_eval",
                boot("s10_b40_c6,s10_b55_c6,s10_w768,s10_w768_c4,s10_w768_c6",
-                    "BOOTSTRAP_w768.md"), release=REL, est=15 * 60,
+                    "BOOTSTRAP_w768.md"), release=REL, est=5 * 60,
                retries=1), True),
     ]
 

@@ -2,7 +2,7 @@
 
 Every training stage needs the map server, because `--select hit` decodes 2,000
 validation images an epoch, and so does every beam evaluation. The server goes
-away at 13:30. That does not mean the machine idles: the expensive part of this
+away at 14:15. That does not mean the machine idles: the expensive part of this
 project has never been the training, it is the encoder passes, and those touch
 nothing but the GPU and the shard zips.
 
