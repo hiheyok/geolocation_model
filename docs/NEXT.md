@@ -1,5 +1,8 @@
 # Where to pick this up
 
+> **See `docs/STATE.md` first** for what is running right now and the
+> results from the most recent session. This file is the forward plan.
+
 State as of 2026-08-31. Written to be read cold: what ships, what is closed and
 must not be retried blind, what is open and in what order.
 
