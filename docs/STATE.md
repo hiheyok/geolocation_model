@@ -59,10 +59,10 @@ is intact whatever happens.
 
 ## What ships
 
-**`s10_b40_c6` — 3.6 km median, 367.5 mean, 70.6% within 25 km** on the
-`sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank40.md`, 2026-09-01 09:09).
-Pooled 1536-d street vector, 1.90M-image retrieval bank, ~6.07M trainable
-parameters. Previous: `s10_bal_bank25_c6` at 7.7 km / 64.2% and its pooled twin
+**`s10_b55_c6` — 2.5 km median, 356.7 mean, 73.8% within 25 km** on the
+`sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank55.md`, 2026-09-01 13:28).
+Pooled 1536-d street vector, **2.65M-image** retrieval bank. The previous best,
+`s10_b40_c6` at 3.6 km / 70.6%, held for four hours. Previous: `s10_bal_bank25_c6` at 7.7 km / 64.2% and its pooled twin
 `s10_pool_c6` at 7.7 / 64.1%.
 
 | contrast | median | `<25 km` |
@@ -76,6 +76,61 @@ The last row matters as much as the first two: pooling is *still* free at
 at all. The ladder converges — `b40` → `c4` is separated at +1.5 pp, `c4` → `c6`
 is inside noise — so 6 epochs is the stopping point and the gain is not an
 artifact of an undertrained baseline.
+
+### Two corpus steps, two scored predictions (2026-09-01)
+
+| bank | images | median km | `<25 km` | vs previous |
+|---|---|---|---|---|
+| `pool_c6` | 1.15M | 7.7 | 64.1% | — |
+| `b40_c6` | 1.90M | 3.6 | 70.6% | +6.50 pp [+5.50, +7.64] |
+| **`b55_c6`** | **2.65M** | **2.5** | **73.8%** | **+3.21 pp [+2.40, +4.02]** |
+
+**+9.7 pp and the median down 3.1x, with no architecture change at all.**
+
+The second prediction was made a better way and worked. For the first step I
+log-extrapolated the *metric* and got +9 against +6.5 observed. For the second I
+used the *measured* retrieval-similarity increments instead — 0.8926 -> 0.9000 ->
+0.9046, whose ratio 0.62 tracks the log-corpus ratio 0.66 almost exactly — and
+predicted +3 to +4.5 pp before the arms ran. Observed +3.21. **Predict from the
+cheap measurement, not from the expensive one's history.**
+
+Both ladders converge at c6 (`c4` -> `c6` inside noise), so six epochs stays the
+stopping point.
+
+### 768-d: free at retrieval level, not free in the agent (so far)
+
+`width_probe.py` put the compression knee at 768: -0.17 pp [-1.00, +0.63] on
+any-of-32 `<25 km` against 1536, while 384 was separated at -0.87. A control in
+the same sweep matters as much — PCA-768 also beat taking DINOv2's own 768
+dimensions (-1.83 pp) at identical width, so the second encoder contributes
+something that survives compression rather than the dual-encoder result being a
+claim about width.
+
+The agent disagrees, at least at two epochs. Epoch-matched, same 2.65M bank:
+
+| both 2 ep | median km | `<25 km` |
+|---|---|---|
+| `s10_b55` 1536-d | 2.7 | 72.8% |
+| `s10_w768` 768-d | 3.2 | 70.6% |
+| contrast | [-0.7, -0.2] km separated | **+2.20 pp [+1.46, +2.94] separated** |
+
+**The verdict is open, and the precedent says so quantitatively.** Pooling
+4608 -> 1536 at its own 2-epoch rung was +0.70 to +2.36 pp worse, separated —
+the same signature, the same rung, a very similar magnitude — and recovered to
+[-0.74, +0.94] by rung three. Calling pooling at this stage would have been
+wrong. `w768_4` and `w768_6` are queued and decide it.
+
+Two corrections from this run:
+
+* **768-d is not faster.** 823 s/epoch against 789 s at 1536-d. I predicted
+  halving the width would halve the pages touched per gather; a 1536-d row is
+  3 KB and a 768-d row 1.5 KB, and **both fit in one 4 KB page**, so the fault
+  count per neighbour is one either way. The memory benefit is real, the I/O
+  speedup is not.
+* **The real limiter is fault count, not disk speed.** 16,934 page-ins/sec at
+  66 MB/s while the disk sits 80% idle at 0.20 ms. C: is NVMe and healthy; E:,
+  which holds the shard zips, is a 2 TB **HDD** — which is why sequential
+  `slurp()` took `embed_street` from 3 to 83 MB/s.
 
 ### The corpus axis is not flattening
 
