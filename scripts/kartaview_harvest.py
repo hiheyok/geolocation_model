@@ -44,6 +44,7 @@ harvested here before it enters a bank or a training set.
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -58,6 +59,13 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+
+# config reads OSV_RELEASE at import time and defaults to s01, the 50k release.
+# Seeds are drawn from DATASET_PARQUET, so that default silently caps the seed
+# pool at 50,000 -- which is exactly what truncated the first run's --seeds and
+# made a --seed-skip of 50,000 select nothing at all.
+if not os.environ.get("OSV_RELEASE"):
+    os.environ["OSV_RELEASE"] = "s10"
 
 import config
 
@@ -109,6 +117,10 @@ def main():
     ap.add_argument("--out", default="E:/data/kartaview")
     ap.add_argument("--n", type=int, default=20000, help="images to keep")
     ap.add_argument("--seeds", type=int, default=4000)
+    ap.add_argument("--seed-skip", type=int, default=0,
+                    help="skip this many seeds from the front of the same "
+                         "permutation, so a follow-up run discovers new "
+                         "coordinates instead of re-walking the first run's")
     ap.add_argument("--radius", type=int, default=400, help="metres")
     ap.add_argument("--per-seed", type=int, default=12)
     ap.add_argument("--per-sequence", type=int, default=3,
@@ -164,9 +176,16 @@ def main():
         if len(pool_idx) == 0:
             sys.exit("no OSV-5M images in those countries")
     rng = np.random.default_rng(a.seed)
-    order = pool_idx[rng.permutation(len(pool_idx))[:a.seeds]]
+    perm = rng.permutation(len(pool_idx))
+    order = pool_idx[perm[a.seed_skip:a.seed_skip + a.seeds]]
     print("{:,} seeds x up to {} images each -> clusters, not singletons"
           .format(len(order), a.per_seed), flush=True)
+    if a.seed_skip:
+        # the permutation is a pure function of --seed, so skipping a prefix
+        # gives exactly the coordinates an earlier run did not visit; drawing a
+        # fresh permutation instead would re-walk a random tenth of them
+        print("skipping the first {:,} seeds of this permutation, already "
+              "discovered by an earlier run".format(a.seed_skip), flush=True)
     t0 = time.time()
 
     # ---- phase 1: discover, in parallel.  The JSON is small and the calls are
