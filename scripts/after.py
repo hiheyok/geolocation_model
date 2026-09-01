@@ -38,6 +38,7 @@ Gated: the corpus block is skipped, with a line saying so, if block 3 did not
 finish.  Nothing here touches dataset.parquet or the split hash.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -45,12 +46,24 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
+REL = "s10"
+
+# BEFORE importing config, which reads this at import time and defaults to
+# "s01".  Every Stage carries release=REL into its own subprocess, so the stages
+# were always right; what was wrong was this process, whose STREET_CACHE
+# decides the `have_ext2` gate below.  Launched without the variable it looked
+# in cache/street/s01, found no bank_ext2_pool, and skipped the corpus block --
+# the largest piece of work of the night -- with a message saying block 3 had
+# not finished, when it had.  Mixing releases is silent, not loud, so the
+# default is pinned here rather than left to the caller.
+if not os.environ.get("OSV_RELEASE"):   # unset *or* empty
+    os.environ["OSV_RELEASE"] = REL
+
 import config
 import overnight as O
 from overnight import Stage, load_state, log, run_stage
 from marathon import ARCH, boot, tiles_up
 
-REL = "s10"
 SRC_BANK = "pool_bal_bank25"          # 500k release + 750k bank_ext, pooled
 EXT2_POOL = "bank_ext2_pool"          # 750k more, pooled, from block 3
 BANK40 = "pool_bal_bank40"            # the two stacked: 2.0M rows at 1536-d
