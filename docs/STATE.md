@@ -279,10 +279,17 @@ an ablation.
 
 Two consequences:
 
-* **The information is there and the model is not using it.** Map tokens for the
-  correct child tile are fetched at inference regardless of the split, so "pick
-  the child whose map view matches the street view" is learnable in principle.
-  At s1 it is not happening at all.
+* **The prior is good; `cell8` is built to defeat it.** Measured afterwards with
+  `scripts/occupancy_probe.py` (which largely reproduces `count_table.py`): on
+  `sequence`, a baseline that ignores the image and picks the most-populated
+  child of the true parent scores s0 20.5%, **s1 9.7%**, s2 9.0%, s3 4.0% against
+  a 1.9M corpus, while the model scores 90.6 / **76.2** / 50.2 / 17.0. So the
+  policy is *not* occupancy-driven on the benchmark split — the street image
+  does nearly all the work at s1. What it also carries is a prior that empty
+  cells are unlikely, which is correct almost everywhere and guaranteed wrong on
+  `cell8`, where the answer is always a zero-occupancy cell. Below chance
+  follows from a good prior meeting the one case engineered to defeat it, not
+  from the model ignoring the photograph.
 * **`cell8`'s 247.5 km / 7.66% headline is s0 plus the click head.** Any change
   that improves fine localisation is invisible on this split by construction, so
   `cell8` answers "does this hurt the coarse steps?" and not "does this transfer
