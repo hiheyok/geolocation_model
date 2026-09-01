@@ -46,6 +46,7 @@ would learn to match those instead of learning geography -- the same trap
 """
 
 import argparse
+import zlib
 import sys
 import time
 from pathlib import Path
@@ -70,13 +71,23 @@ THRESH = (1, 25, 200, 750, 2500)
 class FuseHead(nn.Module):
     """Cross-attention between encoder groups, then self-attention, then pool."""
 
-    def __init__(self, d=256, out=768, heads=4, n_reg=9, drop=0.1):
+    def __init__(self, d=256, out=768, heads=4, n_reg=9, drop=0.1,
+                 level_of=None):
         super().__init__()
+        # Which pyramid level each token belongs to. Defaults to the
+        # two-level OSV-5M layout (3 crops then 6 tiles) so existing runs
+        # are unchanged; a high-resolution pyramid passes 3+6+24.
+        if level_of is None:
+            level_of = [0] * 3 + [1] * (n_reg - 3)
+        lv = torch.as_tensor(level_of, dtype=torch.long)
+        assert len(lv) == n_reg, "level_of must cover every token"
+        self.register_buffer("level_of", lv, persistent=True)
+        self.n_lvl = int(lv.max()) + 1
         # separate input projections: the two encoders occupy different native
         # spaces and nothing makes them comparable a priori
         self.proj = nn.ModuleList([nn.Linear(D_ENC, d) for _ in range(2)])
         self.reg = nn.Embedding(n_reg, d)       # which region
-        self.lvl = nn.Embedding(2, d)           # crop or tile -- worth 4 pp
+        self.lvl = nn.Embedding(self.n_lvl, d)  # which scale -- worth 4 pp
         self.enc = nn.Embedding(2, d)           # which encoder
         self.n_cross = nn.LayerNorm(d)
         self.cross = nn.MultiheadAttention(d, heads, dropout=drop,
@@ -108,18 +119,24 @@ class FuseHead(nn.Module):
         nn.init.zeros_(self.out[1].weight)
         nn.init.zeros_(self.out[1].bias)
 
-    @staticmethod
-    def baseline(x):
-        """Level-weighted mean pool: the +1.50 pp arm the head must beat."""
-        c = torch.nn.functional.normalize(x[:, :3].mean(1), dim=-1)
-        t = torch.nn.functional.normalize(x[:, 3:].mean(1), dim=-1)
-        return ((c + t) / 2).flatten(1)          # (B, 2*768)
+    def baseline(self, x):
+        """Level-weighted mean pool: the arm the head must beat.
+
+        The mean of the per-level means, not the mean over tokens. Those differ
+        badly once a level is large: a 3+6+24 pyramid has 73% of its tokens at
+        the deepest level, so token-weighting hands that level the vector, and
+        it measured 4 pp worse at three levels.
+        """
+        per = [torch.nn.functional.normalize(
+            x[:, self.level_of == l].mean(1), dim=-1)
+            for l in range(self.n_lvl)]
+        return torch.stack(per).mean(0).flatten(1)      # (B, 2*768)
 
     def forward(self, x):
         """x: (B, n_reg, 2, 768) -> (B, out), L2-normalised."""
         B, R, E, _ = x.shape
         reg = torch.arange(R, device=x.device)
-        lvl = (reg >= 3).long()                 # 0,1,2 crops; 3.. tiles
+        lvl = self.level_of                     # set from the cache
         h = torch.stack([self.proj[e](x[:, :, e]) for e in range(E)], dim=2)
         h = h + (self.reg(reg) + self.lvl(lvl)).unsqueeze(0).unsqueeze(2)
         h = h + self.enc(torch.arange(E, device=x.device)).view(1, 1, E, -1)
@@ -184,6 +201,10 @@ def main():
     ap.add_argument("--bucket-z", type=int, default=6,
                     help="zoom of the bucket grid; z6 cells are ~626 km")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--tokens", default="osv", choices=("osv", "pyr33"),
+                    help="osv: 3 crops + 6 tiles over OSV-5M, two levels. "
+                         "pyr33: 3 + 6 + 24 over the high-resolution harvest, "
+                         "three levels -- the arm mean pooling cannot judge")
     ap.add_argument("--export", default="",
                     help="stem to write the fused vectors and the trained head "
                          "to, so the agent can be trained on them")
@@ -193,19 +214,43 @@ def main():
     from scipy.spatial import cKDTree
 
     torch.manual_seed(a.seed)
-    sel = np.load(config.STREET_CACHE / "tile6_rows.i64.npy")
-    ds = pq.read_table(config.DATASET_PARQUET)
-    lat = np.asarray(ds["lat"], np.float64)[sel]
-    lon = np.asarray(ds["lon"], np.float64)[sel]
-    seq = np.asarray(ds["sequence"]).astype("U40")[sel]
-    spl = sp.read(ds, "sequence")[0][sel]
-    tr = np.flatnonzero(spl == "train")
-    te = np.flatnonzero(spl == "test")
-    print("{:,} cached rows: {:,} train, {:,} test".format(len(sel), len(tr),
-                                                           len(te)), flush=True)
-
     t0 = time.time()
-    X = load_tokens(sel)
+    if a.tokens == "pyr33":
+        m = np.load(config.STREET_CACHE / "pyr33_meta.npz", allow_pickle=True)
+        lat, lon = m["lat"], m["lon"]
+        seq = m["sequence"].astype("U40")
+        level_of = m["level_of"].tolist()
+        # The harvest has no split of its own. Split whole *sequences*, as the
+        # main benchmark does: frames from one drive are near-duplicates, so a
+        # row-wise split would put a near-copy of every test image in train and
+        # the numbers would be meaningless.
+        # crc32, not hash(): Python salts string hashing per process, so
+        # hash() would silently reshuffle the split on every run and no two
+        # arms would be comparable.
+        h = np.array([zlib.crc32(x.encode()) % 10
+                      for x in seq.tolist()])
+        tr = np.flatnonzero(h < 8)
+        te = np.flatnonzero(h >= 8)
+        X = np.asarray(np.load(config.STREET_CACHE / "pyr33.f16.npy",
+                               mmap_mode="r"), np.float32)
+        X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
+        X = X.astype(np.float16)
+        print("{:,} pyramid rows: {:,} train, {:,} test   levels {}"
+              .format(len(lat), len(tr), len(te), np.bincount(level_of)),
+              flush=True)
+    else:
+        level_of = None
+        sel = np.load(config.STREET_CACHE / "tile6_rows.i64.npy")
+        ds = pq.read_table(config.DATASET_PARQUET)
+        lat = np.asarray(ds["lat"], np.float64)[sel]
+        lon = np.asarray(ds["lon"], np.float64)[sel]
+        seq = np.asarray(ds["sequence"]).astype("U40")[sel]
+        spl = sp.read(ds, "sequence")[0][sel]
+        tr = np.flatnonzero(spl == "train")
+        te = np.flatnonzero(spl == "test")
+        print("{:,} cached rows: {:,} train, {:,} test".format(
+            len(sel), len(tr), len(te)), flush=True)
+        X = load_tokens(sel)
     print("tokens {}  {:.2f} GB  in {:.0f}s".format(X.shape, X.nbytes / 1e9,
                                                     time.time() - t0),
           flush=True)
@@ -228,7 +273,8 @@ def main():
         sys.exit("too few positives; raise --pos-km")
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    model = FuseHead(d=a.d).to(dev)
+    model = FuseHead(d=a.d, n_reg=X.shape[1],
+                     level_of=level_of).to(dev)
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     steps = a.epochs * max(1, len(pairs) // a.batch)
