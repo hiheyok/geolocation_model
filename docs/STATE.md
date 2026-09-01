@@ -157,6 +157,52 @@ native resolution, not a new distribution.
   artifact of reading complementarity only at 25 km.
 * Host-RAM neighbour table being a speed win — it is not, 1461 s against 1457 s.
 
+## The cell8 split cannot measure steps 1-3 (found 2026-09-01 04:20)
+
+Validation per-step tile accuracy on `cell8`, over 5,000 images, teacher-forced
+(the val loop scores `logits.argmax` against `b["action"]` on rows carrying the
+true prefix -- there is no rollout, so s1 is not conditioned on s0 being right):
+
+| run | street vector | s0 | s1 | s2 | s3 |
+|---|---|---|---|---|---|
+| `pc8_a` | pooled 1536 | 70.2% | **0.0%** | 0.4% | 4.0% |
+| `pc8_b` | pooled 1536 | 71.4% | **0.0%** | 0.5% | 4.3% |
+| `rc_c8_lr1` | dual 4608 | 70.2% | **0.0%** | 0.4% | 3.8% |
+| `rc_c8_lr3` | dual 4608 | 70.0% | **0.1%** | 4.6% | 4.3% |
+| `pb_2`, `sequence` split | pooled 1536 | 88.0% | 70.6% | 42.0% | 12.3% |
+
+**Below chance is the finding, not zero.** The action space at each step is 256,
+so an uninformed model scores 0.39% and should get about 20 of 5,000 right by
+luck. It gets at most two. A model that were merely ignorant of held-out cells
+would sit *at* chance; sitting below it means the policy is actively steering
+away from the correct cell.
+
+The mechanism follows from how the split is built. `cell8` holds out whole z8
+cells; s1 is exactly the step that selects the z8 cell; and both the training
+rows and the retrieval bank exclude held-out cells (`build_knn` drops 123,403 of
+the extension's 750,000 for this reason). So the correct s1 action is guaranteed
+to be a cell with no training data, and a policy that has learned *where
+training data exists* -- an occupancy prior -- points away from it every time.
+
+This is the same failure mode as the per-tile key table in
+`tile-memory-is-a-leakage-detector`, but in the shipped policy head rather than
+an ablation.
+
+Two consequences:
+
+* **The information is there and the model is not using it.** Map tokens for the
+  correct child tile are fetched at inference regardless of the split, so "pick
+  the child whose map view matches the street view" is learnable in principle.
+  At s1 it is not happening at all.
+* **`cell8`'s 247.5 km / 7.66% headline is s0 plus the click head.** Any change
+  that improves fine localisation is invisible on this split by construction, so
+  `cell8` answers "does this hurt the coarse steps?" and not "does this transfer
+  geographically?". Read block 2's bootstrap that way.
+
+Not yet measured: the exact count behind "0.0%" (the log rounds to one decimal,
+so it is at most two of 5,000), and whether s1 is recoverable by training
+against map-token matching rather than cell identity.
+
 ## Hazards
 
 **1.45% of OSV-5M frames have their true GPS burned in** as a dashcam overlay,
