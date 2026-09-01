@@ -59,10 +59,49 @@ is intact whatever happens.
 
 ## What ships
 
-`s10_bal_bank25_c6` — **7.7 km median, 386.9 mean, 64.2% within 25 km** on the
-`sequence` test split at n=5,000; **247.5 km / 7.66%** on `cell8`. 9,215,444
-trainable parameters, 178,609,152 frozen. End-to-end diagram in the roadmap
-artifact §9.
+**`s10_b40_c6` — 3.6 km median, 367.5 mean, 70.6% within 25 km** on the
+`sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank40.md`, 2026-09-01 09:09).
+Pooled 1536-d street vector, 1.90M-image retrieval bank, ~6.07M trainable
+parameters. Previous: `s10_bal_bank25_c6` at 7.7 km / 64.2% and its pooled twin
+`s10_pool_c6` at 7.7 / 64.1%.
+
+| contrast | median | `<25 km` |
+|---|---|---|
+| `s10_pool_c6` → `s10_b40_c6` | [+3.4, +4.8] km separated | **+6.50 pp [+5.50, +7.64]** separated |
+| `s10_bal_bank25_c6` → `s10_b40_c6` | [+3.6, +4.9] km separated | +6.50 pp [+5.40, +7.60] separated |
+| `s10_bal_bank25_c6` vs `s10_pool_c6` | inside noise | inside noise |
+
+The last row matters as much as the first two: pooling is *still* free at
+4608 → 1536, which is the only reason a 1.90M bank fits in 6.14 GB of host RAM
+at all. The ladder converges — `b40` → `c4` is separated at +1.5 pp, `c4` → `c6`
+is inside noise — so 6 epochs is the stopping point and the gain is not an
+artifact of an undertrained baseline.
+
+### The corpus axis is not flattening
+
+Bank 1.15M → 1.90M, a factor of 1.65. **Prediction made before the arms
+finished**, so it is scoreable: log-extrapolation from the previous step (400k →
+1.15M, factor 2.9, worth +20.4 pp) gives ~+9 pp, and I predicted materially less,
+naming +2 to +4 pp as the flattening case. Observed **+6.50 [+5.50, +7.64]**.
+Below the log line, so the direction was right; the band I named is excluded by
+the interval, so the magnitude was wrong. Scaling still pays.
+
+Retrieval-level diagnostics measured on the same 500,000 queries before
+training, which is the cheap way to see this coming:
+
+| bank | images | top-1 sim | top-32 sim |
+|---|---|---|---|
+| `bank25` | 1,150,180 | 0.8926 | 0.8532 |
+| `bank40` | 1,900,180 | 0.9000 | 0.8603 |
+
+The new 750k images supply **39.7% of retrieved top-32 neighbours while being
+39.5% of the bank** — exactly proportional, so shards 25-39 are the same
+distribution and the index is growing by clean addition rather than dilution.
+Per-step val accuracy shows where the corpus pays: s0 +2.0, s1 +5.2, **s2 +8.0**,
+s3 +5.2 pp. The middle steps gain most, which is what the retrieval prior is
+for — more neighbours voting on which child cell to descend into.
+
+`cell8` for this arm is not yet measured.
 
 ## Results from the last session, newest first
 
