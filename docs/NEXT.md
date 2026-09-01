@@ -59,19 +59,43 @@ Not for volume — see item 1. OSV-5M is 211 countries but the top 10 are 58.2%
 of the data, the US alone is 24.9%, and **150 of 211 countries have under 1,000
 images** with 71 under 100. More shards inherit that skew.
 
-* **Benchmark comparability.** `Im2GPS3k` (2,997 images), `YFCC4k` (4,536),
-  `GWS15k` (15k, uniformly sampled globally and much harder). Test-only, tiny
-  downloads, and they would situate 7.7 km against published numbers — which
-  this project currently cannot do at all. Cheapest external win by far.
+* **Benchmark comparability.** `Im2GPS3k` (2,997 globally distributed images,
+  a standard out-of-domain generalisation test), `YFCC4k` (4,536), and
+  `GWS15k` (15k, predominantly *unseen* locations and much harder — the closest
+  external analogue to our `cell8` holdout). Test-only, tiny downloads, and they
+  would situate 7.7 km against published numbers, which this project currently
+  cannot do at all. **Cheapest external win by far**, and `GWS15k` in particular
+  would tell us whether the 247.5 km transfer gap is normal or ours.
 * **Geographic rebalancing**, which attacks the `cell8` gap directly (7.7 km
-  against 247.5 km is a transfer failure, and the skew is part of it):
-  * **MSLS** (Mapillary Street-Level Sequences), ~1.6M street-level images with
-    sequence structure — closest in character to OSV-5M, and bank entries need
-    only an image and a coordinate, no training labels.
-  * **MP-16 / YFCC100M geotagged subset**, ~4.7M Flickr images. Far more
-    diverse but much of it is indoor, close-up or landmark photography, so it is
-    a distribution shift rather than more of the same. Would need a
-    does-it-help test, not an assumption.
+  against 247.5 km is a transfer failure, and the skew is part of it).
+
+  * **MP-16 / EMP-16** (Extended MediaEval Placing Tasks 2016), ~4.6M geotagged
+    images taken by ordinary people, drawn from YFCC100M. **This is the one to
+    try.** A 2025 paper builds a "hybrid gallery" of EMP-16 **plus** OSV-5M for
+    retrieval-augmented geolocation — which is exactly the bank-extension use
+    here, published and working. It is also the standard training corpus for the
+    whole Im2GPS lineage, so it is well characterised. The catch is distribution:
+    much of it is indoor, close-up or landmark photography rather than
+    roadside, so it is a shift rather than more of the same, and it needs a
+    does-it-help test rather than an assumption. Bank entries need only an image
+    and a coordinate — no training labels, no sequence structure.
+    <https://arxiv.org/html/2509.01341>
+
+  * **MSLS** (Mapillary Street-Level Sequences), 1.6M street-level images with
+    sequence structure, GPS plus compass angle — closest in *character* to
+    OSV-5M. But it is **30 cities across 6 continents**, i.e. dense urban depth,
+    not global breadth, so it does not attack the skew and would not help on
+    held-out regions. Useful only if the goal is urban density in those specific
+    cities. <https://www.mapillary.com/dataset/places> ·
+    <https://github.com/mapillary/mapillary_sls>
+
+  * **StreetLearn** — 113,767 panoramas, Manhattan and Pittsburgh only. Too
+    narrow to matter here.
+
+  Note OSV-5M itself is 5.1M images over 225 countries and we already hold all
+  98 shards, so it remains the best breadth-per-byte on disk; the skew is
+  inherent to where dashcam and street-view coverage exists, not to our
+  sampling.
 
 E: has 538 GB free.
 
