@@ -184,6 +184,9 @@ def main():
     ap.add_argument("--bucket-z", type=int, default=6,
                     help="zoom of the bucket grid; z6 cells are ~626 km")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--export", default="",
+                    help="stem to write the fused vectors and the trained head "
+                         "to, so the agent can be trained on them")
     a = ap.parse_args()
 
     import pyarrow.parquet as pq
@@ -336,6 +339,25 @@ def main():
         return (X - mu) @ Vt[:d].T
 
     combo_eq = pca_to(combo, base_un.shape[1], np.random.default_rng(0))
+
+    if a.export:
+        # Everything above is a retrieval probe: 3,000 queries against a 96k
+        # bank, never the agent's own metric.  Pooling looked free at this level
+        # too and still needed a training run to confirm it, so the fused vector
+        # has to reach train.py before it is believed.  `sel` is already parquet
+        # row indices, so a street file can be assembled from these two files
+        # without re-running the head.
+        stem = config.STREET_CACHE / a.export
+        np.save(str(stem) + ".f16.npy", combo_eq.astype(np.float16))
+        np.save(str(stem) + "_rows.i64.npy", sel)
+        torch.save({"state": model.state_dict(), "d": a.d, "tau": a.tau,
+                    "pos_km": a.pos_km, "seed": a.seed,
+                    "n_rows": int(len(sel))}, str(stem) + "_head.pt")
+        print("")
+        print("exported {}.f16.npy  {} x {}   (+ _rows.i64.npy, _head.pt)"
+              .format(a.export, len(sel), combo_eq.shape[1]),
+              flush=True)
+        print("NOTE: PCA output is not L2-normalised, like the pooled caches.")
     for name, V in (("L0 crops (mean)", base_l0),
                     ("L0+L1 level (mean)", base_un),
                     ("fusion head (learned)", Z),
