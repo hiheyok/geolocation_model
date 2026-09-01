@@ -53,6 +53,12 @@ from tile_pool import great_circle, l2, paired
 from tile_match import dense_sim, topk_stats
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
+SIGLIP = "vit_base_patch16_siglip_224.v2_webli"
+# DINOv2 is self-supervised on structure and texture, which is largely
+# scale-robust; SigLIP is language-supervised and encodes nameable content --
+# signage, storefronts, script -- which is what extra resolution surfaces. They
+# may not answer the resolution question the same way.
+MODELS = {"dinov2": DINO, "siglip": SIGLIP}
 THRESH = (1, 25, 200, 750, 2500)
 
 # name -> (encoder input size, grid cols, grid rows, pre-downsample short side)
@@ -108,6 +114,10 @@ def main():
     ap.add_argument("--queries", type=int, default=2000)
     ap.add_argument("--batch", type=int, default=24, help="images per forward")
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--model", default="dinov2", choices=sorted(MODELS))
+    ap.add_argument("--save-emb", default=None,
+                    help="write per-arm embeddings here, so mixtures of "
+                         "encoders can be scored without re-embedding")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -129,20 +139,23 @@ def main():
         recs = recs[:a.n]
     arms = [x for x in a.arms.split(",") if x in ARMS]
     mp = np.array([r["w"] * r["h"] for r in recs]) / 1e6
-    print("{:,} images  median {:.1f} MP  (OSV-5M is 0.35)  arms: {}".format(
-        len(recs), np.median(mp), ", ".join(arms)), flush=True)
+    print("{:,} images  median {:.1f} MP  (OSV-5M is 0.35)  encoder {}  "
+          "arms: {}".format(len(recs), np.median(mp), a.model,
+                            ", ".join(arms)), flush=True)
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     models, stats = {}, {}
+    name = MODELS[a.model]
     for size in sorted({ARMS[x][0] for x in arms}):
-        m = timm.create_model(DINO, pretrained=True, num_classes=0,
+        m = timm.create_model(name, pretrained=True, num_classes=0,
                               img_size=size).eval().to(dev)
         cfg = resolve_model_data_config(m)
         models[size] = m
         stats[size] = (torch.tensor(cfg["mean"], device=dev).view(1, 3, 1, 1),
                        torch.tensor(cfg["std"], device=dev).view(1, 3, 1, 1))
-        print("  encoder at {}px  ({} patches)".format(
-            size, (size // 14) ** 2), flush=True)
+        patch = int(name.split("patch")[1].split("_")[0])
+        print("  {} at {}px  ({} patches)".format(
+            a.model, size, (size // patch) ** 2), flush=True)
 
     emb = {x: np.zeros((len(recs), 768), np.float32) for x in arms}
     pool = ThreadPoolExecutor(a.workers)
@@ -194,6 +207,18 @@ def main():
     pool.shutdown()
     print("embedded {:,} images in {:.0f}s ({} unreadable)".format(
         len(recs) - bad, time.time() - t0, bad), flush=True)
+
+    if a.save_emb:
+        d = Path(a.save_emb)
+        d.mkdir(parents=True, exist_ok=True)
+        np.savez(d / ("emb_%s.npz" % a.model),
+                 ids=np.array([r["id"] for r in recs]),
+                 lat=np.array([r["lat"] for r in recs]),
+                 lon=np.array([r["lon"] for r in recs]),
+                 seq=np.array([r["sequence_id"] for r in recs]),
+                 **{x: emb[x] for x in arms})
+        print("saved embeddings -> {}".format(d / ("emb_%s.npz" % a.model)),
+              flush=True)
 
     lat = np.array([r["lat"] for r in recs])
     lon = np.array([r["lon"] for r in recs])

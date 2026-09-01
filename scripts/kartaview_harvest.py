@@ -120,6 +120,13 @@ def main():
                     help="parallel API calls and downloads. Serial harvesting "
                          "ran at 17 s an image -- 98 hours for 20k -- because "
                          "it is latency-bound, not bandwidth-bound.")
+    ap.add_argument("--countries", default="",
+                    help="comma-separated ISO codes to restrict seeds to, e.g. "
+                         "US. Regional restriction is not just cheaper: a "
+                         "globally scattered sample leaves a query's nearest "
+                         "true neighbour hundreds of km away, and resolution is "
+                         "supposed to help at FINE granularity, so a sparse "
+                         "bank cannot measure the thing being tested.")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -143,8 +150,23 @@ def main():
     print("KartaView harvest -> {}   {:,} already held".format(out, len(have)),
           flush=True)
 
+    # Seeds per image matters as much as the count. Many seeds with one image
+    # each gives clusters of one, and the metric then only ever asks "is there a
+    # near-duplicate somewhere on Earth". Few seeds with many images each gives
+    # several *different sequences* through the same place, which is the real
+    # geolocation question and the only way a fine-grained difference shows up.
+    pool_idx = np.arange(len(lat))
+    if a.countries:
+        want = {c.strip().upper() for c in a.countries.split(",") if c.strip()}
+        pool_idx = pool_idx[np.isin(cc, list(want))]
+        print("seeds restricted to {}: {:,} candidate coordinates".format(
+            ",".join(sorted(want)), len(pool_idx)), flush=True)
+        if len(pool_idx) == 0:
+            sys.exit("no OSV-5M images in those countries")
     rng = np.random.default_rng(a.seed)
-    order = rng.permutation(len(lat))[:a.seeds]
+    order = pool_idx[rng.permutation(len(pool_idx))[:a.seeds]]
+    print("{:,} seeds x up to {} images each -> clusters, not singletons"
+          .format(len(order), a.per_seed), flush=True)
     t0 = time.time()
 
     # ---- phase 1: discover, in parallel.  The JSON is small and the calls are
