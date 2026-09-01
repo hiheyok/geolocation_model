@@ -99,6 +99,55 @@ images** with 71 under 100. More shards inherit that skew.
 
 E: has 538 GB free.
 
+### 3b. Higher-resolution imagery — Mapillary's API, not MSLS
+
+OSV-5M frames are 682x512 (0.35 MP) and that cap is load-bearing: it is what
+made OCR read dashcam chrome instead of signage, and it is why tiles carried
+barely more real information than crops.
+
+**Mapillary's API serves the originals.** 98% are available at 2048x1536, i.e.
+**9x the pixels**, globally and community-uploaded rather than the 30 curated
+cities MSLS ships. Per image it exposes `thumb_256/512/1024/2048_url` and
+`thumb_original_url`, plus `computed_geometry` (GPS after processing),
+`computed_compass_angle`, `altitude` and `captured_at` -- the compass angle in
+particular is metadata OSV-5M does not carry.
+
+Access needs a client token (OAuth 2). Rate limits are 60,000 entity requests a
+minute and 10,000 search, but the **tile API is 50,000 per *day***, and the tile
+API is how image IDs are discovered inside a bounding box -- so **discovery is
+the bottleneck, not download**. Plan harvesting around that: pick target regions
+first (the 150 countries with under 1,000 OSV-5M images), enumerate once, then
+pull.
+
+<https://www.mapillary.com/developer/api-documentation>
+
+Storage: 500k images at 2048px is roughly 250-500 GB against 538 GB free on E:.
+Better to stream, embed and discard, the way `embed_street.py` already reads
+from a zip without extracting -- only the embeddings persist, and 500k pooled is
+1.5 GB. The cost of that is re-downloading if the encoder changes; a 1024px
+cache (~75 GB for 500k) is the middle path.
+
+**Two things to settle before spending the bandwidth.**
+
+*Today's pipeline discards the resolution.* `preprocess` scales the short side
+to 224 first, so a 2048px Mapillary image and a 682px OSV-5M frame become the
+same tensor. Higher-resolution data is worth nothing on its own -- it only pays
+**in combination with a pipeline change that consumes it**, which is the tiling
+direction in `docs/tile-fusion.md`. That direction lost at 682px, where six
+tiles carried 4.5x the pixels but each tile was individually weaker than a crop.
+At 2048px the tiles would be genuinely sharper rather than merely more numerous,
+so the experiment is different and worth redoing -- but redo it as an
+experiment, not as an assumption, and re-read why it failed first.
+
+*High resolution is where the GPS leakage becomes readable.* Mapillary hosts
+plenty of dashcam uploads. At 682px burned-in coordinates are unresolvable and
+the 1.45% of affected frames leak harmlessly; at 2048px they are crisp. The
+coordinate regex in `scripts/ocr_probe.py` should be run as a **screening pass**
+over any high-resolution corpus before it enters a bank or a training set.
+Otherwise the first "more pixels helped" result will be the model reading the
+answer off the image.
+
+
 ### 4. The 18-token cross-attention head
 
 The only live architecture idea. +5.00 pp [+4.23, +5.80] of oracle headroom from
