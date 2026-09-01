@@ -114,9 +114,10 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
             f, keys = model.fuse_flat(st, tok, x0, y0, sp)
             # one row per live beam per image, and the learned keys come
             # with it -- see GeoAgent.retr_prior
-            prior = model.retr_prior(
-                nbrs, street, x0, y0, sp, nb,
-                keys.shape[1] + (1 if model.sink is not None else 0))
+            n_logits = keys.shape[1] + (1 if model.sink is not None else 0)
+            prior = model.retr_prior(nbrs, street, x0, y0, sp, nb, n_logits)
+            # and the tile memory, through the same slot -- see _add_geo
+            prior = model._add_geo(prior, f, x0, y0, sp, n_logits)
             logits = model.policy_logits(f, keys, prior).float()
         # With a sink class the softmax spans A+1: log p(a) already decomposes
         # into log p(not-sink) + log p(a | not-sink), so a beam the model

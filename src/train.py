@@ -30,7 +30,12 @@ def param_groups(model, wd):
     for name, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        (no_decay if (p.ndim <= 1 or "pos" in name or "step" in name) else decay).append(p)
+        # "geo" is a sparsely refreshed embedding table: decoupled decay runs
+        # on every step regardless of gradient, so leaving it here would shrink
+        # rows in proportion to how rarely their parent tile is sampled -- an
+        # occupancy bias arriving through a hyperparameter, not the mechanism.
+        rare = p.ndim <= 1 or "pos" in name or "step" in name or "geo." in name
+        (no_decay if rare else decay).append(p)
     return [{"params": decay, "weight_decay": wd},
             {"params": no_decay, "weight_decay": 0.0}]
 
@@ -222,6 +227,15 @@ def build_parser():
                     help="off-path negatives per image; >0 enables the sink class")
     ap.add_argument("--sink-w", type=float, default=1.0,
                     help="weight on the sink loss")
+    ap.add_argument("--geo", choices=["none", "bias", "key"], default="none",
+                    help="a learned key per map tile, added to the policy "
+                         "readout. bias is one scalar per tile, which under "
+                         "teacher forcing converges to the count table and is "
+                         "the control; key is d-dimensional and scored against "
+                         "the fused vector, so only it can be query-dependent. "
+                         "Dense z4+z8 only -- 17 MB, and the levels the data "
+                         "supports.")
+    ap.add_argument("--d-geo", type=int, default=128)
     ap.add_argument("--enc-gate", action="store_true",
                     help="learn one scalar per (step, encoder block) in front "
                          "of the street projection. Assumes a dual cache laid "
@@ -336,7 +350,8 @@ def main():
                      mem=a.mem, d_mem=a.d_mem, mem_drop=a.mem_drop,
                      retr=a.retr, retr_tau=a.retr_tau,
                      retr_mode=a.retr_mode, d_key=a.d_key,
-                     enc_gate=a.enc_gate).to(dev)
+                     enc_gate=a.enc_gate,
+                     geo=a.geo, d_geo=a.d_geo).to(dev)
     prev_epochs = 0
     if a.init:
         prev = torch.load(config.CHECKPOINTS / (a.init + ".pt"),
@@ -345,7 +360,8 @@ def main():
         # A zero-init gate absent from the source is exactly the identity, so
         # this architecture is a strict superset of that one and the older
         # checkpoint transfers without loss. Anything else is a real mismatch.
-        additive = {"street.gate"}
+        additive = {"street.gate", "geo.emb.weight", "geo.gate",
+                    "geo.q_geo.weight", "geo.q_geo.bias"}
         missing = [k for k in missing if k not in additive]
         if missing or unexpected:
             raise SystemExit(
@@ -417,6 +433,7 @@ def main():
                         "retr_mode": a.retr_mode, "d_key": a.d_key,
                         "retr_tau": a.retr_tau, "knn_file": knn_file,
                         "enc_gate": a.enc_gate,
+                        "geo": a.geo, "d_geo": a.d_geo,
                         "split_mode": split_mode,
                         "split_hash": split_hash,
                         "release": config.RELEASE,

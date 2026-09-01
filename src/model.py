@@ -17,7 +17,8 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from encoders import MapTokenizer, MapTransformer, StateEncoder, StreetProj
+from encoders import (GeoMem, MapTokenizer, MapTransformer, StateEncoder,
+                      StreetProj)
 from retrieval import RetrievalPrior
 
 
@@ -27,7 +28,7 @@ class GeoAgent(nn.Module):
                  pool="mean", n_pool_q=4, pos="learned", sink=False,
                  map_loop=False, mem="none", d_mem=64, mem_drop=0.0,
                  retr=False, retr_tau=0.07, retr_mode="scalar", d_key=128,
-                 enc_gate=False):
+                 enc_gate=False, geo="none", d_geo=128):
         super().__init__()
         self.n_actions = n_actions
         self.n_regions = n_actions          # z4 cells and actions are the same grid
@@ -48,6 +49,11 @@ class GeoAgent(nn.Module):
         # scales and the steps decide at different spatial scales, so a single
         # shared ratio is leaving something on the table.
         self.street = StreetProj(d_street, d, n_steps=n_steps if enc_gate else 0)
+        # A learned key per map tile, added to the policy readout. See GeoMem:
+        # absolute geography reaches the logits nowhere else, since the map keys
+        # are built from mask content and the query is shared across candidates.
+        self.geo = None if geo == "none" else GeoMem(d, d_geo, geo, g=int(
+            n_actions ** 0.5))
         self.map = MapTokenizer(n_classes, n_actions, d_tok, d,
                                 pool=pool, n_q=n_pool_q, dropout=dropout,
                                 pos=pos)
@@ -133,6 +139,22 @@ class GeoAgent(nn.Module):
             m = m * keep
         return m
 
+    def geo_bias(self, fused, x0, y0, step, n_logits):
+        """GeoMem's additive logit term, or None when it is not enabled."""
+        if self.geo is None:
+            return None
+        return self.geo(fused, self.geo.rows(x0, y0, step), n_logits)
+
+    def _add_geo(self, prior, fused, x0, y0, step, n_logits):
+        """Fold the tile memory into the same additive slot as the retrieval
+        prior, so every call site that already threads `prior` gets it -- the
+        keyed retrieval branch was once dropped at inference exactly because a
+        second optional term had a second path."""
+        g = self.geo_bias(fused, x0, y0, step, n_logits)
+        if g is None:
+            return prior
+        return g if prior is None else prior + g
+
     def policy_logits(self, fused, keys, prior=None):
         """The action distribution *is* the attention distribution over map tokens."""
         if self.map_tf is not None:
@@ -183,10 +205,12 @@ class GeoAgent(nn.Module):
         passed through here rather than only on the on-path rows.
         """
         f, k = self.fuse(street, tokens, x0, y0, step)
+        n_logits = k.shape[1] + (1 if self.sink is not None else 0)
         prior = self.retr_prior(
             nbrs, street, x0.reshape(-1), y0.reshape(-1), step.reshape(-1),
-            step.shape[1],
-            k.shape[1] + (1 if self.sink is not None else 0))
+            step.shape[1], n_logits)
+        prior = self._add_geo(prior, f, x0.reshape(-1), y0.reshape(-1),
+                              step.reshape(-1), n_logits)
         return self.policy_logits(f, k, prior)
 
     def click_uv(self, fused):
@@ -213,6 +237,12 @@ class GeoAgent(nn.Module):
                 batch["step"][:, :n_policy].reshape(-1),
                 n_policy,
                 kp.shape[1] + (1 if self.sink is not None else 0))
+        prior = self._add_geo(
+            prior, fp,
+            batch["x0"][:, :n_policy].reshape(-1),
+            batch["y0"][:, :n_policy].reshape(-1),
+            batch["step"][:, :n_policy].reshape(-1),
+            kp.shape[1] + (1 if self.sink is not None else 0))
         logits = self.policy_logits(fp, kp, prior).view(B, n_policy, -1)
         uv = self.click_uv(f[:, -1])
         return logits, uv

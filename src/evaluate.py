@@ -35,7 +35,9 @@ def load_model(tag, dev):
                  retr_tau=ck.get("retr_tau", 0.07),
                  retr_mode=ck.get("retr_mode", "scalar"),
                  d_key=ck.get("d_key", 128),
-                 enc_gate=ck.get("enc_gate", False)).to(dev)
+                 enc_gate=ck.get("enc_gate", False),
+                 geo=ck.get("geo", "none"),
+                 d_geo=ck.get("d_geo", 128)).to(dev)
     m.load_state_dict(ck["model"])
     m.eval()
     return m, ck, d_street

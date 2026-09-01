@@ -242,3 +242,92 @@ class StateEncoder(nn.Module):
                        sinusoidal(y0, self.n_freq),
                        self.step(step)], dim=-1)
         return self.mlp(f)
+
+class GeoMem(nn.Module):
+    """A learned key per map tile, added to the policy readout.
+
+    `E(z, x, y) -> R^d`, one independent row per tile, no relation between a
+    tile's row and its parent's.  At step t the 256 candidate children of the
+    current tile are looked up and their rows contribute an additive term to
+    that action's logit, so unlike a fusion-input memory this can say "child 37
+    rather than child 38".
+
+    It fills a gap the architecture has: `logit_i = <q, K_i>` builds K_i purely
+    from the child tile's mask class histogram, so two children with the same
+    class mix are indistinguishable however far apart they are on Earth.
+    Absolute geography reaches the logits nowhere else -- the learned positions
+    in `MapTokenizer` index 0..255 *within* the current tile, and the query is
+    shared across all candidates.
+
+    Levels are dense and shallow on purpose.  z4 is 256 rows and z8 is 65,536,
+    which is 17 MB at 128-d and needs no sparse structure; z12 and z16 would be
+    16.8M and 4.3B rows, and the data does not support them -- 3.9 and 1.1
+    training images per populated cell, with 16% and 91% of test images landing
+    in a cell no training image occupies.  Steps past the covered levels get the
+    `UNK` row, one learned vector shared by every unaddressed tile, so the model
+    can represent "no memory here" distinctly from "memory that says nothing"
+    and learn to lean on map content instead.
+
+    Two modes, because they separate two different claims:
+      bias  one scalar per tile.  Under teacher forcing this converges to the
+            empirical count table p(child | parent), which at s10 scores 8.0%
+            at step 2 where the model scores 42.2% -- so this is the control,
+            and it is expected to add nothing.
+      key   d-dimensional, scored against a projection of the fused vector, so
+            it can express "this tile is likely *given this query*".  Anything
+            it earns over `bias` is the part that is not co-location.
+
+    Zero-init throughout plus a zero-init gate, so an untrained memory is
+    exactly no memory and `--init` from a checkpoint without one is lossless.
+    """
+
+    LEVELS = (4, 8)
+
+    def __init__(self, d=512, d_geo=128, mode="key", g=16):
+        super().__init__()
+        self.mode, self.g, self.d_geo = mode, g, d_geo
+        width = 1 if mode == "bias" else d_geo
+        self.offset, n = {}, 0
+        for z in self.LEVELS:
+            self.offset[z] = n
+            n += (1 << z) * (1 << z)
+        self.unk = n                       # one row for every uncovered tile
+        self.emb = nn.Embedding(n + 1, width)
+        nn.init.zeros_(self.emb.weight)
+        self.gate = nn.Parameter(torch.zeros(()))
+        self.q_geo = nn.Linear(d, d_geo) if mode == "key" else None
+
+    def rows(self, x0, y0, step):
+        """(N,) tile corners and step -> (N, g*g) row ids for the children."""
+        N = x0.shape[0]
+        a = torch.arange(self.g * self.g, device=x0.device)
+        col, row = a % self.g, torch.div(a, self.g, rounding_mode="floor")
+        out = torch.full((N, self.g * self.g), self.unk, dtype=torch.long,
+                         device=x0.device)
+        for t, z in enumerate(self.LEVELS):
+            m = step == t
+            if not bool(m.any()):
+                continue
+            # the child level is z; the parent grid is 2^(z-4) on a side
+            p = 1 << (z - 4)
+            px = torch.round(x0[m] * p).long().clamp_(0, p - 1)
+            py = torch.round(y0[m] * p).long().clamp_(0, p - 1)
+            cx = px.unsqueeze(1) * self.g + col.unsqueeze(0)
+            cy = py.unsqueeze(1) * self.g + row.unsqueeze(0)
+            out[m] = self.offset[z] + cy * (1 << z) + cx
+        return out
+
+    def forward(self, fused, rows, n_logits):
+        """Additive logit contribution, (N, n_logits).  The sink has no tile."""
+        e = self.emb(rows)                                 # (N, A, width)
+        if self.mode == "bias":
+            bias = e.squeeze(-1)
+        else:
+            q = self.q_geo(fused).unsqueeze(-1)
+            bias = torch.bmm(e, q).squeeze(-1) / math.sqrt(self.d_geo)
+        bias = self.gate * bias
+        if n_logits > bias.shape[1]:                       # sink appended
+            bias = torch.cat([bias, torch.zeros(
+                bias.shape[0], n_logits - bias.shape[1],
+                device=bias.device, dtype=bias.dtype)], dim=1)
+        return bias
