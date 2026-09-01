@@ -157,6 +157,28 @@ native resolution, not a new distribution.
   artifact of reading complementarity only at 25 km.
 * Host-RAM neighbour table being a speed win — it is not, 1461 s against 1457 s.
 
+## Block 2 result: the pooled vector reaches parity on cell8 (05:07)
+
+`runs/BOOTSTRAP_pool_cell8.md`. Against `s10_cell8_bank25_lr1e4_c`, the 4608-d
+baseline at 247.5 km / 7.7%:
+
+| arm | median km | mean | `<25 km` | vs baseline (median, `<25 km`) |
+|---|---|---|---|---|
+| `s10_pool_c8` (2 ep) | 260.1 | 1057.1 | 7.1% | [-23.5, -3.2] km, [+0.04, +1.08] pp — **separated, worse** |
+| `s10_pool_c8_c4` (+2) | 245.8 | 1019.2 | 7.6% | [-7.9, +10.3] km, [-0.40, +0.56] pp — inside noise |
+| `s10_pool_c8_c6` (+2) | **243.3** | 1020.6 | 7.6% | [-5.1, +12.6] km, [-0.44, +0.56] pp — inside noise |
+
+**Verdict: pooling is safe on both splits.** The same shape as `sequence`, where
+`s10_pool_c6` sat at [-0.5, +0.7] km and [-0.74, +0.94] pp against its 4608-d
+baseline. A third of the bank bytes costs nothing measurable on either split,
+which is what licenses the 2.0M corpus the third block is embedding for.
+
+Two things worth keeping from the internals. The two-epoch arm *loses*
+separably and the ladder recovers it — matched schedule mattered, exactly as
+`poolbank.py` argued it would, so a single long cosine would have given the
+wrong answer here. And parity on `cell8` means parity **on the coarse steps**,
+for the reason in the next section; it is not evidence about fine localisation.
+
 ## The cell8 split cannot measure steps 1-3 (found 2026-09-01 04:20)
 
 Validation per-step tile accuracy on `cell8`, over 5,000 images, teacher-forced
