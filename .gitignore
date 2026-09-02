@@ -34,3 +34,8 @@ runs/*.log
 runs/errs/
 runs/errs_firstn/
 runs/state.json
+
+# bank_ext*.parquet are 43 MB each and are NOT the benchmark -- they are
+# bank-only shard metadata that build_bank_ext.py regenerates in under a
+# minute. dataset.parquet above is the thing worth tracking.
+data/processed/*/bank_ext*.parquet

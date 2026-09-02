@@ -83,12 +83,12 @@ def main():
                 "--split-mode", "sequence", "--k", "32",
                 "--bank-ext", META], release=REL, est=15 * 60, retries=1),
          False),
-        (Stage("w768_2", train("s10_w768"), release=REL, est=30 * 60,
+        (Stage("w768_2", train("s10_w768"), release=REL, est=20 * 60,
                retries=1), True),
         (Stage("w768_4", train("s10_w768_c4", "s10_w768"), release=REL,
-               est=30 * 60, retries=1), True),
+               est=20 * 60, retries=1), True),
         (Stage("w768_6", train("s10_w768_c6", "s10_w768_c4"), release=REL,
-               est=30 * 60, retries=1), True),
+               est=20 * 60, retries=1), True),
         # boot_existing, not boot: if the last rung is dropped for time its
         # checkpoint will not exist, and bootstrap.py would fail on the missing
         # tag -- losing the arms that did finish, inside the last minutes the
@@ -97,7 +97,7 @@ def main():
                ["scripts/boot_existing.py", "--tags",
                 "s10_b40_c6,s10_b55_c6,s10_w768,s10_w768_c4,s10_w768_c6",
                 "--out", str(O.RUNS / "BOOTSTRAP_w768.md")],
-               release=REL, est=5 * 60, retries=1), True),
+               release=REL, est=2 * 60, retries=1), True),
     ]
 
     for st, needs_tiles in plan:
