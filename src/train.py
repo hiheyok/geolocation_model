@@ -322,7 +322,13 @@ def main():
     if a.workers:
         dl_kw.update(persistent_workers=True, prefetch_factor=4)
     ltr = DataLoader(tr, batch_size=a.batch, shuffle=True, drop_last=False, **dl_kw)
-    lva = DataLoader(va, batch_size=a.batch, shuffle=False, **dl_kw)
+    # The val loader gets no workers. It sees 5,000 images once an epoch, but
+    # persistent_workers kept four of them resident for the whole run at about
+    # 1.5 GB each -- 6 GB of private memory to serve a tenth of the work. That
+    # was affordable while the neighbour table was pageable; with the table
+    # locked on large pages it is not.
+    lva = DataLoader(va, batch_size=a.batch, shuffle=False,
+                     num_workers=0, pin_memory=dl_kw["pin_memory"])
 
     street_gpu = None
     if a.retr and a.retr_mode in ("pos", "dual"):
