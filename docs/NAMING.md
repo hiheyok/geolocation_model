@@ -6,13 +6,13 @@ Tags accreted one experiment at a time and stopped carrying their own meaning:
 
 | tag | what it actually is |
 |---|---|
-| `s10_bal_bank25_c6` | 4608-d, 1.15M bank, 6 ep |
-| `s10_pool_c6` | 1536-d, 1.15M bank, 6 ep |
-| `s10_b55_c6` | 1536-d, 2.65M bank, 6 ep |
-| `s10_w768_c4` | 768-d, 2.65M bank, 4 ep |
+| `d4608-b115-e6` | 4608-d, 1.15M bank, 6 ep |
+| `d1536-b115-e6` | 1536-d, 1.15M bank, 6 ep |
+| `d1536-b265-e6` | 1536-d, 2.65M bank, 6 ep |
+| `d768-b265-e4` | 768-d, 2.65M bank, 4 ep |
 
-`s10_b55_c6` and `s10_w768_c4` differ in **three** dimensions at once and the
-names say none of them. Worse, the bank is not recoverable from `s10_pool_c6` at
+`d1536-b265-e6` and `d768-b265-e4` differ in **three** dimensions at once and the
+names say none of them. Worse, the bank is not recoverable from `d1536-b115-e6` at
 all — a pattern-matching decoder confidently labelled it a 0.40M bank when it
 was trained on 1.15M, which is how a wrong number gets into a table.
 
@@ -39,19 +39,25 @@ Build one with `names.new_tag(width, bank_millions, epochs, split)`.
 Two properties worth having: arms that differ in one dimension differ in one
 field, and an alphabetical listing groups by width then bank then epochs.
 
-## Existing tags are not renamed
+## Existing arms were renamed; their old names still resolve
 
-They are named in every `BOOTSTRAP_*.md`, every commit message, and every
-checkpoint on disk. Renaming would invalidate that record to make new tables
-prettier, which is a bad trade. Instead `src/names.py` holds an **explicit**
+`scripts/rename_arms.py` renamed the 20 width/bank ladder checkpoints in place.
+Checkpoints are gitignored, so this touched no history. The other ~70 on disk
+are architecture ablations on a different axis -- `ab_attn`, `mem_z4_seq`,
+`retr_dual` -- and a width/bank name would state facts about them that are not
+true, so they keep their names.
+
+The old names appear in every `BOOTSTRAP_*.md` and commit message already
+written. `names.ALIASES` maps them onto the new ones so those stay readable, and
+`src/names.py` holds an **explicit**
 table — read off the runner that produced each arm, never inferred — and
 `bootstrap.py` prints a legend above every results table:
 
 ```
 | arm | what it is |
 |---|---|
-| `s10_b55_c6` | 1536-d | 2.65M bank | 6 ep |
-| `s10_w768_c6` | 768-d | 2.65M bank | 6 ep |
+| `d1536-b265-e6` | 1536-d | 2.65M bank | 6 ep |
+| `d768-b265-e6` | 768-d | 2.65M bank | 6 ep |
 ```
 
 An arm that cannot be named honestly is left out of the legend rather than

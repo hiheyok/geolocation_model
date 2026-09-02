@@ -23,7 +23,7 @@ log, which is unusually detailed and worth `git log --oneline -25`.
   pool at 25 km, rather than only at 750 km and beyond?
 * `runs/BOOTSTRAP_pool_cell8.md` — does the pooled 1536-d vector hold on the
   geographic holdout as it did on `sequence`? Baseline to beat is
-  `s10_cell8_bank25_lr1e4_c` at 247.5 km / 7.66%.
+  `d4608-b115-e4-cell8` at 247.5 km / 7.66%.
 * `cache/street/s10/bank_ext2_pool.f16.npy` — if it exists, 750k more bank
   images are embedded and pooled, and the corpus can go to 2.0M. That is the
   +20.4 pp axis. The chain is written out below.
@@ -59,17 +59,17 @@ is intact whatever happens.
 
 ## What ships
 
-**`s10_b55_c6` — 2.5 km median, 356.7 mean, 73.8% within 25 km** on the
+**`d1536-b265-e6` — 2.5 km median, 356.7 mean, 73.8% within 25 km** on the
 `sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank55.md`, 2026-09-01 13:28).
 Pooled 1536-d street vector, **2.65M-image** retrieval bank. The previous best,
-`s10_b40_c6` at 3.6 km / 70.6%, held for four hours. Previous: `s10_bal_bank25_c6` at 7.7 km / 64.2% and its pooled twin
-`s10_pool_c6` at 7.7 / 64.1%.
+`d1536-b190-e6` at 3.6 km / 70.6%, held for four hours. Previous: `d4608-b115-e6` at 7.7 km / 64.2% and its pooled twin
+`d1536-b115-e6` at 7.7 / 64.1%.
 
 | contrast | median | `<25 km` |
 |---|---|---|
-| `s10_pool_c6` → `s10_b40_c6` | [+3.4, +4.8] km separated | **+6.50 pp [+5.50, +7.64]** separated |
-| `s10_bal_bank25_c6` → `s10_b40_c6` | [+3.6, +4.9] km separated | +6.50 pp [+5.40, +7.60] separated |
-| `s10_bal_bank25_c6` vs `s10_pool_c6` | inside noise | inside noise |
+| `d1536-b115-e6` → `d1536-b190-e6` | [+3.4, +4.8] km separated | **+6.50 pp [+5.50, +7.64]** separated |
+| `d4608-b115-e6` → `d1536-b190-e6` | [+3.6, +4.9] km separated | +6.50 pp [+5.40, +7.60] separated |
+| `d4608-b115-e6` vs `d1536-b115-e6` | inside noise | inside noise |
 
 The last row matters as much as the first two: pooling is *still* free at
 4608 → 1536, which is the only reason a 1.90M bank fits in 6.14 GB of host RAM
@@ -110,8 +110,8 @@ The agent disagrees, at least at two epochs. Epoch-matched, same 2.65M bank:
 
 | both 2 ep | median km | `<25 km` |
 |---|---|---|
-| `s10_b55` 1536-d | 2.7 | 72.8% |
-| `s10_w768` 768-d | 3.2 | 70.6% |
+| `d1536-b265-e2` 1536-d | 2.7 | 72.8% |
+| `d768-b265-e2` 768-d | 3.2 | 70.6% |
 | contrast | [-0.7, -0.2] km separated | **+2.20 pp [+1.46, +2.94] separated** |
 
 **The verdict is open, and the precedent says so quantitatively.** Pooling
@@ -281,17 +281,17 @@ native resolution, not a new distribution.
 
 ## Block 2 result: the pooled vector reaches parity on cell8 (05:07)
 
-`runs/BOOTSTRAP_pool_cell8.md`. Against `s10_cell8_bank25_lr1e4_c`, the 4608-d
+`runs/BOOTSTRAP_pool_cell8.md`. Against `d4608-b115-e4-cell8`, the 4608-d
 baseline at 247.5 km / 7.7%:
 
 | arm | median km | mean | `<25 km` | vs baseline (median, `<25 km`) |
 |---|---|---|---|---|
-| `s10_pool_c8` (2 ep) | 260.1 | 1057.1 | 7.1% | [-23.5, -3.2] km, [+0.04, +1.08] pp — **separated, worse** |
-| `s10_pool_c8_c4` (+2) | 245.8 | 1019.2 | 7.6% | [-7.9, +10.3] km, [-0.40, +0.56] pp — inside noise |
-| `s10_pool_c8_c6` (+2) | **243.3** | 1020.6 | 7.6% | [-5.1, +12.6] km, [-0.44, +0.56] pp — inside noise |
+| `d1536-b115-e2-cell8` (2 ep) | 260.1 | 1057.1 | 7.1% | [-23.5, -3.2] km, [+0.04, +1.08] pp — **separated, worse** |
+| `d1536-b115-e4-cell8` (+2) | 245.8 | 1019.2 | 7.6% | [-7.9, +10.3] km, [-0.40, +0.56] pp — inside noise |
+| `d1536-b115-e6-cell8` (+2) | **243.3** | 1020.6 | 7.6% | [-5.1, +12.6] km, [-0.44, +0.56] pp — inside noise |
 
 **Verdict: pooling is safe on both splits.** The same shape as `sequence`, where
-`s10_pool_c6` sat at [-0.5, +0.7] km and [-0.74, +0.94] pp against its 4608-d
+`d1536-b115-e6` sat at [-0.5, +0.7] km and [-0.74, +0.94] pp against its 4608-d
 baseline. A third of the bank bytes costs nothing measurable on either split,
 which is what licenses the 2.0M corpus the third block is embedding for.
 

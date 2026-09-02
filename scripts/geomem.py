@@ -46,7 +46,7 @@ from overnight import Stage, load_state, log, run_stage
 from marathon import ARCH, BAL_BANK, KNN_BALBANK_SEQ, boot, tiles_up
 
 REL = "s10"
-FROM = "s10_bal_bank25_c6"
+FROM = "d4608-b115-e6"
 
 
 def cont(tag, extra, epochs=2):
@@ -125,7 +125,7 @@ def main():
         Stage("gm_key", cont("s10_geo_key", ["--geo", "key", "--d-geo", "128"]),
               release=REL, est=27 * 60, retries=1),
         Stage("gm_eval",
-              boot("s10_bal_bank25_c6,s10_bal_c8,s10_geo_bias,s10_geo_key",
+              boot("d4608-b115-e6,s10_bal_c8,s10_geo_bias,s10_geo_key",
                    "BOOTSTRAP_geomem.md"), release=REL, est=10 * 60,
               retries=1),
     ]

@@ -114,7 +114,7 @@ def main():
          "ranked on s0-s{}".format(a.split, len(errs[tags[0]]), a.reps,
                                    a.beam, a.score_steps - 1), ""]
     # A legend, because the tags alone do not say what differs between arms:
-    # s10_b55_c6 and s10_w768_c4 differ in width AND bank AND epochs, and
+    # d1536-b265-e6 and d768-b265-e4 differ in width AND bank AND epochs, and
     # nothing in either name says so. names.describe reads from an explicit
     # table, so an arm it cannot name honestly is simply left out.
     known = [(t, names.describe(t)) for t in tags if names.describe(t)]

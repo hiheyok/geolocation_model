@@ -152,8 +152,8 @@ def main():
 
     print("\nThe model, for comparison (val, teacher-forced, from the training "
           "logs):")
-    print("  s10_b40_c4 on sequence   s0 90.6%  s1 76.2%  s2 50.2%  s3 17.0%")
-    print("  s10_pool_c8_c4 on cell8  s0 71.4%  s1  0.0%  s2  0.5%  s3  4.3%")
+    print("  d1536-b190-e4 on sequence   s0 90.6%  s1 76.2%  s2 50.2%  s3 17.0%")
+    print("  d1536-b115-e4-cell8 on cell8  s0 71.4%  s1  0.0%  s2  0.5%  s3  4.3%")
     print("\nThe gap above the 'corpus' row is what the street image bought.")
 
 

@@ -94,15 +94,15 @@ def main():
                ["scripts/build_knn.py", "--street-file", POOL_BANK,
                 "--split-mode", "cell8", "--k", "32", "--bank-ext", "bank_ext"],
                release=REL, est=10 * 60, retries=1), False),
-        (Stage("pc8_a", train_c8("s10_pool_c8"), release=REL, est=30 * 60,
+        (Stage("pc8_a", train_c8("d1536-b115-e2-cell8"), release=REL, est=30 * 60,
                retries=1), True),
-        (Stage("pc8_b", train_c8("s10_pool_c8_c4", "s10_pool_c8"), release=REL,
+        (Stage("pc8_b", train_c8("d1536-b115-e4-cell8", "d1536-b115-e2-cell8"), release=REL,
                est=30 * 60, retries=1), True),
-        (Stage("pc8_c", train_c8("s10_pool_c8_c6", "s10_pool_c8_c4"),
+        (Stage("pc8_c", train_c8("d1536-b115-e6-cell8", "d1536-b115-e4-cell8"),
                release=REL, est=30 * 60, retries=1), True),
         (Stage("pc8_eval",
-               boot("s10_cell8_bank25_lr1e4_c,s10_pool_c8,s10_pool_c8_c4,"
-                    "s10_pool_c8_c6", "BOOTSTRAP_pool_cell8.md"),
+               boot("d4608-b115-e4-cell8,d1536-b115-e2-cell8,d1536-b115-e4-cell8,"
+                    "d1536-b115-e6-cell8", "BOOTSTRAP_pool_cell8.md"),
                release=REL, est=15 * 60, retries=1), True),
 
         # ---- block 3: more corpus, the biggest prize and the longest chain

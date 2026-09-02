@@ -9,9 +9,9 @@ Block 3 embeds and pools 750k more images but stops there, so on its own it
 changes no metric.  This runs the chain that turns those bytes into a number --
 stack, merge the two extension metadata files, rebuild the neighbour index at
 2.0M, then the same 2+2+2 ladder `poolbank.py` used, so the only thing that
-differs from `s10_pool_c6` is how many images the bank holds.
+differs from `d1536-b115-e6` is how many images the bank holds.
 
-Matched on schedule, not just on epochs: `s10_pool_c6` was 2 epochs, then +2
+Matched on schedule, not just on epochs: `d1536-b115-e6` was 2 epochs, then +2
 from a restart, then +2, and one long cosine is a different trajectory.
 
 **2. Two controls the fusion-head block earned.**
@@ -118,15 +118,15 @@ def main():
                 "--split-mode", "sequence", "--k", "32",
                 "--bank-ext", META40], release=REL, est=30 * 60, retries=1),
          False),
-        (Stage("b40_2", train("s10_b40"), release=REL, est=30 * 60,
+        (Stage("b40_2", train("d1536-b190-e2"), release=REL, est=30 * 60,
                retries=1), True),
-        (Stage("b40_4", train("s10_b40_c4", "s10_b40"), release=REL,
+        (Stage("b40_4", train("d1536-b190-e4", "d1536-b190-e2"), release=REL,
                est=30 * 60, retries=1), True),
-        (Stage("b40_6", train("s10_b40_c6", "s10_b40_c4"), release=REL,
+        (Stage("b40_6", train("d1536-b190-e6", "d1536-b190-e4"), release=REL,
                est=30 * 60, retries=1), True),
         (Stage("b40_eval",
-               boot("s10_bal_bank25_c6,s10_pool_c6,s10_b40,s10_b40_c4,"
-                    "s10_b40_c6", "BOOTSTRAP_bank40.md"),
+               boot("d4608-b115-e6,d1536-b115-e6,d1536-b190-e2,d1536-b190-e4,"
+                    "d1536-b190-e6", "BOOTSTRAP_bank40.md"),
                release=REL, est=15 * 60, retries=1), True),
     ]
 

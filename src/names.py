@@ -26,34 +26,59 @@ import re
 # tag -> (street width, bank in millions of images, epochs, split)
 # Read off the runner that produced each arm, not guessed from the name.
 KNOWN = {
-    # 4608-d dual vector, poolbank.py / marathon.py
-    "s10_bal_bank25":      (4608, 1.15, 2, "sequence"),
-    "s10_bal_bank25_c4":   (4608, 1.15, 4, "sequence"),
-    "s10_bal_bank25_c6":   (4608, 1.15, 6, "sequence"),
-    # 1536-d pooled, same 1.15M bank -- the pooling comparison
-    "s10_pool":            (1536, 1.15, 2, "sequence"),
-    "s10_pool_c4":         (1536, 1.15, 4, "sequence"),
-    "s10_pool_c6":         (1536, 1.15, 6, "sequence"),
-    # pooled on the geographic holdout
-    "s10_pool_c8":         (1536, 1.15, 2, "cell8"),
-    "s10_pool_c8_c4":      (1536, 1.15, 4, "cell8"),
-    "s10_pool_c8_c6":      (1536, 1.15, 6, "cell8"),
-    "s10_cell8_bank25_lr1e4":   (4608, 1.15, 2, "cell8"),
-    "s10_cell8_bank25_lr1e4_c": (4608, 1.15, 4, "cell8"),
-    # corpus ladder, 1536-d pooled
-    "s10_b40":             (1536, 1.90, 2, "sequence"),
-    "s10_b40_c4":          (1536, 1.90, 4, "sequence"),
-    "s10_b40_c6":          (1536, 1.90, 6, "sequence"),
-    "s10_b55":             (1536, 2.65, 2, "sequence"),
-    "s10_b55_c4":          (1536, 2.65, 4, "sequence"),
-    "s10_b55_c6":          (1536, 2.65, 6, "sequence"),
-    "s10_b70":             (1536, 3.50, 2, "sequence"),
-    "s10_b70_c4":          (1536, 3.50, 4, "sequence"),
-    "s10_b70_c6":          (1536, 3.50, 6, "sequence"),
-    # 768-d projection, on the 2.65M bank
-    "s10_w768":            (768, 2.65, 2, "sequence"),
-    "s10_w768_c4":         (768, 2.65, 4, "sequence"),
-    "s10_w768_c6":         (768, 2.65, 6, "sequence"),
+    "d1536-b115-e2": (1536, 1.15, 2, 'sequence'),
+    "d1536-b115-e2-cell8": (1536, 1.15, 2, 'cell8'),
+    "d1536-b115-e4": (1536, 1.15, 4, 'sequence'),
+    "d1536-b115-e4-cell8": (1536, 1.15, 4, 'cell8'),
+    "d1536-b115-e6": (1536, 1.15, 6, 'sequence'),
+    "d1536-b115-e6-cell8": (1536, 1.15, 6, 'cell8'),
+    "d1536-b190-e2": (1536, 1.9, 2, 'sequence'),
+    "d1536-b190-e4": (1536, 1.9, 4, 'sequence'),
+    "d1536-b190-e6": (1536, 1.9, 6, 'sequence'),
+    "d1536-b265-e2": (1536, 2.65, 2, 'sequence'),
+    "d1536-b265-e4": (1536, 2.65, 4, 'sequence'),
+    "d1536-b265-e6": (1536, 2.65, 6, 'sequence'),
+    "d1536-b350-e2": (1536, 3.5, 2, 'sequence'),
+    "d1536-b350-e4": (1536, 3.5, 4, 'sequence'),
+    "d1536-b350-e6": (1536, 3.5, 6, 'sequence'),
+    "d4608-b115-e2": (4608, 1.15, 2, 'sequence'),
+    "d4608-b115-e2-cell8": (4608, 1.15, 2, 'cell8'),
+    "d4608-b115-e4": (4608, 1.15, 4, 'sequence'),
+    "d4608-b115-e4-cell8": (4608, 1.15, 4, 'cell8'),
+    "d4608-b115-e6": (4608, 1.15, 6, 'sequence'),
+    "d768-b265-e2": (768, 2.65, 2, 'sequence'),
+    "d768-b265-e4": (768, 2.65, 4, 'sequence'),
+    "d768-b265-e6": (768, 2.65, 6, 'sequence'),
+}
+
+# Names used before docs/NAMING.md existed. They appear in every
+# BOOTSTRAP_*.md and commit message already written, so they keep
+# decoding; the files themselves were renamed by
+# scripts/rename_arms.py.
+ALIASES = {
+    "s10_b40": "d1536-b190-e2",
+    "s10_b40_c4": "d1536-b190-e4",
+    "s10_b40_c6": "d1536-b190-e6",
+    "s10_b55": "d1536-b265-e2",
+    "s10_b55_c4": "d1536-b265-e4",
+    "s10_b55_c6": "d1536-b265-e6",
+    "s10_b70": "d1536-b350-e2",
+    "s10_b70_c4": "d1536-b350-e4",
+    "s10_b70_c6": "d1536-b350-e6",
+    "s10_bal_bank25": "d4608-b115-e2",
+    "s10_bal_bank25_c4": "d4608-b115-e4",
+    "s10_bal_bank25_c6": "d4608-b115-e6",
+    "s10_cell8_bank25_lr1e4": "d4608-b115-e2-cell8",
+    "s10_cell8_bank25_lr1e4_c": "d4608-b115-e4-cell8",
+    "s10_pool": "d1536-b115-e2",
+    "s10_pool_c4": "d1536-b115-e4",
+    "s10_pool_c6": "d1536-b115-e6",
+    "s10_pool_c8": "d1536-b115-e2-cell8",
+    "s10_pool_c8_c4": "d1536-b115-e4-cell8",
+    "s10_pool_c8_c6": "d1536-b115-e6-cell8",
+    "s10_w768": "d768-b265-e2",
+    "s10_w768_c4": "d768-b265-e4",
+    "s10_w768_c6": "d768-b265-e6",
 }
 
 # the documented scheme: d<width>-b<bank in units of 0.01M>-e<epochs>[-cell8]
@@ -62,6 +87,7 @@ _SCHEME = re.compile(r"d(\d+)-b(\d+)-e(\d+)(?:-(\w+))?$")
 
 def parts(tag):
     """(width, bank_millions, epochs, split) or None."""
+    tag = ALIASES.get(tag, tag)
     if tag in KNOWN:
         return KNOWN[tag]
     m = _SCHEME.search(tag)
