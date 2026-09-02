@@ -76,6 +76,7 @@ def main():
 
     import timm
     from PIL import Image
+    from collections import deque
     from concurrent.futures import ThreadPoolExecutor
 
     root = Path(a.data)
@@ -141,6 +142,26 @@ def main():
             mname, cfg["input_size"], cfg["mean"], cfg["std"]), flush=True)
         t0, seen = time.time(), 0
         with ThreadPoolExecutor(a.workers) as pool, torch.no_grad():
+            def decoded(keys, window):
+                """Decode on the pool, at most `window` images in flight.
+
+                Not ThreadPoolExecutor.map: that submits every task at once and
+                buffers every result, so it would hold all 18,812 decoded 6 MP
+                images -- roughly 340 GB -- and die on an 882 KiB allocation.
+                tile_cache.py carries the same warning; this is the same bug.
+                """
+                q, it = deque(), iter(keys)
+                def top_up():
+                    while len(q) < window:
+                        nxt = next(it, None)
+                        if nxt is None:
+                            return
+                        q.append(pool.submit(load_img, nxt))
+                top_up()
+                while q:
+                    yield q.popleft().result()
+                    top_up()
+
             buf_v, buf_k = [], []
 
             def flush():
@@ -158,7 +179,7 @@ def main():
                 buf_v.clear()
                 buf_k.clear()
 
-            for k, im in pool.map(load_img, todo.tolist()):
+            for k, im in decoded(todo.tolist(), 2 * a.workers):
                 if im is None:
                     continue
                 v = variants(im, LEVELS)
