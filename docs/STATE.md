@@ -59,7 +59,7 @@ is intact whatever happens.
 
 ## What ships
 
-**`d1536-b265-e6` — 2.5 km median, 356.7 mean, 73.8% within 25 km** on the
+**`d1536-b350-e6` — 1.8 km median, 311.0 mean, 76.2% within 25 km** on the
 `sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank55.md`, 2026-09-01 13:28).
 Pooled 1536-d street vector, **2.65M-image** retrieval bank. The previous best,
 `d1536-b190-e6` at 3.6 km / 70.6%, held for four hours. Previous: `d4608-b115-e6` at 7.7 km / 64.2% and its pooled twin
@@ -131,6 +131,50 @@ Two corrections from this run:
   66 MB/s while the disk sits 80% idle at 0.20 ms. C: is NVMe and healthy; E:,
   which holds the shard zips, is a 2 TB **HDD** — which is why sequential
   `slurp()` took `embed_street` from 3 to 83 MB/s.
+
+### 3.50M corpus: 1.8 km / 76.2%, prediction landed (2026-09-02 00:45)
+
+| bank | median km | mean | `<25 km` | vs previous |
+|---|---|---|---|---|
+| 1.15M | 7.7 | 391.4 | 64.1% | — |
+| 1.90M | 3.6 | 367.5 | 70.6% | +6.50 [+5.50, +7.64] |
+| 2.65M | 2.5 | 356.7 | 73.8% | +3.21 [+2.40, +4.02] |
+| **3.50M** | **1.8** | **311.0** | **76.2%** | **+2.34 [+1.56, +3.12]** |
+
+**Predicted +2.0 to +2.6 pp, centre +2.3, before the arms ran. Observed +2.34.**
+Third correct pre-registration from the retrieval-derived method. Across three
+steps: 4.3x median reduction, +12.1 pp, architecture untouched.
+
+### The benchmark measures bank coverage as much as it measures the model
+
+1,000 KartaView images through the shipping pipeline and the real beam rollout,
+same settings as the benchmark: **442.6 km median / 12.8% `<25 km`**, against
+2.7 / 72.8% for the same checkpoint on OSV-5M test.
+
+Two explanations were tested and both are dead:
+
+* **Aspect ratio.** KartaView mixes portrait, square, 4:3 and 16:9 where OSV-5M
+  is uniformly 910x512, and for a portrait image the three-crop scheme
+  degenerates to one repeated centre crop. But top-1 similarity is flat across
+  every bucket -- 0.7010 / 0.7250 / 0.7146 / **0.7129 for 16:9**, the shape that
+  matches OSV-5M exactly.
+* **Domain shift in the encoder.** Falsified by the self-retrieval control:
+  KartaView against the 2.75M OSV-5M bank scores **0.7103**, KartaView against
+  *other KartaView images* scores **0.6830**. It retrieves better from OSV-5M
+  than from itself, which is what a 146x larger bank should do. There is no
+  cross-corpus embedding gap.
+
+What is left is **corpus density**. OSV-5M's 0.90 top-1 comes from queries whose
+own streets the bank densely covers -- the `sequence` split holds out a drive
+but not the road. That is legitimate geolocation and it is how the system is
+meant to work, but it means the headline number is partly a statement about how
+well the bank covers the test split's streets. A photo 400 m away facing a
+different direction has thin coverage, top-1 falls to 0.71, and the system
+degrades with it.
+
+Every comparison here is unaffected -- all arms are measured identically -- but
+the absolute numbers are optimistic as a claim about arbitrary photographs. It
+also reframes what corpus scaling buys: coverage, not just accuracy.
 
 ### 768-d costs about a point, and it is worth paying (2026-09-01 22:00)
 
