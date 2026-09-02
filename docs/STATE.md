@@ -132,6 +132,65 @@ Two corrections from this run:
   which holds the shard zips, is a 2 TB **HDD** — which is why sequential
   `slurp()` took `embed_street` from 3 to 83 MB/s.
 
+### 768-d costs about a point, and it is worth paying (2026-09-01 22:00)
+
+Full ladder, both arms on the 2.65M bank. Positive means 768-d is worse.
+
+| rung | 1536-d | 768-d | `<25 km` deficit |
+|---|---|---|---|
+| e2 | 2.7 km / 376.8 mean / 72.8% | 3.2 / 369.2 / 70.6% | +3.23 [+2.46, +4.00] |
+| e4 | 2.6 / 352.0 / 73.6% | 2.8 / 356.4 / 72.3% | +1.49 [+0.76, +2.22] |
+| e6 | **2.5 / 356.7 / 73.8%** | 2.7 / **330.8** / 72.8% | **+1.05 [+0.28, +1.82]** |
+
+The gap closes (3.23 -> 1.49 -> 1.05) and both ladders converge, but unlike
+pooling it does not reach parity. **768-d costs ~1 pp**, at the noise floor.
+
+Note the mean: 768-d is *better* there at e6, 330.8 against 356.7, while worse
+on median and hit rate. PCA discards low-variance directions that sharpen fine
+discrimination and keeps the coarse structure that prevents wrong-continent
+errors, so it trades the head of the distribution for the tail.
+
+**Adopt it anyway.** Doubling the corpus is worth ~+3.9 pp against a 1.05 pp
+width cost, so equal-memory nets ~+2.8 pp -- and at 1536-d a 4.90M table is
+15.05 GB, which can never clear `0.4 x free` on a 31.7 GB machine. 768-d is the
+only configuration where the whole of OSV-5M is resident (7.53 GB).
+
+### Mean km barely moves while the median collapses
+
+Across two corpus steps: median 7.7 -> 2.5 km (3.1x), mean 386.9 -> 356.7 (8%).
+Corpus scaling fixes the typical case and leaves the tail alone -- a 5,000-image
+mean near 360 km is dominated by a few hundred images landing on the wrong
+continent, and more neighbours do not help an image whose content matches
+nowhere. On `cell8` the mean sits at ~1,020 km for every arm, because there
+almost everything is tail. The mean is close to useless for selection here,
+which is why `--select hit` exists.
+
+### Attention over the 33-token pyramid: null, and confounded
+
+| vs `L0+L1+L2` level mean | `<25 km` | median km |
+|---|---|---|
+| fusion head alone | **-15.75** [-17.8, -13.8] | 693.7 |
+| mean + head, PCA 1536 | **-2.15** [-3.8, -0.5] | 346.7 |
+
+A collapse, not a marginal loss -- and the same head gained +3.67 pp on OSV-5M.
+**Do not read this as "attention cannot extract L2".** It trained on 14,938
+images against 96,091, with 33 tokens instead of 9. Loss plateaued at 3.35
+against a 5.55 chance level: it learned something that does not transfer. The
+120k-image harvest is what disambiguates data volume from architecture.
+
+What does stand: mean pooling provably cannot extract L2. Level weighting
+recovers two thirds of the three-level penalty (-2.90 -> -0.97 at 25 km) but
+still does not make it pay, and the levels are not redundant -- L0 vs L2 cosine
+is 0.615.
+
+### Large pages: only as the first big allocation after boot
+
+Confirmed twice in one evening. 10.75 GB succeeds on a freshly booted idle
+machine; four hours later with three jobs running, 4.22 GB succeeds and 10.75 GB
+fails with ERROR_NO_SYSTEM_RESOURCES. The tier in `dataset.py` falls back
+cleanly and says why. To use it on the 3.50M table, reboot and start the ladder
+before anything else.
+
 ### The corpus axis is not flattening
 
 Bank 1.15M → 1.90M, a factor of 1.65. **Prediction made before the arms
