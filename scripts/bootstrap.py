@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import config
+import names
 import splits as sp
 import tile_math as tm
 from beam import TokenSource
@@ -99,7 +100,7 @@ def main():
     errs = {}
     for t in tags:
         errs[t] = errors_for(t, a.split, a.n, a.beam, a.score_steps, dev, source)
-        print("{:<18} n={:,}  median {:7.1f} km  mean {:8.1f}  <25km {:5.1%}"
+        print("{:<24} n={:,}  median {:7.1f} km  mean {:8.1f}  <25km {:5.1%}"
               .format(t, len(errs[t]), float(np.median(errs[t])),
                       float(errs[t].mean()), float((errs[t] < 25).mean())),
               flush=True)
@@ -112,6 +113,17 @@ def main():
     L = ["", "paired bootstrap, {} split, {:,} images, {:,} resamples, k={}, "
          "ranked on s0-s{}".format(a.split, len(errs[tags[0]]), a.reps,
                                    a.beam, a.score_steps - 1), ""]
+    # A legend, because the tags alone do not say what differs between arms:
+    # s10_b55_c6 and s10_w768_c4 differ in width AND bank AND epochs, and
+    # nothing in either name says so. names.describe reads from an explicit
+    # table, so an arm it cannot name honestly is simply left out.
+    known = [(t, names.describe(t)) for t in tags if names.describe(t)]
+    if known:
+        L.append("| arm | what it is |")
+        L.append("|---|---|")
+        for t, d in known:
+            L.append("| `{}` | {} |".format(t, d))
+        L.append("")
     L.append("| contrast | median diff, 95% CI | | <25km diff, 95% CI | |")
     L.append("|---|---|---|---|---|")
     for x, y in itertools.combinations(tags, 2):
