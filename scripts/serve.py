@@ -107,29 +107,66 @@ def load_everything(tag, dev, bank_gpu):
                  client=T.TileClient(config.TILE_SERVER),
                  street=torch.from_numpy(np.asarray(emb)) if not bank_gpu else None,
                  k=ck.get("retr_k", 16))
+    # sf is the checkpoint's own street file, resolved above
+    STATE["enc_scale"] = [1.0, 4.03 if "bal" in sf or "pca768" in sf else 1.0]
+    STATE["pca"] = None
+    if STATE["bank"].shape[1] == 768:
+        z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
+        STATE["pca"] = (torch.from_numpy(z["mu"]).to(STATE["dev"]),
+                        torch.from_numpy(z["P"]).to(STATE["dev"]))
+    print("query     {}-d, siglip x{:.2f}{}".format(
+        STATE["bank"].shape[1], STATE["enc_scale"][1],
+        ", PCA basis loaded" if STATE["pca"] is not None else ""), flush=True)
     print("ready in {:.1f}s".format(time.time() - t0), flush=True)
+
+
+D_ENC = 768
 
 
 @torch.no_grad()
 def embed(blob):
-    """Upload bytes -> the same 4608-d vector the training pipeline would make."""
+    """Upload bytes -> exactly the vector this checkpoint's bank is made of.
+
+    This has to track the bank, not a fixed width. Three schemes are in use:
+
+        4608  three crops concatenated, both encoders
+        1536  the same, mean-pooled over crops (pool_street.py)
+         768  that, through the saved PCA basis (project_street.py)
+
+    and a `_bal` bank additionally scales SigLIP by 4.03 before joining, because
+    the two encoders' raw norms are 83 and 21 and joining them unscaled weights
+    the cosine 81/19 toward DINOv2. Getting any of this wrong produces a vector
+    in the wrong space, and the failure looks like a bad photograph rather than
+    a bug -- this server predated pooling and silently had no scaling at all.
+    """
     dev = STATE["dev"]
     parts = []
-    for m_, mean, std in STATE["encs"]:
+    for (m_, mean, std), scale in zip(STATE["encs"], STATE["enc_scale"]):
         x = preprocess(blob, crops=3, mean=mean, std=std)
         x = torch.from_numpy(x).to(dev)
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             f = m_(x)
-        parts.append(f.float().reshape(1, -1))       # 3 crops concatenated
-    return torch.cat(parts, dim=1)                   # dinov2 | siglip
+        parts.append(scale * f.float().reshape(1, -1))   # 3 crops concatenated
+    q = torch.cat(parts, dim=1)                          # dinov2 | siglip
+    want = STATE["bank"].shape[1]
+    if want == q.shape[1]:
+        return q
+    half = q.shape[1] // 2
+    nc = half // D_ENC
+    pooled = torch.cat([q[:, :half].reshape(1, nc, D_ENC).mean(1),
+                        q[:, half:].reshape(1, nc, D_ENC).mean(1)], dim=1)
+    if want == pooled.shape[1]:
+        return pooled
+    P = STATE.get("pca")
+    if P is None or want != P[1].shape[1]:
+        raise RuntimeError("bank is {}-d; no projection to match".format(want))
+    return (pooled - P[0]) @ P[1]
 
 
-@torch.no_grad()
-def locate(blob, beam_k=4, score_steps=3):
+def _neighbours(q):
+    """Top-k bank rows for one query vector."""
     dev, k = STATE["dev"], STATE["k"]
-    q = embed(blob)
     qn = (q / q.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
-
     B = STATE["bank"]
     sims = torch.empty(len(STATE["rows"]), dtype=torch.float32)
     step = 200000
@@ -137,7 +174,56 @@ def locate(blob, beam_k=4, score_steps=3):
         blk = B[lo:lo + step]
         blk = blk if blk.device.type == dev else blk.to(dev, non_blocking=True)
         sims[lo:lo + step] = (qn.to(dev) @ blk.T).float().flatten().cpu()
-    s, j = sims.topk(k)
+    return sims.topk(k)
+
+
+@torch.no_grad()
+def locate(blobs, beam_k=4, score_steps=3):
+    """One or more photographs of the same place.
+
+    The benchmark scores 2.7 km on OSV-5M and 442 km on novel photographs, and
+    the cause is bank coverage: OSV-5M's test images come from streets the bank
+    covers densely. Density on the bank side costs hours of encoding. Density on
+    the *query* side is free -- several photographs taken from one spot agree on
+    the true location and disagree on their spurious matches.
+
+    Nothing was retrained for this. The retrieval prior takes k neighbours as a
+    similarity-weighted set over their z16 addresses and cannot tell which image
+    produced them, so extra photographs simply contribute more candidates. The
+    policy still reads a single street vector -- the first image.
+    """
+    if isinstance(blobs, (bytes, bytearray)):
+        blobs = [blobs]
+    dev, k = STATE["dev"], STATE["k"]
+    B = STATE["bank"]
+    qs = [embed(b) for b in blobs]
+    q = qs[0]                                   # the primary drives the policy
+
+    per = [_neighbours(qi) for qi in qs]
+
+    # Each photograph gets its own share of the k slots, round-robin by rank,
+    # rather than the k best similarities overall. Similarities are not
+    # calibrated across photographs -- one view is simply more typical of the
+    # bank than another -- so a global top-k lets the strongest photograph fill
+    # every slot and the rest contribute nothing. Measured: four photographs
+    # through a global top-k changed the answer in one case out of five.
+    seen, picks = set(), []
+    for rank in range(k):
+        for si, ji in per:
+            if len(picks) == k:
+                break
+            if rank >= len(ji):
+                continue
+            r = int(ji[rank])
+            if r in seen:                      # two photographs, one bank image
+                continue
+            seen.add(r)
+            picks.append((float(si[rank]), r))
+        if len(picks) == k:
+            break
+    picks.sort(key=lambda t: -t[0])            # the prior still sees them ranked
+    s = torch.tensor([p[0] for p in picks], dtype=torch.float32)
+    j = torch.tensor([p[1] for p in picks], dtype=torch.long)
     rows = STATE["rows"][j.numpy()]
 
     nbrs = [torch.from_numpy(STATE["x16"][rows][None, :]).to(dev),
@@ -165,6 +251,7 @@ def locate(blob, beam_k=4, score_steps=3):
         "lat": best["lat"], "lon": best["lon"],
         "radius_km": res["confidence_radius_km"],
         "path": [int(a) for a in best["path"]],
+        "photos": len(blobs),
         "steps": steps,
         "candidates": [{"lat": c["lat"], "lon": c["lon"], "score": c["score"]}
                        for c in res["candidates"][:beam_k]],
@@ -189,12 +276,24 @@ def build_app():
 
     @app.post("/locate")
     async def do_locate(request: Request):
-        blob = await request.body()
-        if not blob:
+        ct = request.headers.get("content-type", "")
+        blobs = []
+        if ct.startswith("multipart/form-data"):
+            form = await request.form()
+            for key in form:
+                for v in form.getlist(key):
+                    if hasattr(v, "read"):
+                        blobs.append(await v.read())
+        else:
+            raw = await request.body()
+            if raw:
+                blobs = [raw]
+        blobs = [b for b in blobs if b]
+        if not blobs:
             return JSONResponse({"error": "no image"}, status_code=400)
         t0 = time.time()
         try:
-            out = locate(blob)
+            out = locate(blobs)
         except Exception as e:                     # a bad upload must not 500
             return JSONResponse({"error": str(e)}, status_code=400)
         out["secs"] = round(time.time() - t0, 2)
