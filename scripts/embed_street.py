@@ -105,6 +105,10 @@ def main():
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--model", default="vit_base_patch14_dinov2.lvd142m")
+    ap.add_argument("--size", type=int, default=224,
+                    help="crop size and model input size. 224 is what every "
+                         "cached artefact uses; raise it only to test an "
+                         "encoder at its native resolution.")
     ap.add_argument("--crops", type=int, default=1,
                     help="horizontal crops per image; embeddings are concatenated")
     ap.add_argument("--patch-grid", type=int, default=0,
@@ -133,8 +137,15 @@ def main():
     import timm
     # DINOv2 checkpoints default to 518px; 224 = 16*14 keeps it cheap and timm
     # interpolates the position embeddings for us.
+    # 224 is the shipping size and the tile/crop geometry everywhere else, but
+    # it is not every encoder's native one -- timm reports 518 for DINOv2 ViT-B,
+    # 256 for DINOv3 ViT-B and 224 for SigLIP. Running off-native interpolates
+    # the position embeddings and changes the patch grid (DINOv3 at 224 is 14x14
+    # rather than its native 16x16), which is a handicap of unknown size. Make
+    # it a flag so a comparison between encoders can be checked rather than
+    # assumed.
     model = timm.create_model(a.model, pretrained=True, num_classes=0,
-                              img_size=224).eval().to(dev)
+                              img_size=a.size).eval().to(dev)
     dim = model.num_features
     # Normalisation must follow the model, not a hardcoded constant: DINOv2
     # wants ImageNet statistics and SigLIP wants 0.5/0.5, and feeding one the
@@ -144,7 +155,8 @@ def main():
     cfg = resolve_model_data_config(model)
     nmean = np.array(cfg["mean"], dtype=np.float32).reshape(3, 1, 1)
     nstd = np.array(cfg["std"], dtype=np.float32).reshape(3, 1, 1)
-    print("model      {}  dim {}  input 224".format(a.model, dim), flush=True)
+    print("model      {}  dim {}  input {}".format(a.model, dim, a.size),
+          flush=True)
     print("normalise  mean {}  std {}".format(cfg["mean"], cfg["std"]), flush=True)
 
     out_path = (config.STREET_CACHE / (a.out + ".f16.npy")) if a.out else EMB
@@ -190,7 +202,7 @@ def main():
                     with z.open(names[r]) as f:
                         blobs.append(f.read())
                 arrs = list(pool.map(
-                    lambda b: preprocess(b, crops=a.crops, mean=nmean, std=nstd),
+                    lambda b: preprocess(b, size=a.size, crops=a.crops, mean=nmean, std=nstd),
                     blobs))
                 x = torch.from_numpy(np.concatenate(arrs)).to(dev, non_blocking=True)
                 with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):

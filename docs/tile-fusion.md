@@ -1,7 +1,309 @@
 # Tile fusion by self-attention — design note
 
-Status: **designed, not built.** Written 2026-08-31, after the concatenation
-version was measured and lost. No code exists for any of this.
+Status: **partly falsified, not built.** Written 2026-08-31 after the
+concatenation version lost, then measured the same day. Tiles as a replacement
+for crops are dead; a head over the *union* of crops and tiles, and
+cross-attention between the two encoders, both survive with measured headroom.
+The verdict is first, the design that motivated it is kept below it.
+
+## Verdict, 2026-08-31: measured, and it stops at step 2
+
+Steps 1-3 ran. **The premise below is falsified and the fusion head should not be
+built.** The reasoning is kept because the way it failed is worth having.
+
+The hypothesis was that concatenation, not tiling, was the defect: cosine over
+concatenated blocks compares tile *i* of the query only to tile *i* of the bank
+image, so a ten-metre camera shift misses every term at once. Mean pooling
+removes that rigid correspondence completely -- it is order-free by
+construction. If the hypothesis held, mean pooling had to close the gap.
+
+It does not. With 120,000 cached tile embeddings, 3,000 queries against a
+117,000 bank, same-sequence masked, tiles against crops at **identical width and
+identical pooling**, on any-of-32 `<25 km`:
+
+| joining | width | tile6 - crop3 |
+|---|---:|---|
+| concat | 4,608 | -1.47 pp [-2.33, -0.57] |
+| concat + PCA | 512 | -1.60 pp [-2.53, -0.70] |
+| **mean** | **1,536** | **-1.57 pp [-2.47, -0.63]** |
+| mean + PCA | 512 | -1.27 pp [-2.17, -0.37] |
+| per-block norm + mean | 1,536 | -0.87 pp [-1.77, +0.03] |
+| per-block norm + mean + PCA | 512 | -0.73 pp [-1.67, +0.20] |
+
+Order-free pooling changes nothing: -1.57 pp against concatenation's -1.47 pp.
+Per-block normalisation brings tiles to within noise of crops, and "break-even
+at twice the encoder cost" is not a reason to build anything.
+
+**Scope this correctly.** What is closed is *tiles as a drop-in replacement for
+crops under fixed pooling*. I first wrote that "attention cannot add signal that
+is not there" -- an assertion about every possible head, with no upper bound
+behind it. Two bounds were then measured and the second reopens part of the
+question; see below.
+
+### How far the bounds actually reach
+
+`scripts/tile_match.py`, same 3,000 queries, per-block-normalised tokens
+throughout so no arm is flattered by the 81/19 imbalance.
+
+**Chamfer** -- `mean_i max_j <q_i, b_j>`, every query tile matched to its best
+partner anywhere in the bank image -- is soft assignment done optimally, which
+is precisely the job attention is supposed to do. Under it the tile deficit
+narrows from -1.10 pp to **-0.67 pp [-1.60, +0.30]**: parity, not a win, and
+unshippable at 36x the compare cost and 6x the storage.
+
+The differential is the part that supports the mechanism. Order-free matching
+buys **tile6 +0.53 pp** over its own concatenation and **crop3 only +0.10 pp** --
+tiles gain about five times more from dropping the index constraint, exactly as
+predicted if crops already get correspondence free from their 83% overlap and
+tiles do not. Neither figure separates from zero at n=3,000 and it closes under
+half the gap, but the direction and the relative size are both right.
+
+Be careful what this bounds. It says how much the *index constraint* was
+costing, given these tokens and a fixed cosine. It is **not** a ceiling on a
+learned metric over the same tokens, which could weight the dimensions that
+carry geography and beat a fixed heuristic. An earlier version of this note
+claimed it upper-bounded "any pooled representation", which was too strong.
+What it does settle is that rearranging matches is not enough on its own: the
+residual -0.67 pp is the tokens being individually weaker, which no
+reassignment fixes.
+
+**The oracle over query tiles**, which peeks at the label, bounds tile
+*selection*. Raw it looks like tiles winning by +2.23 pp -- but that is 6 draws
+against 3, and more independent retrievals win by arithmetic. At matched k=3 it
+inverts to **-1.72 pp [-2.54, -0.90]**. Individually every tile is weaker than
+every crop:
+
+| | each member alone, top-1 `<25 km` |
+|---|---|
+| crop3 | 6.8%, 7.3%, 7.4% |
+| tile6 | 3.3%, 2.8%, 2.7% (top row), 5.0%, 5.4%, 5.2% (bottom row) |
+
+The top/bottom split is the mechanism: a sky tile carries ~2.8%, a ground tile
+~5.2%, and a full-height crop containing sky *and* horizon *and* road carries
+~7%. For a frozen scene encoder a tile is not "more detail about that region",
+it is a less confident embedding of an input it never trained on.
+
+**Neither bound covers cross-tile contextualisation.** Chamfer matches *fixed*
+tokens; self-attention would change the tokens before matching, so a road-and-
+dirt tile that is an outlier alone becomes a different vector once a sky tile
+has informed it. That is outside every ceiling measured here. The counter-
+consideration is that crop3 already gets that context at pixel level, inside
+each crop, before the encoder runs -- the input the encoder was trained on --
+whereas token-level attention reconstructs it after information is gone. A
+reason to expect it to start behind, not a proof it cannot win.
+
+Put the comparison one way and it stays honest: **crop3's 83% overlap is a
+hand-designed translation-tolerance mechanism that costs nothing.** Attention
+is a learned one that costs parameters, storage and compute. It does not have
+to work in the abstract; it has to beat the free version.
+
+### Positions: rotary, and not equally on both axes
+
+`rope2d_tables` already exists at `src/encoders.py:20` and is proven on the map
+side -- axial 2D rotary plus attention pooling is what took the map from 375 to
+351 km, and `--pos {learned,rope,both}` is already a training flag. Reuse it
+rather than the "learned 2D position" the design below specifies. Two changes
+are needed, and the second is not cosmetic:
+
+    g = int(round(n_actions ** 0.5))
+    assert g * g == n_actions, "grid must be square"      # 3x2 is not
+    ang = torch.cat([col * theta, row * theta], dim=1)    # 50/50 per axis
+
+**The equal channel split between axes is wrong for image tiles.** Per-tile solo
+hit rates put the entire signal on the row axis:
+
+| | tiles | mean |
+|---|---|---|
+| row 0 (sky) | 3.3%, 2.8%, 2.7% | 2.93% |
+| row 1 (ground) | 5.0%, 5.4%, 5.2% | 5.20% |
+
+Between rows 2.27 pp, about 6 sigma at n=3,000; within a row 0.4-0.6 pp, about
+1 sigma. Row is gravity-anchored -- sky, horizon and ground mean the same thing
+in every street photograph -- while column is camera-heading dependent and
+arbitrary.
+
+For retrieval, column position is worse than merely wasted: encoding which
+column a tile came from re-imposes exactly the rigidity that mean pooling was
+introduced to remove, since the same building sits in different columns in two
+photographs of the same street. Sky never moves. So spend most or all of the
+rotation pairs on the row axis, and ablate row-only against 50/50, learned, and
+none.
+
+Rotary also extrapolates to positions it never trained on, where a learned
+position table cannot index a grid it has not seen. That matters for the
+variable-tile-count path: a head trained at 3x2 can be evaluated at 6x4 only if
+its positions are computed rather than looked up.
+
+### Tiles are not redundant with crops, which is the case for fusing both
+
+| | |
+|---|---|
+| a crop lands (oracle over 3) | 10.5% |
+| a tile lands (oracle over 6) | 12.7% |
+| **either lands** | **15.5%** |
+| a tile lands where *every* crop missed | 5.6% -- 150 of 2,686 |
+| a crop lands where *every* tile missed | 3.2% -- 83 of 2,619 |
+| union - crops alone | **+5.00 pp [+4.23, +5.80]** |
+
+150 queries were retrievable only from tiles. Tiles are individually weaker and
+carry *different* information, so the live proposal is not tiles *instead of*
+crops but a learned head over the union of all 9 regions -- **18 tokens of
+768-d, one per (region, encoder)** -- with a falsifiable target: convert part of
+that +5.00 pp of oracle headroom into real retrieval gain.
+
+The token decomposition is not a detail. With the two encoders concatenated into
+a single 1536-d token per region they are *channels*: a projection can mix them
+but attention cannot select between them, so cross-attention between the
+encoders is not expressible on that layout at all. Splitting them into separate
+tokens is what makes the encoder axis attendable, and it is what the +1.33 pp
+selection ceiling is a ceiling *on*. The costs are an input projection per
+encoder group, since the two occupy different native spaces, and an
+encoder-type embedding alongside the row rotary, since position alone no longer
+identifies a token. Sequence length is irrelevant at this scale. The bank is
+unaffected either way -- it stores the pooled output. Draw counts are unequal (9 against 3) so the magnitude is inflated; the
+existence of the complement is not.
+
+### The two encoders split by spatial scale, and nothing exploits that
+
+`scripts/enc_cross.py`. Top-1 error under increasing thresholds, crop3 tokens:
+
+| within | DINOv2 | SigLIP | both | both - DINOv2 |
+|---|---|---|---|---|
+| 1 km | 0.2% | 0.1% | 0.3% | -- |
+| 25 km | 7.2% | 5.0% | 7.8% | +0.6 pp |
+| 200 km | 16.6% | 14.6% | 18.4% | +1.80 [+1.00, +2.60] |
+| 750 km | 27.2% | 26.0% | 30.6% | +3.43 [+2.37, +4.47] |
+| **2500 km** | 36.2% | **41.2%** | 40.9% | **+4.77 [+3.57, +5.97]** |
+
+**SigLIP alone beats DINOv2 alone by 5 pp at continent scale and loses by 2.2 pp
+at 25 km.** The benefit of the second encoder grows monotonically with the
+threshold. Reading complementarity off the 25 km hit rate alone -- where SigLIP
+rescues just 2.0% of DINOv2's misses -- badly understates it, and an earlier
+version of this note called the encoders "more redundant with each other than
+tiles are with crops" on exactly that mistake. Pick the threshold to match the
+decision being made, or the metric hides the effect.
+
+This lines up with the agent's own structure. Cell widths are 2504 km at s0,
+156 km at s1, 9.8 km at s2, 611 m at s3, so **the encoder that wins is different
+at different steps** -- SigLIP owns the s0 regime, DINOv2 owns s2-s3 -- while the
+blend is one fixed ratio applied identically at every step. `--retr-mode cond`
+already learns per-step gates on the retrieval *prior*; nothing gates the
+*encoders*.
+
+Ceiling on any rule that picks between the encoders per query: **+1.33 pp
+[+0.70, +2.00]** at 25 km for crops, +1.63 pp [+1.00, +2.27] for tiles. That is
+the fine-grained ceiling only; the coarse-scale gap above is where the mass is.
+
+**Cross-attention and tiling are not competing designs.** One head over 12
+tokens -- 6 DINOv2 plus 6 SigLIP -- with cross-attention between the encoder
+groups and self-attention after it reaches both headrooms, and dropping the
+within-encoder paths is a defensible inductive bias. What cross-attention does
+not fix is that individual tiles are weak; routing a sky tile through SigLIP
+does not make it informative.
+
+**The cheap version was tried first, and it failed.** `--enc-gate`: one scalar
+per (step, encoder block), ten parameters, `exp(g)` on each half of the dual
+cache before `StreetProj`, zero-init. Two epochs from the shipping best against
+a matched-epoch control. The gates came out flat -- SigLIP/DINOv2 ratios 0.991,
+0.982, 0.964, 0.978 across s0-s3, s0 against s3 at 1.013, not monotone -- and
+every test-set contrast is inside noise.
+
+The internal control is what makes that informative rather than a null run: in
+the same two epochs, same init, same schedule, `retr.g_sink` moved 0.466,
+`retr.w_pos` 0.322 and `retr.g_neg` 0.110, while the encoder gate moved 0.026
+from a cold start. Scalars train here. This one had nothing pushing it.
+
+Three explanations the run cannot separate. The fusion MLP already sees
+`[street + map + state]` with the step embedding inside `state`, so a nonlinear
+path to per-step street modulation already exists and the gate is redundant with
+it. The retrieval prior is built from the same embeddings and already carries
+per-step gates. Or a continuation from a converged checkpoint cannot reach the
+basin. The first two say the scale information is already being used, just not
+where the knob went.
+
+That raises the prior against the cross-attention head without settling it: a
+fixed per-step scalar and a content-dependent per-image assignment are not the
+same mechanism, and only the second can say "this photograph is textually
+distinctive, lean SigLIP". The gate tested whether the *step* wants a different
+blend. It does not. Whether the *image* does is still open.
+
+Useful by-product: gate against control is [-0.80, +0.30] pp, so on this recipe
+at n=5,000 nothing under about 1 pp is resolvable.
+
+### The baseline was the whole argument
+
+Read against the *shipping* crop3 vector, every one of those comparisons spans
+zero and per-block normalisation looks like a +1.93 pp win. Read against the
+**equal-norm** crop3 vector, tiles lose by 1.3-1.6 pp and per-block
+normalisation is worth nothing.
+
+Both readings come from the same 3,000 queries. The difference is entirely that
+the shipping vector still carries the 81/19 DINOv2/SigLIP imbalance, and
+per-block normalisation inside a token is *the same fix* as `--scale-b 4.03`
+across the whole vector -- it was re-deriving a correction the project already
+had, and crediting it to tiling. Against a baseline that already has that fix,
+there is nothing left for it to recover.
+
+So the earlier probe's conclusion was right by accident. Its actual measurement,
+`tile6 concat` against the unbalanced `crop3 concat`, is -0.20 pp
+[-1.03, +0.63] -- **not separated**, and it was reported as "tiling loses at
+every compressed width". The claim is true; the evidence offered for it was not.
+Fixing the baseline is what makes it true.
+
+### What did come out of it: width is nearly free
+
+Orthogonal to tiling, and the one result here worth acting on. Against the
+equal-norm shipping representation, same queries, any-of-32 `<25 km`:
+
+| representation | width | bank bytes | vs shipping |
+|---|---:|---:|---|
+| 3 crops concatenated (ships today) | 4,608 | 1.00x | -- |
+| 3 crops **mean-pooled** | 1,536 | **0.33x** | +0.20 pp [-0.30, +0.70] |
+| 3 crops mean-pooled, PCA | 512 | **0.11x** | -0.57 pp [-1.20, +0.03] |
+
+Mean-pooling the three crop tokens instead of concatenating them is a **3x
+smaller bank at no measurable cost**, with no training, no new encoder pass, and
+no architecture change -- it is one line in `concat_street.py`. At 512-d the
+interval touches zero, so 9x is arguable rather than free.
+
+This matters because it is the memory argument the fusion head was invented to
+make. Bank RAM caps corpus size, corpus size is the axis that moved this metric
+most (+20.4 pp for 400k -> 1.15M), and a 3x smaller bank is 3x more corpus at
+the same RAM. The fused head was the expensive way to get there.
+
+Three things to check before believing it at system level, none of them done:
+the measurement is bank retrieval quality at 117k, not the agent's metric at
+1.15M; `StreetProj` is `Linear(4608 -> 512)` and would have to be retrained, as
+would the `dual` retrieval keys; and PCA-512 is known to drop recall@32 to 0.82,
+which is a different quantity from geographic hit rate and may matter to the
+prior.
+
+### Also measured, also negative
+
+Generalised mean (p=3) over normalised tokens: -3.2 pp top-1 and -5.7 pp
+any-of-32 against the shipping vector, worse at 512-d. Whatever selectivity
+attention pooling would provide, a fixed power law is not a cheap stand-in for
+it.
+
+Doing per-block *and* per-token normalisation is not a separate arm: after
+per-block normalisation every token has norm sqrt(2) exactly, so per-token
+normalisation is a constant divide and the cosine is unchanged. The two are
+alternatives. Per-token normalisation alone -- equalising tiles without
+equalising encoders -- is worth +0.13 pp [-0.27, +0.53], i.e. nothing, which
+locates the entire effect in the encoder blend rather than in tile weighting.
+
+### Reproducing
+
+    python scripts/tile_cache.py --n 120000 --batch 32     # 38 min, 2.2 GB
+    python scripts/tile_pool.py --crop3 dual_bal.f16.npy   # the baseline that matters
+
+Logs in `runs/logs/tile_cache.log`, `tile_pool.log`, `tile_pool_bal.log`.
+
+---
+
+*Everything below is the design as written on 2026-08-31 before the measurement,
+kept for the record.*
+
 
 ## What this is trying to fix
 
@@ -216,8 +518,10 @@ Each step is a decision point, not a formality.
      the upgrade path, continue
    - still worse than crop3 → the tiles genuinely carry less than full-height
      crops, and attention will not rescue that; stop here
-3. **Per-block normalisation** before pooling, isolating the 81/19 effect at
-   token level.
+3. ~~**Per-block normalisation** before pooling~~ **Done.** Worth +1.93 pp
+   against the *shipping* crop3 and nothing at all against the *equal-norm*
+   one -- it re-derives `--scale-b 4.03` inside a token. Tiles reach
+   -0.87 pp [-1.77, +0.03], i.e. break-even at twice the encoder cost.
 4. **Attention pooling with no self-attention layer** — separates "learned
    weighting of tiles" from "tiles talking to each other".
 5. **Full self-attention head**, trained contrastively, evaluated on retrieval

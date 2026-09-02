@@ -50,14 +50,44 @@ def apply_rope(x, cos, sin):
 
 
 class StreetProj(nn.Module):
-    """Frozen DINOv2 vector -> model width."""
+    """Frozen encoder vector -> model width, optionally gated per step.
 
-    def __init__(self, d_in=768, d=512):
+    With `n_steps`, the input is read as `n_blocks` equal-width encoder blocks --
+    the dual cache is [DINOv2 | SigLIP] in that order -- and each block is
+    scaled by a learned per-step gate before the projection.
+
+    The reason is measured.  SigLIP alone beats DINOv2 alone by 5 pp at a
+    2500 km threshold and loses to it by 2.2 pp at 25 km, and this agent's cells
+    are 2504 km wide at step 0 and 611 m at step 3.  So the encoder that
+    deserves the weight is a different one at each step, while a single Linear
+    shared across steps can only learn one ratio for all of them.
+
+    Only the *ratio* between blocks is a real degree of freedom: scaling both
+    equally is a pure rescale, which the LayerNorm below removes.  That is the
+    intended behaviour, not a defect -- it keeps the parameter symmetric and
+    readable as "how much SigLIP at step t".
+
+    Gates are zero-init and applied as exp(g), so an untrained gate is exactly
+    the identity and a checkpoint saved without one loads into this unchanged.
+    """
+
+    def __init__(self, d_in=768, d=512, n_steps=0, n_blocks=2):
         super().__init__()
         self.proj = nn.Linear(d_in, d)
         self.norm = nn.LayerNorm(d)
+        self.n_blocks = n_blocks if n_steps else 0
+        if n_steps:
+            if d_in % n_blocks:
+                raise ValueError(
+                    "street width {} does not split into {} encoder blocks; "
+                    "the gate assumes a dual cache".format(d_in, n_blocks))
+            self.gate = nn.Parameter(torch.zeros(n_steps, n_blocks))
 
-    def forward(self, x):
+    def forward(self, x, step=None):
+        if self.n_blocks and step is not None:
+            w = x.shape[-1] // self.n_blocks
+            g = torch.exp(self.gate[step.long()])
+            x = x * g.repeat_interleave(w, dim=-1)
         return self.norm(self.proj(x))
 
 
@@ -212,3 +242,100 @@ class StateEncoder(nn.Module):
                        sinusoidal(y0, self.n_freq),
                        self.step(step)], dim=-1)
         return self.mlp(f)
+
+class GeoMem(nn.Module):
+    """A learned key per map tile, added to the policy readout.
+
+    `E(z, x, y) -> R^d`, one independent row per tile, no relation between a
+    tile's row and its parent's.  At step t the 256 candidate children of the
+    current tile are looked up and their rows contribute an additive term to
+    that action's logit, so unlike a fusion-input memory this can say "child 37
+    rather than child 38".
+
+    It fills a gap the architecture has: `logit_i = <q, K_i>` builds K_i purely
+    from the child tile's mask class histogram, so two children with the same
+    class mix are indistinguishable however far apart they are on Earth.
+    Absolute geography reaches the logits nowhere else -- the learned positions
+    in `MapTokenizer` index 0..255 *within* the current tile, and the query is
+    shared across all candidates.
+
+    Levels are dense and shallow on purpose.  z4 is 256 rows and z8 is 65,536,
+    which is 17 MB at 128-d and needs no sparse structure; z12 and z16 would be
+    16.8M and 4.3B rows, and the data does not support them -- 3.9 and 1.1
+    training images per populated cell, with 16% and 91% of test images landing
+    in a cell no training image occupies.  Steps past the covered levels get the
+    `UNK` row, one learned vector shared by every unaddressed tile, so the model
+    can represent "no memory here" distinctly from "memory that says nothing"
+    and learn to lean on map content instead.
+
+    Two modes, because they separate two different claims:
+      bias  one scalar per tile.  Under teacher forcing this converges to the
+            empirical count table p(child | parent), which at s10 scores 8.0%
+            at step 2 where the model scores 42.2% -- so this is the control,
+            and it is expected to add nothing.
+      key   d-dimensional, scored against a projection of the fused vector, so
+            it can express "this tile is likely *given this query*".  Anything
+            it earns over `bias` is the part that is not co-location.
+
+    Zero-init throughout plus a zero-init gate, so an untrained memory is
+    exactly no memory and `--init` from a checkpoint without one is lossless.
+    """
+
+    LEVELS = (4, 8)
+
+    def __init__(self, d=512, d_geo=128, mode="key", g=16):
+        super().__init__()
+        self.mode, self.g, self.d_geo = mode, g, d_geo
+        width = 1 if mode == "bias" else d_geo
+        self.offset, n = {}, 0
+        for z in self.LEVELS:
+            self.offset[z] = n
+            n += (1 << z) * (1 << z)
+        self.unk = n                       # one row for every uncovered tile
+        self.emb = nn.Embedding(n + 1, width)
+        nn.init.zeros_(self.emb.weight)
+        # The gate starts at ONE, not zero. The contribution is gate * emb, so
+        # zero-initialising both is a multiplicative deadlock: d/d(emb) = gate
+        # and d/d(gate) = emb, so with both at zero neither ever receives
+        # gradient and the table stays bit-for-bit zero forever. That is not a
+        # null result, it is an untrained parameter, and it looks identical to
+        # one in the metrics. A zero table alone already makes the mechanism
+        # exactly inert at init, which is all the safety that was wanted; the
+        # gate is a readout, and it can only read once the table moves.
+        self.gate = nn.Parameter(torch.ones(()))
+        self.q_geo = nn.Linear(d, d_geo) if mode == "key" else None
+
+    def rows(self, x0, y0, step):
+        """(N,) tile corners and step -> (N, g*g) row ids for the children."""
+        N = x0.shape[0]
+        a = torch.arange(self.g * self.g, device=x0.device)
+        col, row = a % self.g, torch.div(a, self.g, rounding_mode="floor")
+        out = torch.full((N, self.g * self.g), self.unk, dtype=torch.long,
+                         device=x0.device)
+        for t, z in enumerate(self.LEVELS):
+            m = step == t
+            if not bool(m.any()):
+                continue
+            # the child level is z; the parent grid is 2^(z-4) on a side
+            p = 1 << (z - 4)
+            px = torch.round(x0[m] * p).long().clamp_(0, p - 1)
+            py = torch.round(y0[m] * p).long().clamp_(0, p - 1)
+            cx = px.unsqueeze(1) * self.g + col.unsqueeze(0)
+            cy = py.unsqueeze(1) * self.g + row.unsqueeze(0)
+            out[m] = self.offset[z] + cy * (1 << z) + cx
+        return out
+
+    def forward(self, fused, rows, n_logits):
+        """Additive logit contribution, (N, n_logits).  The sink has no tile."""
+        e = self.emb(rows)                                 # (N, A, width)
+        if self.mode == "bias":
+            bias = e.squeeze(-1)
+        else:
+            q = self.q_geo(fused).unsqueeze(-1)
+            bias = torch.bmm(e, q).squeeze(-1) / math.sqrt(self.d_geo)
+        bias = self.gate * bias
+        if n_logits > bias.shape[1]:                       # sink appended
+            bias = torch.cat([bias, torch.zeros(
+                bias.shape[0], n_logits - bias.shape[1],
+                device=bias.device, dtype=bias.dtype)], dim=1)
+        return bias

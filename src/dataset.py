@@ -9,6 +9,8 @@ rows are independent and no rollout is needed.
 import sys
 from pathlib import Path
 
+import os
+
 import numpy as np
 import pyarrow.parquet as pq
 import torch
@@ -35,6 +37,27 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     if dev == "cuda" and gb <= budget_gb:
         print("nbr table  {:.2f} GB on cuda".format(gb), flush=True)
         return torch.from_numpy(np.asarray(a)).to(dev)
+    # Second tier: 2 MB pages. Strictly better than the private copy below --
+    # locked rather than pageable, so it cannot be evicted, and 5,127 page-table
+    # entries for a 10.75 GB table instead of 2.6 million. Opportunistic: large
+    # pages need physically contiguous memory and Windows never compacts, so
+    # measured on this machine 10.75 GB succeeds right after a reboot and 0.5 GB
+    # is the ceiling after days of uptime. Returns None when it cannot, and the
+    # tiers below are unchanged.
+    if os.environ.get("NO_LARGE_PAGES") != "1":
+        try:
+            import largepages
+            buf = largepages.empty(a.shape, a.dtype)
+        except Exception:
+            buf = None
+        if buf is not None:
+            for lo in range(0, a.shape[0], 200000):     # chunked, no big temp
+                hi = min(lo + 200000, a.shape[0])
+                buf[lo:hi] = a[lo:hi]
+            print("nbr table  {:.2f} GB on large pages, locked in RAM"
+                  .format(gb), flush=True)
+            return torch.from_numpy(buf)
+
     # Third tier, for a bank extension. Whether it fits is measured, not
     # assumed: a fixed threshold is either too timid on an idle machine or an
     # OOM on a busy one, and this decision is made while dataloader workers are
