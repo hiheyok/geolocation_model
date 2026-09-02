@@ -1,3 +1,7 @@
+> **Start with `docs/STATE.md`** — current results, what is unfinished
+> and resumable, the measured hardware constraints, and the mistakes
+> that recur. `docs/NAMING.md` decodes arm names.
+
 # Where to pick this up
 
 > **See `docs/STATE.md` first** for what is running right now and the
