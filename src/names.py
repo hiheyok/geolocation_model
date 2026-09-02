@@ -77,8 +77,10 @@ def describe(tag):
     if not p:
         return ""
     width, bank, ep, split = p
-    s = "{}-d | {:.2f}M bank | {} ep".format(width, bank, ep)
-    return s if split == "sequence" else s + " | " + split
+    # " / " not " | ": these strings land inside markdown table cells, where a
+    # pipe silently splits one column into four.
+    s = "{}-d / {:.2f}M bank / {} ep".format(width, bank, ep)
+    return s if split == "sequence" else s + " / " + split
 
 
 def label(tag, width=20):
