@@ -18,9 +18,15 @@ from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent
 
 
-def load_model(tag, dev):
-    ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location=dev,
-                    weights_only=False)
+def build_from_ck(ck, dev="cpu"):
+    """The one place a checkpoint becomes a model.
+
+    Anything that reconstructs the architecture by hand takes the defaults for
+    every field it forgets, and some of those are invisible: `pos="both"` adds
+    rotary positions, which have no parameters, so a strict load_state_dict
+    succeeds and the caller measures a different network in silence. Callers
+    that only have a file path should read it and come through here.
+    """
     # Infer the street width from the checkpoint so older files stay loadable.
     d_street = ck["model"]["street.proj.weight"].shape[1]
     m = GeoAgent(d_street=d_street, n_actions=tm.actions(), n_steps=tm.STEPS + 1,
@@ -45,6 +51,13 @@ def load_model(tag, dev):
                  d_geo=ck.get("d_geo", 128)).to(dev)
     m.load_state_dict(ck["model"])
     m.eval()
+    return m, d_street
+
+
+def load_model(tag, dev):
+    ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location=dev,
+                    weights_only=False)
+    m, d_street = build_from_ck(ck, dev)
     return m, ck, d_street
 
 
