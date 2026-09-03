@@ -136,7 +136,7 @@ def main():
             "tst s0 | tst s1 | tst s2 | tst s3 | "
             "gap s0 | gap s1 | gap s2 | gap s3 | "
             "roll s0 | roll s1 | roll s2 | roll s3 | "
-            "loss trn | loss tst | Δloss | median km | mean km | <25km |")
+            "loss trn | loss tst | d-loss | median km | mean km | <25km |")
     L.append(head)
     L.append("|" + "---|" * (head.count("|") - 1))
     for r in rows:

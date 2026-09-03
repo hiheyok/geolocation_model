@@ -164,6 +164,36 @@ def fmt(tag, m, steps):
             .format(tag, m["loss"], m["click"], m["uv_mae"], sk, acc))
 
 
+def check_args(a):
+    """Reject combinations that silently do the wrong thing.
+
+    Each of these has produced, or would produce, a run that completes and
+    reports a plausible number: --retr with k=0 trains the retrieval branch
+    against nothing, a retr-drop of 1.0 leaves the prior with one rescued
+    neighbour on every row, and --soft with --neg builds a 256-wide target
+    against 257 logits.
+    """
+    bad = []
+    if a.retr and a.retr_k <= 0:
+        bad.append("--retr with --retr-k {}: the prior would see no "
+                   "neighbours".format(a.retr_k))
+    if not 0.0 <= a.retr_drop < 1.0:
+        bad.append("--retr-drop {} is outside [0, 1)".format(a.retr_drop))
+    if a.retr_drop > 0 and not a.retr:
+        bad.append("--retr-drop without --retr has nothing to drop")
+    if a.sink_k < 1:
+        bad.append("--sink-k {} must be at least 1".format(a.sink_k))
+    if a.sink_k > 1 and a.neg <= 0:
+        bad.append("--sink-k {} without --neg: there is no sink to give keys "
+                   "to".format(a.sink_k))
+    if getattr(a, "soft", 0) and a.neg > 0:
+        bad.append("--soft with --neg: soft targets are g*g wide and the "
+                   "logits are g*g+1 with a sink")
+    if bad:
+        sep = chr(10) + "  "
+        raise SystemExit("incompatible arguments:" + sep + sep.join(bad))
+
+
 def build_parser():
     """Every knob, so main() below reads as what a run actually does."""
     ap = argparse.ArgumentParser()
@@ -290,6 +320,7 @@ def build_parser():
 
 def main():
     a = build_parser().parse_args()
+    check_args(a)
 
     if a.init:
         # a warm restart at full LR would undo two epochs before recovering
