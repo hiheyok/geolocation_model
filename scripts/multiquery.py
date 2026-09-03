@@ -305,8 +305,11 @@ def main():
         bi = torch.gather(ci, 1, sel)
         del B
     sim32, idx32 = bv.cpu().numpy(), bi.cpu().numpy()
+    # len(keep), not bank.shape[0]: the search is masked to the
+    # checkpoint's own bank, and printing the file's size restates a
+    # number instead of deriving it -- the bug the mask exists to undo.
     print("kNN over {:,} bank rows in {:.0f}s   top-1 {:.4f}".format(
-        bank.shape[0], time.time() - t0, sim32[:, 0].mean()), flush=True)
+        len(keep), time.time() - t0, sim32[:, 0].mean()), flush=True)
 
     # ---- bank z16 addresses ---------------------------------------------
     import pyarrow.parquet as pq
