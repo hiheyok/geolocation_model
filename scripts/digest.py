@@ -11,7 +11,6 @@ safe to call even when every stage above it failed.
 """
 
 import io
-import re
 import sys
 from datetime import datetime
 from pathlib import Path

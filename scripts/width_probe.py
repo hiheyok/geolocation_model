@@ -42,7 +42,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import splits as sp
-from tile_pool import pca_fit, score, paired, l2
+from tile_pool import pca_fit, score, paired
 
 D_ENC = 768
 

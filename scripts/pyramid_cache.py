@@ -50,7 +50,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config
-from res_probe import ARMS, variants, MODELS
+from res_probe import variants, MODELS
 
 LEVELS = ["crop3_224", "tile6", "tile24"]      # 3 + 6 + 24 = 33 tokens
 NTOK = {"crop3_224": 3, "tile6": 6, "tile24": 24}

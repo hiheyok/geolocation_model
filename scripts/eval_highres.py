@@ -47,7 +47,7 @@ import names
 import tile_math as tm
 from dataset import street_table
 from evaluate import evaluate, load_model
-from beam import TokenSource, source_for
+from beam import source_for
 
 D_ENC = 768
 DINO = "vit_base_patch14_dinov2.lvd142m"
@@ -152,7 +152,6 @@ def main():
         r = json.loads(line)
         recs[r["id"]] = r
     ids = sorted(recs)
-    rng = np.random.default_rng(a.seed)
     # Pick by hashing the id, not by permuting the manifest. The harvest grew
     # 18,812 -> 47,646 overnight and `permutation(len(ids))[:n]` silently
     # selected a different thousand images, so two runs that both reported

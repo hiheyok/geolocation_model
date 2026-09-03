@@ -32,7 +32,7 @@ import config
 import safeio
 import splits as sp
 import tile_math as tm
-from beam import TokenSource, source_for
+from beam import source_for
 from dataset import GeoStepDataset, street_table
 from evaluate import check_split, evaluate, load_model, street_file_for
 from train import run_epoch

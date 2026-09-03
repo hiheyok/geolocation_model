@@ -13,7 +13,7 @@ import config
 import splits as sp
 import tile_math as tm
 from baselines import great_circle_km, print_table, report
-from beam import TokenSource, source_for, search
+from beam import source_for, search
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent
 

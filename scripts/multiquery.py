@@ -68,7 +68,7 @@ import names
 import tile_math as tm
 from dataset import street_table
 from evaluate import evaluate, load_model
-from beam import TokenSource, source_for
+from beam import source_for
 from eval_highres import ExternalSet, embed, tile_for_vec
 
 R_EARTH = 6371.0088

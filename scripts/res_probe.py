@@ -48,8 +48,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import config
-from tile_pool import great_circle, l2, paired
+from tile_pool import paired
 from tile_match import dense_sim, topk_stats
 
 DINO = "vit_base_patch14_dinov2.lvd142m"

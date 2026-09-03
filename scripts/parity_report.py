@@ -20,7 +20,6 @@ from the other is the exact move that has produced most of this project's
 silent failures.
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np

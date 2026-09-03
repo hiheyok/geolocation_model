@@ -15,8 +15,6 @@ encoder pass, one matmul against the bank, and four map fetches.
 """
 
 import argparse
-import io
-import json
 import sys
 import time
 from pathlib import Path
@@ -32,7 +30,7 @@ import config
 import splits as sp
 import tile_math as tm
 import tiles as T
-from beam import TokenSource, source_for, search
+from beam import source_for, search
 from embed_street import preprocess
 from evaluate import load_model, street_file_for
 

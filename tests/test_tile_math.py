@@ -9,7 +9,6 @@ are written as a script -- without it, `pytest tests/` reports "no tests
 ran" and passes, which is worse than failing.
 """
 
-import math
 import random
 import sys
 import os

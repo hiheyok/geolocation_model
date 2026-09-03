@@ -19,9 +19,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import config
 import splits as sp
-import tile_math as tm
 from baselines import great_circle_km
-from beam import TokenSource, source_for, search
+from beam import source_for, search
 from dataset import GeoStepDataset, street_table
 from evaluate import check_split, load_model, street_file_for
 

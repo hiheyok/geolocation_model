@@ -34,7 +34,6 @@ import torch
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-import config  # noqa: E402
 import tile_math as tm  # noqa: E402
 from encoders import apply_rope, rope2d_tables  # noqa: E402
 from evaluate import load_model  # noqa: E402

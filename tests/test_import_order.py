@@ -18,7 +18,6 @@ checkpoint). So the check is static, which is enough to catch the ordering.
 """
 
 import ast
-import sys
 from pathlib import Path
 
 import pytest
