@@ -22,7 +22,26 @@ SHARD = os.environ.get("OSV_SHARD", "00")
 #
 #   s01  shard 00            50,000 images
 #   s10  shards 00-09       500,000 images
-RELEASE = os.environ.get("OSV_RELEASE", "s01")
+#
+# There is deliberately no default.  A default is not a convenience here, it is
+# a silent wrong answer: every cache is indexed by row order, so a process that
+# quietly picked s01 read another release's embeddings by position and produced
+# numbers that looked entirely ordinary.  That is the single most expensive bug
+# shape in this project's history -- five separate instances, none of which
+# raised.  Naming the release costs one environment variable and removes the
+# whole class.
+RELEASES = ("s01", "s10")
+RELEASE = os.environ.get("OSV_RELEASE")
+if not RELEASE:
+    raise SystemExit(
+        "OSV_RELEASE is not set. It selects the dataset release everything "
+        "downstream is indexed against ({}), and there is no safe default: "
+        "picking one silently pairs each image with another release's cached "
+        "row. Set it, e.g. OSV_RELEASE=s10.".format(", ".join(RELEASES)))
+if RELEASE not in RELEASES:
+    raise SystemExit(
+        "OSV_RELEASE={!r} is not a known release ({}).".format(
+            RELEASE, ", ".join(RELEASES)))
 
 PROCESSED = ROOT / "data" / "processed" / RELEASE
 CACHE = ROOT / "cache"

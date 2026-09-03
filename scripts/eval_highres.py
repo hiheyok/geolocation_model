@@ -242,8 +242,11 @@ def main():
         best_v, sel = torch.topk(cat_v, K, dim=1)
         best_i = torch.gather(cat_i, 1, sel)
         del B, sim
+    # len(keep), not bank.shape[0]: the search is masked to the checkpoint's own
+    # bank, and reporting the file's row count here restates a number instead of
+    # deriving it -- which is the bug this whole restriction exists to undo.
     print("kNN over {:,} bank rows in {:.0f}s   top-1 sim {:.4f}".format(
-        bank.shape[0], time.time() - t0, float(best_v[:, 0].mean())), flush=True)
+        len(keep), time.time() - t0, float(best_v[:, 0].mean())), flush=True)
 
     # z16 address of every bank row: release rows from dataset.parquet, then
     # each extension's saved addresses, in the order stack_bank laid them down
