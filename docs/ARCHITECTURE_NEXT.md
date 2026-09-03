@@ -29,33 +29,77 @@ checked it. Learned values across five trained arms:
 | `drop90` | 0.0038 | −5.58 | −0.06, 0.03, 0.12, −0.09 | **1.86**, 0.17, 0.15, 2.19 |
 | `d1536-drop30` | 0.0063 | −5.07 | −0.02, 0.12, 0.11, −0.05 | 0.28, −0.07, 0.55, **2.57** |
 
-**Three things follow.**
+**Three things follow.** *(All three were wrong. See the measurement below,
+which is the one this section itself said to do before acting.)*
 
-1. **The annihilation risk is already bounded.** `lp = log(p + eps)` with a
-   *learned* eps that converges to ~0.006 in every arm, so the log-prior floors
-   at −5.1 rather than diverging. Worst-case static contribution to a cell logit
-   is `g_cell * log(eps)`, which is between −0.85 and +0.57 across every arm and
-   step. That cannot erase a confident visual prediction. The review's mechanism
-   is not what is happening.
-2. **The static cell gates are near zero, and some are negative.** The prior is
-   barely touching the cell decision through this path.
-3. **The prior is overwhelmingly a sink signal at the finest step.** `g_sink` at
-   step 3 is 2.2–2.6 in every arm — an order of magnitude above any cell gate.
-   The retrieval prior's learned job is mostly *"the answer is not in this
-   tile"*, not *"the answer is this cell"*.
+1. ~~The annihilation risk is already bounded.~~ `lp = log(p + eps)` with a
+   *learned* eps converging to ~0.006 does floor the log-prior at -5.1, but the
+   worst-case contribution is `g_cell * log(eps)` and `g_cell` is not the static
+   value.
+2. ~~The static cell gates are near zero, and some are negative.~~ They are, and
+   it does not matter: `cond` moves them.
+3. ~~The prior is overwhelmingly a sink signal at the finest step.~~ It is a
+   strong sink signal at *every* step.
 
-**Caveat, and it matters:** `cond` adds a per-row `delta` to both gates, so the
-effective gate is input-dependent and these statics are a floor, not the whole
-story. Measuring the delta distribution needs a forward pass over real data.
-**Do that before acting on items 1 or 10** — it decides whether the prior's
-influence is small everywhere or merely small on average.
+## Measured properly, 2026-09-03 — and it reverses the conclusion
 
-Note also `drop90`, the arm that broke `<1 km` precision: its step-0 `g_sink`
-jumped to 1.86 from ~0.3. Whatever went wrong at p=0.9 shows up in the gates.
+The caveat above said the statics are a floor and that measuring the `delta`
+distribution needs a forward pass over real data. That pass is
+`scripts/cond_probe.py`, and it changes the answer. Effective gates, static plus
+`cond` delta, over 10,240 teacher-forced val rows:
+
+| gate | static, as recorded above | effective, measured |
+|---|---|---|
+| `g_cell` | -0.11 .. +0.17 | **median 1.0-2.6 by step, p99 2.97, negative in 0.0% of rows** |
+| `g_sink` | 0.2 .. 2.6 | **median 4.9-7.3, p99 9.5, at every step not just step 3** |
+
+The conditional gate is doing essentially all of the work, so reading the
+statics said almost nothing about the model's behaviour.
+
+**What the prior is actually worth on a decision.** Comparing its additive
+contribution against the policy logits it lands on, same rows:
+
+| | `d768-b350-e6` | `d768-b350-e6-drop70` |
+|---|---|---|
+| final logit spread (max-min) | 15.65 | 16.67 |
+| top1 - top2 margin | 2.71 | 2.19 |
+| **prior's own spread** | **6.74** | **5.07** |
+| prior / final spread | 0.42 | 0.28 |
+| **prior spread exceeds the top-1 margin** | **85.4% of rows** | **76.9% of rows** |
+| prior spread exceeds the whole logit spread | 0.1% | 0.0% |
+
+**The prior is a first-class term in the decision, not a tiebreaker.** It
+outweighs the margin between the best and second-best cell in most rows. So the
+review's mechanism is real and item 1 is **re-promoted**: how the prior is
+combined is worth testing, because it is deciding the answer often enough to
+matter. Its strongest framing is still wrong, though -- the prior dominates the
+*entire* logit range in 0.1% of rows, so "annihilates a good visual prediction"
+is not the typical case.
+
+**And this is independent evidence for why `--retr-drop` works.** Dropout cuts
+the prior's influence from 42% to 28% of the logit spread and from 85.4% to
+76.9% of rows where it outweighs the margin. The p-curve showed the knob helps
+on real photographs; this shows the mechanism in the model's own logits rather
+than inferring it from a domain gap. See [[benchmark-is-blind-to-retr-drop]].
+
+**The lesson worth keeping.** The original three conclusions were drawn from
+parameters that were easy to read, in place of a measurement that was known to
+be the right one and was recorded as "do this first". Easy-to-read stood in for
+correct, which is the same shape as this project's other silent failures.
 
 ---
 
 ## Tier 1 — strong, and complementary to what we just learned
+
+**Capped or mixture retrieval combination** (their #1). **Promoted here on
+2026-09-03**, having been demoted to Tier 3 on a reading of the static gates.
+The measurement that reading deferred says the prior's additive contribution
+outweighs the top-1 margin in 85% of rows, so how it is combined is deciding the
+answer often enough to matter. A convex mixture is a different parameterisation
+of a quantity that is already doing most of the work, not a guard against a rare
+failure -- and it composes with `--retr-drop`, which reduces the same influence
+from 42% to 28% of the logit spread by a different route. Worth testing both
+separately and together, since they may be substitutes.
 
 **Train on the states beam search actually visits** (their #8). The best item on
 the list. Teacher forcing plus random sibling negatives is a partial
@@ -115,12 +159,9 @@ learned positions rather than stacked with them.
 
 ## Tier 3 — worth doing, but the evidence is thinner
 
-**Capped or mixture retrieval combination** (their #1). Demoted from their #1 on
-the measurement above: the eps floor and the near-zero cell gates mean the
-stated failure mode is already bounded. A convex mixture may still be better
-parameterised than a floored product, and it composes with `--retr-drop`, but it
-should be motivated by the measured `delta` distribution rather than by the
-annihilation argument. **Measure first.**
+*(Their #1, capped or mixture retrieval combination, has moved to Tier 1. It was
+demoted here on a reading of the static gates; the measurement that reading
+deferred says the opposite.)*
 
 **Six street tokens instead of one pooled vector** (their #3). Partly
 contradicted by existing evidence they did not weigh: the 4608-d *concatenated*
