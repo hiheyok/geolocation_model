@@ -531,6 +531,25 @@ def main():
                ["scripts/eval_highres.py", "--tag", "d1536-b350-e6-drop30", "--n", "5000",
                 "--export", str(O.RUNS / "hrfix_d1536drop30.npz")],
                release=REL, est=25 * 60, retries=2), True),
+        # multiquery had the bank half of the same parity bug: it searched the
+        # whole embedding file, so the prior saw 99,820 extension rows the
+        # training bank excluded. It took K from the checkpoint correctly, so
+        # this is the smaller half -- but the multi-photograph effect is +1.2 pp
+        # and the contamination is 2.9% of the bank, which is not obviously
+        # small next to it. Re-run at parity, the pow4 configuration because
+        # 400 groups could not resolve the effect in the first place.
+        (Stage("mqfix-pow4-rr",
+               ["scripts/multiquery.py", "--tag", TAG, "--radius", "100",
+                "--groups", "4000", "--sizes", "1,2,4",
+                "--order", "diverse", "--merge", "rr",
+                "--export", str(O.RUNS / "mqfix_pow4.npz")],
+               release=REL, est=50 * 60, retries=2), True),
+        (Stage("mqfix-drop70",
+               ["scripts/multiquery.py", "--tag", "d768-b350-e6-drop70",
+                "--radius", "100", "--groups", "4000", "--sizes", "1,2,4",
+                "--order", "diverse", "--merge", "rr",
+                "--export", str(O.RUNS / "mqfix_drop70.npz")],
+               release=REL, est=50 * 60, retries=2), True),
         # The 2x2 that attributes the corpus effect to the model rather than
         # the bank, at parity too. It was measured with each cell searching its
         # whole bank file at K=32, which is internally consistent but not what

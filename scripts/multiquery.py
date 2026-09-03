@@ -265,6 +265,25 @@ def main():
 
     # ---- neighbours for every image, once -------------------------------
     bank = np.load(config.STREET_CACHE / bank_file, mmap_mode="r")
+    # Search the rows the checkpoint's k-NN was actually built over, the same
+    # restriction eval_highres needed. A bank file carries extension rows the
+    # training bank excluded -- 99,820 of them for bank70 -- and including them
+    # gives the policy a corpus it never trained against. In range, so silent.
+    keep = None
+    kf = ck.get("knn_file")
+    if kf and (config.STREET_CACHE / kf).exists():
+        meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
+        if "bank_rows" in meta.files:
+            keep = np.asarray(meta["bank_rows"], np.int64)
+    if keep is None:
+        keep = np.arange(bank.shape[0], dtype=np.int64)
+        print("bank rows  {:,} (checkpoint records none)".format(len(keep)))
+    else:
+        print("bank rows  {:,} of {:,} in the file, from {}"
+              .format(len(keep), bank.shape[0], kf))
+    keep_set = np.zeros(bank.shape[0], bool)
+    keep_set[keep] = True
+
     Q = torch.nn.functional.normalize(
         torch.from_numpy(V.astype(np.float32)).to(dev), dim=1)
     K = 32
@@ -272,12 +291,16 @@ def main():
     bi = torch.zeros((len(V), K), dtype=torch.long, device=dev)
     t0 = time.time()
     for s in range(0, bank.shape[0], 200000):
+        m = keep_set[s:s + 200000]
+        if not m.any():
+            continue
+        gidx = torch.from_numpy(np.flatnonzero(m).astype(np.int64) + s).to(dev)
         B = torch.nn.functional.normalize(
-            torch.from_numpy(np.asarray(bank[s:s + 200000], np.float32)
+            torch.from_numpy(np.asarray(bank[s:s + 200000][m], np.float32)
                              ).to(dev), dim=1)
-        v, i = torch.topk(Q @ B.T, K, dim=1)
+        v, i = torch.topk(Q @ B.T, min(K, B.shape[0]), dim=1)
         cv = torch.cat([bv, v], 1)
-        ci = torch.cat([bi, i + s], 1)
+        ci = torch.cat([bi, gidx[i]], 1)      # local -> global row id
         bv, sel = torch.topk(cv, K, dim=1)
         bi = torch.gather(ci, 1, sel)
         del B
