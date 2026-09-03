@@ -134,6 +134,36 @@ def main():
                     dh, lo, hi, verdict(lo, hi))
         print(row)
 
+    # Whether the confound was correlated with the treatment. Every arm in the
+    # curve shares one bank and one restriction, so any difference in how much
+    # parity costs them is about the arm, not the corpus -- and if the dropout
+    # arms lose more, the old measurement was flattering the very thing under
+    # test. K=32 gives twice the neighbours these arms train with, and a model
+    # trained on a randomly thinned neighbour set has more to gain from extras
+    # than one tuned to exactly 16.
+    shifts = []
+    for label, old_f, new_f in ARMS:
+        if new_f not in have:
+            continue
+        o = load(old_f)
+        if o is None:
+            continue
+        pair = align(o, have[new_f])
+        if pair is not None:
+            shifts.append((label.strip(), paired(*pair)[0]))
+    if len(shifts) > 2:
+        print("\n\nWhat parity cost each arm, on <25 km\n")
+        for label, d in shifts:
+            print("  {:<22} {:+.2f} pp".format(label, d))
+        print("\n  Every row but d768-b265-e6 shares one bank and "
+              "one restriction, so a spread among" + " those is about the "
+              "arm, not the corpus.")
+        print("  If the dropout arms lose more than p=0, the old "
+              "measurement flattered the treatment: K=32 is twice the "
+              "neighbours they train with, and a model trained on a "
+              "thinned set has more to gain from extras than one tuned "
+              "to exactly 16.")
+
     best = max(ready, key=lambda pf: (have[pf[1]][0] < 25).mean())
     print("\n  best <25 km at parity: p = {}".format(best[0]))
     print("  The claim on file is p = 0.7. If this disagrees, the optimum was "
