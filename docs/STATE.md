@@ -186,24 +186,30 @@ four cells; the mechanism claim holds.
 second angle against +1.24 pp before, still separated, still saturating at two
 (2->4 adds +0.16 pp). 2,496 groups.
 
-**The pyramid fusion head is settled and negative, and it was not confounded.**
-Re-run on 38,009 training images against the 14,938 that produced the -15.75 pp
-collapse, 12 epochs, loss converging 5.03 -> 3.82:
+**The pyramid fusion head result is RETRACTED (2026-09-03).** It was reported
+as settled and negative; a Codex review in `docs/REVIEW.md` showed the
+comparison was confounded, and measuring the confound showed something worse.
 
-| arm | median | `<1 km` | `<25 km` |
+The head is a residual on the mean pooled through a fixed *random* 1536->768
+matrix. Scored **at initialisation**, where the output layer is zeroed and the
+forward pass is exactly that projection:
+
+| arm | dim | `<25 km` | vs the 1536-d mean |
 |---|---|---|---|
-| L0 crops (mean) 1536-d | 218.8 | 17.2% | 32.2% |
-| **L0+L1+L2 level (mean) 1536-d** | 179.1 | **17.8%** | **33.8%** |
-| fusion head (learned) 768-d | 383.4 | 5.0% | 20.9% |
-| mean + head, PCA to 1536 | **177.3** | 13.3% | 31.9% |
+| L0+L1+L2 level (mean) | 1536 | 33.7% | -- |
+| head at INIT (projection only) | 768 | 33.1% | **-0.63 pp** |
+| mean -> PCA 768, train-fitted | 768 | 34.3% | +0.53 pp |
+| head TRAINED | 768 | 20.9% | **-11.30 pp** |
 
-The learned head alone is **-11.30 pp [-12.9, -9.6]** at 25 km against plain
-mean pooling, and -12.23 pp at 1 km. Concatenating it with mean pooling buys the
-coarse end (+7.17 pp at 750 km, +4.40 at 2500 km) and pays at the fine end
-(-3.87 pp at 1 km, -1.9 at 25 km) for a median that is 1.8 km better at equal
-width. **The multi-level mean pooling is the win; the learned head is not.**
-Since `<25 km` is the selection metric, `L0+L1+L2 level (mean)` is the 1536-d
-option to keep. Do not re-open this without a different mechanism.
+The projection is worth 0.63 pp of the 11.30. **Training moves the head 10.7 pp
+below its own starting point.** The cause is measurable: over 60 real batches,
+**100% contain a duplicate anchor and 50.3% of off-diagonal cells are true
+positives trained as negatives**, because the pair list is every image within
+5 km and the harvest is clustered. Fixed in `fuse_head.py`; the corrected arm is
+re-running and needs no tiles.
+
+**What still stands:** the multi-level mean. L0+L1+L2 beats L0 crops alone by
++1.6 pp at 25 km and 40 km of median at equal width, with no learned head.
 
 ## Fixes: what got done on 2026-09-03, and what is left
 
