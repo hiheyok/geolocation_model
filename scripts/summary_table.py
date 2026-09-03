@@ -31,7 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import config
 import splits as sp
 import tile_math as tm
-from beam import TokenSource
+from beam import TokenSource, source_for
 from dataset import GeoStepDataset, street_table
 from evaluate import evaluate, load_model, street_file_for
 from train import run_epoch
@@ -66,16 +66,19 @@ def main():
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    source = TokenSource(tm.G)
     rows = []
 
     for tag in [t.strip() for t in a.tags.split(",") if t.strip()]:
         model, ck, d_street = load_model(tag, dev)
+        # per arm, not once: arms in one table may be tokenised at different
+        # `sub`, and a shared source scores one against the other's map
+        source = source_for(ck)
         sf = street_file_for(ck, d_street)
         tbl = (street_table(config.STREET_CACHE / sf, dev)
                if ck.get("retr_mode") in ("pos", "dual") else None)
         kn = dict(knn_file=ck.get("knn_file"),
-                  knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
+                  knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                  cache=ck.get("map_cache"))
         mode = ck.get("split_mode", sp.PRIMARY)
         neg = dict(n_neg=ck.get("neg", 0), neg_random=False, neg_seed=11)
 

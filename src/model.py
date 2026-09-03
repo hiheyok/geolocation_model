@@ -52,10 +52,15 @@ class GeoAgent(nn.Module):
         # step* and takes a logsumexp, which reads as "reject if ANY of K
         # reasons fires" and is piecewise-linear rather than linear.
         #
-        # Neutral at init: the extra biases start at -20, so the logsumexp is
-        # the base logit to within 1e-8 and the arm begins as an exact copy of
-        # the current model.  An extra key costs nothing until it earns its
-        # place, which is the same contract as the zero-init gates elsewhere.
+        # Neutral at init *and* able to learn.  A -20 bias is neutral but
+        # dead: it gives each extra about e^-20 of the log-sum-exp gradient, so
+        # the keys never move and sink_k is a no-op that looks like a null
+        # result.  Instead the extras carry an ordinary bias and a zero-init
+        # gate interpolates:
+        #     sink = base + g * (logsumexp([base, extras]) - base)
+        # g=0 is exactly the base logit, g=1 is the full mixture, and g starts
+        # with a real gradient because the bracket is strictly positive. Same
+        # contract as w_pos in RetrievalPrior -- it departs only if it pays.
         self.sink_k = int(sink_k) if sink else 1
         self.sink_steps = max(1, n_steps - 1)
         if sink and self.sink_k > 1:
@@ -63,7 +68,8 @@ class GeoAgent(nn.Module):
                 torch.randn(self.sink_steps, self.sink_k - 1, d_tok)
                 * d_tok ** -0.5)
             self.sink_ext_b = nn.Parameter(
-                torch.full((self.sink_steps, self.sink_k - 1), -20.0))
+                torch.zeros(self.sink_steps, self.sink_k - 1))
+            self.sink_ext_g = nn.Parameter(torch.zeros(()))
         else:
             self.sink_ext = None
 
@@ -190,13 +196,21 @@ class GeoAgent(nn.Module):
                 [keys, self.sink.expand(keys.shape[0], 1, -1).to(keys.dtype)], dim=1)
         q = self.q_proj(fused)
         logits = torch.bmm(keys, q.unsqueeze(-1)).squeeze(-1) / math.sqrt(self.d_tok)
-        if self.sink_ext is not None and step is not None:
+        if self.sink_ext is not None:
+            if step is None:
+                # Silently skipping this trained one network and scored
+                # another; make the omission impossible rather than harmless.
+                raise ValueError(
+                    "policy_logits needs `step` when sink_k > 1: the extra "
+                    "sink keys are indexed by step")
             st = step.reshape(-1).clamp(max=self.sink_steps - 1)
             ext = self.sink_ext[st]                       # (B, K-1, d_tok)
             el = torch.einsum("bkd,bd->bk", ext.to(q.dtype), q)
             el = el / math.sqrt(self.d_tok) + self.sink_ext_b[st].to(q.dtype)
-            merged = torch.logsumexp(
-                torch.cat([logits[:, -1:], el], dim=1), dim=1, keepdim=True)
+            base = logits[:, -1:]
+            lse = torch.logsumexp(torch.cat([base, el], dim=1), dim=1,
+                                  keepdim=True)
+            merged = base + self.sink_ext_g.to(q.dtype) * (lse - base)
             logits = torch.cat([logits[:, :-1], merged], dim=1)
         if prior is not None:
             logits = logits + prior.to(logits.dtype)

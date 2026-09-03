@@ -64,7 +64,14 @@ def street_file_for(ck, dim, override=None):
     if override:
         return override
     named = ck.get("street_file")
-    if named and (config.STREET_CACHE / named).exists():
+    if named and not (config.STREET_CACHE / named).exists():
+        # Falling through to the width scan here picks whichever same-width
+        # cache sorts first -- a different bank under the right arm's name,
+        # which is the exact ambiguity this docstring warns about.
+        raise SystemExit(
+            "checkpoint names street file {} but it is not in {}"
+            .format(named, config.STREET_CACHE))
+    if named:
         got = np.load(config.STREET_CACHE / named, mmap_mode="r").shape[1]
         if got != dim:
             raise SystemExit(

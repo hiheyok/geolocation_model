@@ -26,6 +26,7 @@ import torch
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+import splits as sp
 import tile_math as tm
 from dataset import GeoStepDataset
 from evaluate import load_model, street_file_for
@@ -34,7 +35,15 @@ from evaluate import load_model, street_file_for
 @torch.no_grad()
 def stats(tag, dev, ks=(1, 2, 4, 8, 16), batch=64):
     model, ck, d_street = load_model(tag, dev)
-    ds = GeoStepDataset("val", street_file=street_file_for(d_street))
+    # street_file_for takes (ck, dim); calling it with one argument raised a
+    # TypeError, and once repaired the dataset still has to carry the
+    # checkpoint's split, k-NN and map cache or a dual arm is diagnosed with
+    # its learned retrieval branches switched off.
+    ds = GeoStepDataset("val", street_file=street_file_for(ck, d_street),
+                        split_mode=ck.get("split_mode", sp.PRIMARY),
+                        knn_file=ck.get("knn_file"),
+                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                        cache=ck.get("map_cache"))
     dl = DataLoader(ds, batch_size=batch)
     steps = tm.STEPS
     rec = {k: np.zeros(steps) for k in ks}

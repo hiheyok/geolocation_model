@@ -399,7 +399,10 @@ def main():
         # this architecture is a strict superset of that one and the older
         # checkpoint transfers without loss. Anything else is a real mismatch.
         additive = {"street.gate", "geo.emb.weight", "geo.gate",
-                    "geo.q_geo.weight", "geo.q_geo.bias"}
+                    "geo.q_geo.weight", "geo.q_geo.bias",
+                    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is
+                    # exactly this architecture with the extras switched off
+                    "sink_ext", "sink_ext_b", "sink_ext_g"}
         missing = [k for k in missing if k not in additive]
         if missing or unexpected:
             raise SystemExit(

@@ -21,7 +21,7 @@ import config
 import splits as sp
 import tile_math as tm
 from baselines import great_circle_km
-from beam import TokenSource, search
+from beam import TokenSource, source_for, search
 from dataset import GeoStepDataset, street_table
 from evaluate import load_model, street_file_for
 
@@ -43,8 +43,9 @@ def main():
     ds = GeoStepDataset("test", street_file=sf,
                         split_mode=ck.get("split_mode", sp.PRIMARY),
                         knn_file=ck.get("knn_file"),
-                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
-    src = TokenSource(tm.G)
+                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                        cache=ck.get("map_cache"))
+    src = source_for(ck)
 
     idx = np.arange(min(a.n, len(ds)))
     errs, firstwrong = [], []
