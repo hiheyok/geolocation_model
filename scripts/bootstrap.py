@@ -49,6 +49,26 @@ def ckpt_stamp(tag):
     return "{:x}{:x}".format(st.st_size, st.st_mtime_ns)[-12:]
 
 
+def provenance(tag, split, dev="cpu"):
+    """(release, split_mode, split_hash) for a tag, validated against the data.
+
+    Read before the cache is consulted, not after. check_split used to run only
+    on a cache miss, so a cached arm was returned with no proof that it came
+    from the same release or the same split as the arms it is about to be
+    paired against -- and a paired bootstrap over two different row sets is not
+    a comparison, it is noise with a confidence interval on it.
+
+    Only the checkpoint dict is read here, not the model: provenance costs a
+    torch.load, and building a GeoAgent to answer it would make every cache hit
+    pay for the thing the cache exists to avoid.
+    """
+    ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location="cpu",
+                    weights_only=False)
+    mode = ck.get("split_mode", sp.PRIMARY)
+    check_split(ck, mode, split)
+    return (ck.get("release"), mode, ck.get("split_hash"))
+
+
 def errors_for(tag, split, n, beam_k, score_steps, dev, source):
     """Per-image great-circle error, cached by (tag+checkpoint, split, n, k, depth)."""
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -131,6 +151,19 @@ def main():
     # tokenised at different `sub`, and a shared source would score one of them
     # against the other's map representation.
     rng = np.random.default_rng(config.SPLIT_SEED)
+    # Every arm must be measured over the same images before any of them are
+    # paired. Same release, same split mode, same split hash, same n: with the
+    # seeded sample in evaluate() those four fix the row set exactly. Without
+    # this a `sequence` arm and a `cell8` arm pair positionally and produce a
+    # tight interval over unrelated images.
+    prov = {t: provenance(t, a.split) for t in tags}
+    if len(set(prov.values())) > 1:
+        lines = "\n".join("  {:<28} release={} split={} hash={}".format(t, *v)
+                           for t, v in prov.items())
+        raise SystemExit(
+            "these arms were not measured over the same rows, so a paired "
+            "bootstrap between them is meaningless:\n" + lines)
+
     src_for_tag = {}
 
     errs = {}
