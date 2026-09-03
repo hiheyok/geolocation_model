@@ -163,22 +163,38 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
         m = 1 if (greedy or not rank_here) else min(top_m, A)
         w = 1.0 if rank_here else 0.0
         new_tiles, new_paths = [], []
-        new_scores = np.zeros((B, K if not greedy else 1))
-        for b in range(B):
-            cand = []
-            live = [j for j in range(nb) if p_sink[b, j] < sink_prune]
-            if not live:                       # never leave an image with nothing
-                live = [int(np.argmin(p_sink[b]))]
-            for j in live:
+        # Every image must leave this step with the same number of beams.
+        # _views flattens (image, beam) to `b * nb + j`, so a short row would
+        # shift every later image onto another image's street embedding -- and
+        # the score array is dense, so an unfilled slot would read as 0.0, a
+        # better cumulative log-probability than any real path.
+        width = min(nb * m, K)
+        new_scores = np.full((B, width), -np.inf)
+
+        def expand(b, js):
+            out = []
+            for j in js:
                 order = np.argpartition(-logp[b, j], m - 1)[:m]
                 for aidx in order:
-                    cand.append((scores[b, j] + w * logp[b, j, aidx], j, int(aidx)))
-            cand.sort(key=lambda c: -c[0])
-            cand = cand[:K]
+                    out.append((scores[b, j] + w * logp[b, j, aidx], j, int(aidx)))
+            return out
+
+        for b in range(B):
+            live = [j for j in range(nb) if p_sink[b, j] < sink_prune]
+            cand = sorted(expand(b, live), key=lambda c: -c[0])[:width]
+            if len(cand) < width:
+                # Pruning must not cost this image beam width, or its beams
+                # stop lining up with everyone else's.  Top up from the beams
+                # pruning rejected, worst-rejected last; `width` is the same
+                # for every image, so this always fills.
+                rest = [j for j in range(nb) if j not in set(live)]
+                extra = sorted(expand(b, rest), key=lambda c: -c[0])
+                cand += extra[:width - len(cand)]
             new_tiles.append([tm.descend(*tiles_[b][j], a, g) for _, j, a in cand])
             new_paths.append([paths[b][j] + [a] for _, j, a in cand])
-            for i, (s, _, _) in enumerate(cand):
-                new_scores[b, i] = s
+            for i, (sc, _, _) in enumerate(cand):
+                new_scores[b, i] = sc
+        assert all(len(r) == width for r in new_tiles), "ragged beam width"
         tiles_, paths, scores = new_tiles, new_paths, new_scores
 
     # click head on the final view of every surviving beam

@@ -219,11 +219,44 @@ class GeoStepDataset(Dataset):
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(
                     [self.all_y16, m["y16"].astype(self.all_y16.dtype)])
+            # build_knn records five things about how the cache was made and
+            # only one of them was ever checked.  Each of the others is a way
+            # for the wrong neighbours to arrive silently, and none of them
+            # would raise on its own: the arrays are the right dtype and a
+            # plausible shape whatever they were built from.
             if str(z["split_mode"]) != split_mode:
                 raise SystemExit(
                     "knn cache was built on split {!r} but the dataset is {!r}; "
                     "the bank must be that split's train side".format(
                         str(z["split_mode"]), split_mode))
+            if "split_hash" in z and str(z["split_hash"]) != self.split_hash:
+                raise SystemExit(
+                    "knn cache was built against split hash {} but the data on "
+                    "disk hashes to {}; dataset.parquet changed since the bank "
+                    "was built, so its train side is no longer that train side. "
+                    "Rebuild it.".format(str(z["split_hash"]), self.split_hash))
+            if "street_file" in z and str(z["street_file"]) != street_file:
+                raise SystemExit(
+                    "knn cache was built over {!r} but this dataset reads {!r}. "
+                    "Neighbours found in one embedding space do not transfer to "
+                    "another.".format(str(z["street_file"]), street_file))
+            # One query row per *release* image.  Not per row of the street
+            # file: a bank file has its extension rows appended after the
+            # release's, so that length is larger and comparing against it
+            # rejects every legitimate cache.
+            n_q, n_rel = z["idx"].shape[0], len(splits)
+            if n_q != n_rel:
+                raise SystemExit(
+                    "knn cache holds {:,} query rows but the release has {:,} "
+                    "images. Both are indexed by row order in dataset.parquet, "
+                    "so every image would be given another image's neighbours."
+                    .format(n_q, n_rel))
+            have = z["idx"].shape[1]
+            if have < knn_k:
+                raise SystemExit(
+                    "knn cache has {} neighbours per query, {} were asked for. "
+                    "Slicing would silently train on fewer neighbours than the "
+                    "run records.".format(have, knn_k))
             self.knn_idx = z["idx"][:, :knn_k]
             self.knn_sim = z["sim"][:, :knn_k].astype(np.float32)
 
