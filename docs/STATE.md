@@ -186,30 +186,46 @@ four cells; the mechanism claim holds.
 second angle against +1.24 pp before, still separated, still saturating at two
 (2->4 adds +0.16 pp). 2,496 groups.
 
-**The pyramid fusion head result is RETRACTED (2026-09-03).** It was reported
-as settled and negative; a Codex review in `docs/REVIEW.md` showed the
-comparison was confounded, and measuring the confound showed something worse.
+**The pyramid fusion head: retracted, then re-established on better evidence
+(2026-09-03).** It was first reported negative from a comparison a Codex review
+correctly showed was confounded. The conclusion was withdrawn, then survived
+three attempts to break it.
 
-The head is a residual on the mean pooled through a fixed *random* 1536->768
-matrix. Scored **at initialisation**, where the output layer is zeroed and the
-forward pass is exactly that projection:
-
-| arm | dim | `<25 km` | vs the 1536-d mean |
+| configuration | train loss | `<25 km` | median km |
 |---|---|---|---|
-| L0+L1+L2 level (mean) | 1536 | 33.7% | -- |
-| head at INIT (projection only) | 768 | 33.1% | **-0.63 pp** |
-| mean -> PCA 768, train-fitted | 768 | 34.3% | +0.53 pp |
-| head TRAINED | 768 | 20.9% | **-11.30 pp** |
+| **head at INIT, no training** | -- | **33.1%** | -- |
+| 5.0 km positives, unmasked (original) | 3.82 | 20.9% | 383.4 |
+| 5.0 km positives, false negatives masked | 0.063 | 20.5% | 384.1 |
+| 0.5 km positives, masked | 0.0145 | **12.9%** | 670.5 |
+| *L0+L1+L2 level (mean), 1536-d* | -- | *33.8%* | *179.1* |
 
-The projection is worth 0.63 pp of the 11.30. **Training moves the head 10.7 pp
-below its own starting point.** The cause is measurable: over 60 real batches,
-**100% contain a duplicate anchor and 50.3% of off-diagonal cells are true
-positives trained as negatives**, because the pair list is every image within
-5 km and the harvest is clustered. Fixed in `fuse_head.py`; the corrected arm is
-re-running and needs no tiles.
+**Every trained configuration is far worse than not training at all**, and the
+ordering is monotone in the wrong direction: the better the training loss, the
+worse the retrieval. That is overfitting, not a tuning problem -- 2.5M
+parameters against 38,009 images on a contrastive task the head can nearly
+solve exactly. A tighter positive radius makes the positives near-identical
+viewpoints, which is easier to memorise and generalises worse.
 
-**What still stands:** the multi-level mean. L0+L1+L2 beats L0 crops alone by
-+1.6 pp at 25 km and 40 km of median at equal width, with no learned head.
+Three candidate explanations were tested and none survived:
+
+* **the random projection** -- worth 0.63 pp of the 11.30 (head at init 33.1%
+  against the 1536-d mean's 33.7%);
+* **the false negatives** -- 50.3% of off-diagonal cells were true positives,
+  which is a real defect and was fixed, and it moved the result 20.9% -> 20.5%;
+* **the positive radius** -- predicted to be the binding constraint because
+  `--pos-km 5.0` declares any two images within 5 km identical. Tightening it
+  to 0.5 km made things **much worse**, 20.5% -> 12.9%. That prediction was
+  wrong.
+
+So the conclusion returns to where it started, on far better evidence: **the
+learned fusion head is harmful, and the multi-level mean is the win.** What
+changed is that it is now a measured claim about training rather than an
+artefact of a confounded comparison. If it is ever reopened, the thing to
+attack is capacity and data volume, not the objective's details.
+
+**What still stands, untouched by all of this:** the multi-level mean. L0+L1+L2
+beats L0 crops alone by +1.6 pp at 25 km and 40 km of median at equal width,
+with no learned head anywhere in it.
 
 ## Fixes: what got done on 2026-09-03, and what is left
 
