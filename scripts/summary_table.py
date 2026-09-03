@@ -33,7 +33,7 @@ import splits as sp
 import tile_math as tm
 from beam import TokenSource, source_for
 from dataset import GeoStepDataset, street_table
-from evaluate import evaluate, load_model, street_file_for
+from evaluate import check_split, evaluate, load_model, street_file_for
 from train import run_epoch
 
 CAP = 5000
@@ -80,6 +80,12 @@ def main():
                   knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
                   cache=ck.get("map_cache"))
         mode = ck.get("split_mode", sp.PRIMARY)
+        # This table reads both splits, and a checkpoint trained under another
+        # split_mode scores its own training images here -- spectacularly, and
+        # without complaint.  The release check inside matters just as much:
+        # every cache is indexed by row order.
+        check_split(ck, mode, "test")
+        check_split(ck, mode, "train")
         neg = dict(n_neg=ck.get("neg", 0), neg_random=False, neg_seed=11)
 
         # limit is encoded in the tag, e.g. s10_n100k_e10

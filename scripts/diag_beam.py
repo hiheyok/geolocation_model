@@ -26,24 +26,33 @@ import torch
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+import config
 import splits as sp
 import tile_math as tm
-from dataset import GeoStepDataset
-from evaluate import load_model, street_file_for
+from dataset import GeoStepDataset, gather_nbr, street_table
+from evaluate import check_split, load_model, street_file_for
 
 
 @torch.no_grad()
 def stats(tag, dev, ks=(1, 2, 4, 8, 16), batch=64):
     model, ck, d_street = load_model(tag, dev)
+    mode = ck.get("split_mode", sp.PRIMARY)
+    check_split(ck, mode, "val")
     # street_file_for takes (ck, dim); calling it with one argument raised a
     # TypeError, and once repaired the dataset still has to carry the
     # checkpoint's split, k-NN and map cache or a dual arm is diagnosed with
     # its learned retrieval branches switched off.
-    ds = GeoStepDataset("val", street_file=street_file_for(ck, d_street),
-                        split_mode=ck.get("split_mode", sp.PRIMARY),
+    sf = street_file_for(ck, d_street)
+    ds = GeoStepDataset("val", street_file=sf, split_mode=mode,
                         knn_file=ck.get("knn_file"),
                         knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
                         cache=ck.get("map_cache"))
+    # The dataset supplies neighbour *rows*; the embeddings behind them come
+    # from the street table, exactly as the training loop gathers them.  Without
+    # this a `pos` arm falls back to raw cosine and a `dual` arm loses its
+    # negative branch, so the recall being diagnosed is not the arm's own.
+    tbl = (street_table(config.STREET_CACHE / sf, dev)
+           if ck.get("retr_mode") in ("pos", "dual") else None)
     dl = DataLoader(ds, batch_size=batch)
     steps = tm.STEPS
     rec = {k: np.zeros(steps) for k in ks}
@@ -52,6 +61,8 @@ def stats(tag, dev, ks=(1, 2, 4, 8, 16), batch=64):
     n = 0
     for b in dl:
         b = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in b.items()}
+        if tbl is not None and "nbr_row" in b:
+            b["nbr_emb"] = gather_nbr(tbl, b["nbr_row"], dev)
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             logits, _ = model(b)
         lg = logits.float()[..., :tm.actions()]      # drop the sink column

@@ -36,14 +36,40 @@ from evaluate import check_split, evaluate, load_model, street_file_for
 CACHE = ROOT / "runs" / "errs"
 
 
+def ckpt_stamp(tag):
+    """Identify the *file*, not the tag.
+
+    A tag is a name the runner reuses: re-training `d768-b350-e6` writes a new
+    checkpoint over the old one, and a cache keyed only by the tag then serves
+    the previous model's errors under the new model's name -- silently, and with
+    entirely plausible numbers.  Size and mtime are enough to notice a rewrite
+    and cost nothing; hashing a 200 MB checkpoint on every lookup would not.
+    """
+    st = (config.CHECKPOINTS / (tag + ".pt")).stat()
+    return "{:x}{:x}".format(st.st_size, st.st_mtime_ns)[-12:]
+
+
 def errors_for(tag, split, n, beam_k, score_steps, dev, source):
-    """Per-image great-circle error, cached by (tag, split, n, k, depth)."""
+    """Per-image great-circle error, cached by (tag+checkpoint, split, n, k, depth)."""
     CACHE.mkdir(parents=True, exist_ok=True)
     # "r" marks the seeded random sample; the old caches were the first n rows
-    key = "{}_{}_{}r_k{}_d{}.npy".format(tag, split, n, beam_k, score_steps)
+    key = "{}_{}_{}_{}r_k{}_d{}.npy".format(
+        tag, ckpt_stamp(tag), split, n, beam_k, score_steps)
     p = CACHE / key
     if p.exists():
         return np.load(p)
+
+    # Adopt a pre-stamp cache only when its own mtime proves it was written
+    # after the checkpoint now on disk.  That is the exact condition the stamp
+    # enforces going forward, so this migrates the honest files and recomputes
+    # the ones that cannot be shown to match -- rather than trusting the name.
+    legacy = CACHE / "{}_{}_{}r_k{}_d{}.npy".format(
+        tag, split, n, beam_k, score_steps)
+    ckp = config.CHECKPOINTS / (tag + ".pt")
+    if legacy.exists() and legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
+        e = np.load(legacy)
+        np.save(p, e)
+        return e
 
     model, ck, d_street = load_model(tag, dev)
     mode = ck.get("split_mode", sp.PRIMARY)
