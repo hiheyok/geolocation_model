@@ -1,4 +1,4 @@
-# Live state — updated 2026-09-03 02:45
+# Live state — updated 2026-09-03 11:55, queue drained
 
 Read this first after a compaction. `docs/BACKLOG.md` holds deferred code and
 performance work, `docs/ARCHITECTURE_NEXT.md` the reviewed architecture
@@ -81,35 +81,43 @@ model. Scale the corpus **and** train with `--retr-drop 0.7`.
 `scripts/parity_report.py` builds the whole comparison from the exports as they
 land; run it rather than reading numbers out of logs.
 
-## Arms
+## Arms, at shipping parity
 
 | arm | OSV-5M `<25 km` | KartaView `<25 km` | KartaView median |
 |---|---|---|---|
-| `d768-b265-e6` | 72.8% | 12.9% | 450.6 km |
-| `d768-b350-e6` | 75.6% | 11.6% | 486.2 km |
-| `d1536-b350-e6` | 76.2% | 11.7% | 518.2 km |
-| `d768-b350-e6-drop70` | ~75.6% | **14.1%** | **409.8 km** |
-| `d1536-b350-e6-drop30` | **~76.9%** | 12.5% | 458.1 km |
+| `d768-b265-e6` | 72.8% | 12.1% | 474.8 km |
+| `d768-b350-e6` | 75.6% | 11.6% | 505.6 km |
+| **`d768-b350-e6-drop70`** | ~75.6% | **13.4%** | **435.7 km** |
+| `d768-b350-e6-drop90` | **-5.7 pp** | 14.0% | 390.0 km |
+| `d768-b350-e6-sub2` | — | 12.5% | 459.7 km |
+| `d1536-b350-e6` | 76.2% | **11.2%** | **532.5 km** |
+| `d1536-b350-e6-drop30` | **76.9%** | 12.3% | 492.0 km |
+| `d1536-b350-e6-drop70` | 75.9% | 12.8% | 467.4 km |
 
-Best benchmark and best real-world are **not the same arm**.
-`d1536-b350-e6-drop70` is queued and is the obvious gap in the matrix.
+**Ship `d768-b350-e6-drop70`.** The rank inversion is sharper at parity than it
+was before: `d1536-b350-e6-drop30` has the best benchmark number of any arm and
+loses externally to the half-width `drop70` by **-1.06 pp [-1.78, -0.32]** and
+**-56.3 km [-80.0, -35.6]**, both separated. Plain `d1536-b350-e6` is the best
+non-dropout benchmark arm and the worst arm on photographs, on both measures.
 
-## READ BEFORE QUOTING ANY EXTERNAL NUMBER
+## The parity caveat is resolved
 
-Every KartaView figure in the arms table was measured with `eval_highres`
-**searching all 3,500,000 rows of the embedding file rather than the 3,400,180
-the checkpoint's k-NN was built over, and with K=32 where these arms train with
-`retr_k=16`.** Fixed; the `hrfix-*` stages re-measure the same 5,000 images.
+Every external number above is measured against each checkpoint's own bank at
+its own `retr_k`. All ten arms, the 2x2 and the multi-photograph curve were
+re-run; nothing outstanding.
 
-**Two arms are re-measured so far, and parity is not a uniform shift.** It cost
-`d768-b265-e6` 0.86 pp on `<25 km` (separated) and `d768-b350-e6` nothing
-(+0.00 pp). So the assumption that every arm was measured identically and the
-paired directions would hold is **not safe**: the size of the correction
-depends on the arm, and it already turned one separated contrast into noise.
+**Keep the lesson, not the numbers.** The caveat written when the bug was found
+said every arm was measured the same way, so paired *directions* would hold. It
+was wrong. Parity cost `p=0` nothing and each dropout arm 0.6 pp — same bank,
+same restriction, so the spread is about the arm. K=32 is twice the neighbours
+these arms train with, and a model trained on a thinned neighbour set gains more
+from the extras than one tuned to 16. **The confound was correlated with the
+treatment**, and it flattered exactly the thing under test. One separated result
+became noise and one effect size fell by a quarter.
 
-Treat every un-re-run external number as provisional, including the whole
-p-curve. Run `scripts/parity_report.py` rather than reading logs; it marks what
-has landed. OSV-5M bootstraps were never affected.
+So the rule is not "a uniform error preserves paired directions" — it is **ask
+whether the error is independent of the treatment first**, and re-measure before
+quoting anything when it touches the same quantity the experiment manipulates.
 
 ## Other results
 
@@ -137,26 +145,65 @@ has landed. OSV-5M bootstraps were never affected.
   prior's learned job is mostly "the answer is not in this tile" rather than
   "the answer is this cell".
 
-## Queue
+## Queue: empty. Everything ran.
 
-The runner (pid 23964 as of 02:40) holds the list it was started with. A second
-process is chained to its exit -- it polls that **pid**, not a log, and has no
-"proceed anyway" fallback, because two jobs on one GPU is the thing the
-measurements say never to do. That relaunch picks up the two stages added after
-the runner started.
+The runner finished at 06:24 and the chained relaunch drained the stages added
+after it started, finishing 06:50. No stage was dropped and nothing needs the
+tile server any more. `scripts/parity_report.py` rebuilds the external table
+from the exports; `scripts/pair_npz.py` does any single contrast.
 
-1. Eight remaining `hrfix-*` shipping-parity external re-runs (~13 min each,
-   needs tiles). `b265` and `b350` are done.
-2. `hrfix-x-m265-b350` and `hrfix-x-m350-b265` -- the 2x2 at parity. **Added
-   after the runner started, so they need the chained relaunch.**
-3. `d1536-b350-e6-drop70` ladder + bootstrap + external (~2 h, needs tiles).
-4. `fuse-attn-pyr47` -- the deconfounded pyramid attention arm. **Must re-run:
-   it reached epoch 11 of 12 and was killed by accident. Needs no tiles.**
-   38,009 training images against the 14,938 that produced the -15.75 pp
-   collapse, which was recorded as confounded and is still unsettled.
+**Results that landed after 02:45, all of them settling something:**
 
-`cache/street/s10/pyr47.f16.npy` is complete and verified: 47,646 images,
-33 x 2 x 768, 4.83 GB, both encoder slices non-zero, zero decode failures.
+**The gap in the matrix is not worth filling.** `d1536-b350-e6-drop70` — best
+width times best p — loses on both measures. Against `d768-b350-e6-drop70`
+externally: `<1 km` **-0.60 pp [-0.90, -0.30]**, `<200 km` **-1.92 pp
+[-3.02, -0.84]**, median **+31.7 km [+8.2, +53.2]**, all separated. On the
+benchmark it loses to `d1536-b350-e6-drop30` by +0.20 to +1.62 pp on `<25 km`
+and 0.4-0.8 km of median, also separated. **Ship `d768-b350-e6-drop70`. Width
+and dropout do not compose.**
+
+**And the benchmark cost of dropout is width-dependent** — a claim that would
+have been easy to carry over from the 768-d curve without checking. At 768-d the
+benchmark is flat from p=0 to p=0.7. At 1536-d, `drop30 -> drop70` trades
+`<1 km` precision (-0.64 pp, separated) for coarse accuracy (+1.50 pp at 200 km,
+-24.6 km median, both separated) — which is exactly the signature p=0.9 shows at
+768-d. **The wider model reaches the overshoot regime at a lower p.**
+
+**The 2x2 survives parity: it is the model, not the bank.**
+
+| `<25 km`, at parity | bank 2.65M | bank 3.40M |
+|---|---|---|
+| model b265 | 12.06% | 12.00% |
+| model b350 | 11.34% | 11.60% |
+
+Bank effect at fixed model: -0.06 pp and +0.26 pp, both noise; +12.1 km and
+-5.5 km, both noise. Model effect at fixed bank: **-0.72 pp [-1.32, -0.12]**
+separated on the 2.65M bank and -0.40 pp (noise) on the 3.40M, with the median
+separated at both (**+36.2 km** and **+18.7 km**). The bank is innocent in all
+four cells; the mechanism claim holds.
+
+**Several photographs: unchanged by parity.** +1.36 pp [+0.28, +2.48] for a
+second angle against +1.24 pp before, still separated, still saturating at two
+(2->4 adds +0.16 pp). 2,496 groups.
+
+**The pyramid fusion head is settled and negative, and it was not confounded.**
+Re-run on 38,009 training images against the 14,938 that produced the -15.75 pp
+collapse, 12 epochs, loss converging 5.03 -> 3.82:
+
+| arm | median | `<1 km` | `<25 km` |
+|---|---|---|---|
+| L0 crops (mean) 1536-d | 218.8 | 17.2% | 32.2% |
+| **L0+L1+L2 level (mean) 1536-d** | 179.1 | **17.8%** | **33.8%** |
+| fusion head (learned) 768-d | 383.4 | 5.0% | 20.9% |
+| mean + head, PCA to 1536 | **177.3** | 13.3% | 31.9% |
+
+The learned head alone is **-11.30 pp [-12.9, -9.6]** at 25 km against plain
+mean pooling, and -12.23 pp at 1 km. Concatenating it with mean pooling buys the
+coarse end (+7.17 pp at 750 km, +4.40 at 2500 km) and pays at the fine end
+(-3.87 pp at 1 km, -1.9 at 25 km) for a median that is 1.8 km better at equal
+width. **The multi-level mean pooling is the win; the learned head is not.**
+Since `<25 km` is the selection metric, `L0+L1+L2 level (mean)` is the 1536-d
+option to keep. Do not re-open this without a different mechanism.
 
 ## Fixes: what got done on 2026-09-03, and what is left
 
