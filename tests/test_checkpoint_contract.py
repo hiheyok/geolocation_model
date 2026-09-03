@@ -59,7 +59,7 @@ ARCH_CASES = [
     ("mem", {"mem": "content"}),
     ("retr_mode", {"retr": True, "retr_mode": "dual"}),
     ("d_key", {"retr": True, "retr_mode": "dual", "d_key": 64}),
-    ("geo", {"geo": "tile"}),
+    ("geo", {"geo": "key"}),
 ]
 
 DEFAULT_CK = {
@@ -189,3 +189,78 @@ def test_every_saved_field_has_a_reader():
     assert not fixed, (
         "{} now has a reader -- remove it from KNOWN_ORPHANS so the list keeps "
         "meaning what it says.".format(", ".join(fixed)))
+
+
+def test_the_training_forward_and_the_search_forward_agree():
+    """Two code paths score the same model, and they must not drift apart.
+
+    `forward` assembles a (B, S) batch; beam search assembles (image, beam)
+    rows and calls fuse_flat / retr_prior / _add_geo / policy_logits itself.
+    Every bug in this file's docstring is a divergence between those two, and
+    the sink one was exactly this: search omitted `step`, so the extra sink
+    keys were live in training and dead at inference, and nothing raised.
+
+    Every optional additive term is switched on. That matters: with the default
+    geo="none" the `_add_geo` line is a no-op, and a test that exercises a
+    no-op proves the two paths agree about nothing.
+    """
+    torch.manual_seed(0)
+    B, S, A = 3, tm.STEPS + 1, tm.actions()
+    m = build(sink=True, sink_k=4, retr=True, retr_mode="dual",
+              pool="attn", pos="both", geo="key")
+    # An all-zero parameter makes its whole branch vacuous, and this model has
+    # several by design: the retrieval gates start at zero, and GeoMem's table
+    # starts at zero behind a gate of one. Comparing the two paths at init
+    # would therefore hold even if both ignored the additive terms entirely --
+    # the zero-gate trap that once made a dead feature look like an honest
+    # null. So give every zeroed parameter something to say.
+    with torch.no_grad():
+        for _, q in m.named_parameters():
+            if not q.any():
+                q.copy_(torch.randn_like(q) * 0.05 + 0.1)
+    m.eval()
+
+    batch = {
+        "street": torch.randn(B, 768),
+        "tokens": torch.randn(B, S, A, 12),
+        "x0": torch.rand(B, S), "y0": torch.rand(B, S),
+        "step": torch.arange(S).unsqueeze(0).expand(B, S).contiguous(),
+        "nbr_x": torch.randint(0, 1 << 16, (B, 8)),
+        "nbr_y": torch.randint(0, 1 << 16, (B, 8)),
+        "nbr_sim": torch.rand(B, 8),
+        "nbr_emb": torch.randn(B, 8, 768),
+    }
+    with torch.no_grad():
+        train_logits, _ = m(batch)
+
+    # The same rows, assembled the way search assembles them: one row per
+    # (image, live beam) rather than one per (image, step).
+    n = S - 1
+    st, x0 = batch["street"], batch["x0"][:, :n].reshape(-1)
+    y0, sp = batch["y0"][:, :n].reshape(-1), batch["step"][:, :n].reshape(-1)
+    with torch.no_grad():
+        f, keys = m.fuse_flat(
+            st.unsqueeze(1).expand(B, n, -1).reshape(B * n, -1),
+            batch["tokens"][:, :n].reshape(B * n, A, 12), x0, y0, sp)
+        n_logits = keys.shape[1] + 1
+        prior = m.retr_prior(
+            (batch["nbr_x"], batch["nbr_y"], batch["nbr_sim"], batch["nbr_emb"]),
+            st, x0, y0, sp, n, n_logits)
+        prior = m._add_geo(prior, f, x0, y0, sp, n_logits)
+        search_logits = m.policy_logits(f, keys, prior, sp)
+
+    assert search_logits.shape == (B * n, A + 1)
+    assert prior is not None and prior.abs().sum() > 0, (
+        "the additive terms are all zero; this test would pass with both "
+        "paths ignoring them")
+    assert torch.allclose(train_logits.reshape(B * n, -1), search_logits,
+                          atol=1e-5), "the two forwards disagree"
+
+
+def test_dropping_step_raises_rather_than_diverging():
+    """The sink regression itself: a caller that forgets `step` must fail."""
+    m = build(sink=True, sink_k=4)
+    m.eval()
+    with pytest.raises(ValueError, match="step"):
+        m.policy_logits(torch.randn(4, 512),
+                        torch.randn(4, tm.actions(), 256), None)
