@@ -119,8 +119,9 @@ def main():
               .format(len(ready)))
         return
     print("\n\nThe --retr-drop curve at parity, each p against p=0\n")
-    print("  {:>4} {:>8} {:>8} {:>10}   {}".format(
-        "p", "<1 km", "<25 km", "median", "vs p=0 on <25 km"))
+    print("  {:>4} {:>8} {:>8} {:>10}   {:<30} {}".format(
+        "p", "<1 km", "<25 km", "median", "vs p=0 on <25 km",
+        "vs p=0 on <1 km"))
     base = have.get("hrfix_b350.npz")
     for p, f in ready:
         e = have[f][0]
@@ -129,9 +130,17 @@ def main():
         if base is not None and f != "hrfix_b350.npz":
             pair = align(base, have[f])
             if pair is not None:
+                # <1 km as well as <25 km. p=0.9 was rejected on the fine
+                # bucket alone -- it matched p=0.7 at 25 km and lost 0.6 pp at
+                # 1 km, which is the bucket retrieval actually delivers. That
+                # call was made on point estimates with no interval, so it is
+                # the least supported number in the whole curve.
                 dh, (lo, hi), _, _ = paired(*pair)
-                row += "   {:+.2f} pp [{:+.2f}, {:+.2f}] {}".format(
+                d1, (l1, h1), _, _ = paired(*pair, thresh=1.0)
+                row += "   {:+.2f} pp [{:+.2f}, {:+.2f}] {:<9}".format(
                     dh, lo, hi, verdict(lo, hi))
+                row += " {:+.2f} pp [{:+.2f}, {:+.2f}] {}".format(
+                    d1, l1, h1, verdict(l1, h1))
         print(row)
 
     # Whether the confound was correlated with the treatment. Every arm in the
