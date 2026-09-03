@@ -106,7 +106,7 @@ def best_cell8_lr():
     still climbing at epoch 4. A continuation compounds that choice.
     """
     import numpy as np
-    cands = ("s10_cell8_bank25_lr1e4", "s10_cell8_bank25_lr3e4")
+    cands = ("d4608-b115-e2-cell8", "s10_cell8_bank25_lr3e4")
     scored = []
     for tag in cands:
         if not (config.CHECKPOINTS / (tag + ".pt")).exists():
@@ -162,7 +162,7 @@ def main():
         O.hhmm(tiles_until)))
 
     log("cell8 learning-rate sweep:")
-    C8_WIN = best_cell8_lr() or "s10_cell8_bank25_lr1e4"
+    C8_WIN = best_cell8_lr() or "d4608-b115-e2-cell8"
     log("  continuing {}".format(C8_WIN))
 
     # (stage, needs_tiles)
@@ -226,11 +226,11 @@ def main():
                 "--bank-ext", EXT, "--bank-block", "150000"],
                release=REL, est=70 * 60, retries=1), False),
         (Stage("mar_balbank_train",
-               train("s10_bal_bank25", BAL_BANK, KNN_BALBANK_SEQ, "sequence",
+               train("d4608-b115-e2", BAL_BANK, KNN_BALBANK_SEQ, "sequence",
                      2, limit=400000),
                release=REL, est=40 * 60, retries=1), True),
         (Stage("mar_balbank_eval",
-               boot("s10_n400k_bank25_cont,s10_bal_bank25",
+               boot("s10_n400k_bank25_cont,d4608-b115-e2",
                     "BOOTSTRAP_balbank.md"),
                release=REL, est=10 * 60, retries=1), True),
 

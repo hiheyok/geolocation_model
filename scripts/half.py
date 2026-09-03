@@ -16,7 +16,7 @@ policy something.
 
 Matched on schedule as well as on epochs, the same 2+2+2 ladder every arm in
 this comparison has used, against the same 2.65M corpus. The only difference
-from `s10_b55_c6` is the width of the street vector.
+from `d1536-b265-e6` is the width of the street vector.
 
 Read it the way the pooling runs were read: 768 does not need to win. It needs
 to not lose by more than the noise floor, about 1 pp of hit rate at n=5,000,
@@ -83,11 +83,11 @@ def main():
                 "--split-mode", "sequence", "--k", "32",
                 "--bank-ext", META], release=REL, est=15 * 60, retries=1),
          False),
-        (Stage("w768_2", train("s10_w768"), release=REL, est=20 * 60,
+        (Stage("w768_2", train("d768-b265-e2"), release=REL, est=20 * 60,
                retries=1), True),
-        (Stage("w768_4", train("s10_w768_c4", "s10_w768"), release=REL,
+        (Stage("w768_4", train("d768-b265-e4", "d768-b265-e2"), release=REL,
                est=20 * 60, retries=1), True),
-        (Stage("w768_6", train("s10_w768_c6", "s10_w768_c4"), release=REL,
+        (Stage("w768_6", train("d768-b265-e6", "d768-b265-e4"), release=REL,
                est=20 * 60, retries=1), True),
         # boot_existing, not boot: if the last rung is dropped for time its
         # checkpoint will not exist, and bootstrap.py would fail on the missing
@@ -95,7 +95,7 @@ def main():
         # tile server is up.
         (Stage("w768_eval",
                ["scripts/boot_existing.py", "--tags",
-                "s10_b40_c6,s10_b55_c6,s10_w768,s10_w768_c4,s10_w768_c6",
+                "d1536-b190-e6,d1536-b265-e6,d768-b265-e2,d768-b265-e4,d768-b265-e6",
                 "--out", str(O.RUNS / "BOOTSTRAP_w768.md")],
                release=REL, est=2 * 60, retries=1), True),
     ]

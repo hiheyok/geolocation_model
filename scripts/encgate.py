@@ -15,8 +15,8 @@ ungated checkpoint is exact.
 Two arms, both continuing from the shipping best for the same number of epochs,
 because "continue training and it improved" is not evidence about the gate:
 
-    gate    s10_bal_bank25_c6 + 2 epochs, --enc-gate
-    ctrl    s10_bal_bank25_c6 + 2 epochs, unchanged
+    gate    d4608-b115-e6 + 2 epochs, --enc-gate
+    ctrl    d4608-b115-e6 + 2 epochs, unchanged
 
 The metric comparison is paired.  But the *mechanistic* readout is worth more
 than the metric here and cannot be faked: if the learned gates come out flat,
@@ -39,7 +39,7 @@ from overnight import Stage, load_state, log, run_stage
 from marathon import ARCH, BAL_BANK, KNN_BALBANK_SEQ, boot, tiles_up
 
 REL = "s10"
-FROM = "s10_bal_bank25_c6"
+FROM = "d4608-b115-e6"
 
 
 def cont(tag, extra=(), epochs=2):
@@ -98,7 +98,7 @@ def main():
         Stage("eg_ctrl", cont("s10_bal_c8"), release=REL, est=35 * 60,
               retries=1),
         Stage("eg_eval",
-              boot("s10_bal_bank25_c6,s10_bal_gate,s10_bal_c8",
+              boot("d4608-b115-e6,s10_bal_gate,s10_bal_c8",
                    "BOOTSTRAP_encgate.md"), release=REL, est=15 * 60,
               retries=1),
     ]

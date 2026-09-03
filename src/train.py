@@ -109,8 +109,16 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
                 # Off-path views: the answer is not in this tile, so the target
                 # is the sink.  Without these the sink class has no positives --
                 # every teacher-forced row is on-path by construction.
-                nbrs = ((b["nbr_x"], b["nbr_y"], b["nbr_sim"])
-                        if "nbr_x" in b else None)
+                # Include nbr_emb, as the on-path forward does. Without it
+                # `pos` falls back to frozen cosine and `dual` loses its
+                # negative branch on exactly the rows the sink is trained
+                # from -- the rows policy_from's docstring calls the ones
+                # where the prior should matter most.
+                nbrs = None
+                if "nbr_x" in b:
+                    nbrs = (b["nbr_x"], b["nbr_y"], b["nbr_sim"],
+                            b["nbr_emb"]) if "nbr_emb" in b else (
+                            b["nbr_x"], b["nbr_y"], b["nbr_sim"])
                 nl = model.policy_from(b["street"], b["neg_tokens"],
                                        b["neg_x0"], b["neg_y0"], b["neg_step"],
                                        nbrs)
@@ -199,6 +207,18 @@ def build_parser():
     ap.add_argument("--retr-k", type=int, default=16,
                     help="neighbours used; must not exceed the cached k")
     ap.add_argument("--retr-tau", type=float, default=0.07)
+    ap.add_argument("--map-cache", default=None,
+                    help="map token cache directory; use a sub>1 cache to give "
+                         "the policy within-patch layout instead of a single "
+                         "class histogram per 32x32 patch")
+    ap.add_argument("--sink-k", type=int, default=1,
+                    help="sink keys per step; 1 is the single shared key. "
+                         "Extras start at bias -20, so the arm begins as an "
+                         "exact copy of the sink-k 1 model")
+    ap.add_argument("--retr-drop", type=float, default=0.0,
+                    help="probability of hiding each retrieved neighbour "
+                         "during training, so the policy cannot assume the "
+                         "dense coverage of the training bank")
     ap.add_argument("--retr-mode", choices=["scalar", "cond", "pos", "dual"],
                     default="scalar",
                     help="scalar: one gate. cond: per-step gates modulated by "
@@ -288,7 +308,8 @@ def main():
     knn_file = a.knn_file
     if a.retr and knn_file is None:
         knn_file = config.knn_name(a.street_file, a.split_mode)
-    kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0)
+    kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0,
+              cache=a.map_cache)
     tr = GeoStepDataset("train", street_file=a.street_file, n_neg=a.neg,
                         split_mode=a.split_mode, **kn)
     # val negatives are seeded, so sink accuracy is measured on the same tiles
@@ -345,17 +366,28 @@ def main():
     if a.select in ("km", "hit"):
         from beam import TokenSource
         from evaluate import evaluate as rollout
-        src = TokenSource(tm.G)
+        # the selection rollout must see the same map representation the
+        # model is being trained on, or it picks checkpoints on a mismatch
+        src = TokenSource(tm.G, cache=a.map_cache,
+                          sub=int(round(((tr.dataset if hasattr(tr, "dataset")
+                                          else tr).tokens.shape[-1] / 12)
+                                        ** 0.5)))
 
     model = GeoAgent(d_street=tr.dataset.dim_street if hasattr(tr, "dataset")
                      else tr.dim_street,
                      n_actions=tm.actions(), n_steps=steps + 1,
+                     # width comes from the cache, never assumed: a sub>1 cache
+                     # carries 12*sub*sub per patch and a hardcoded 12 would
+                     # build a projection that silently ignores most of it
+                     n_classes=int((tr.dataset if hasattr(tr, "dataset")
+                                    else tr).tokens.shape[-1]),
                      map_layers=a.map_layers, pool=a.pool,
                      n_pool_q=a.pool_q, pos=a.pos, sink=(a.neg > 0),
                      map_loop=a.map_loop,
                      mem=a.mem, d_mem=a.d_mem, mem_drop=a.mem_drop,
                      retr=a.retr, retr_tau=a.retr_tau,
                      retr_mode=a.retr_mode, d_key=a.d_key,
+                     nbr_drop=a.retr_drop, sink_k=a.sink_k,
                      enc_gate=a.enc_gate,
                      geo=a.geo, d_geo=a.d_geo).to(dev)
     prev_epochs = 0
@@ -437,6 +469,11 @@ def main():
                         "mem": a.mem, "d_mem": a.d_mem,
                         "retr": a.retr, "retr_k": a.retr_k,
                         "retr_mode": a.retr_mode, "d_key": a.d_key,
+                        "retr_drop": a.retr_drop, "sink_k": a.sink_k,
+                        "map_cache": a.map_cache,
+                        "map_sub": int(round(((tr.dataset if hasattr(tr, "dataset")
+                                               else tr).tokens.shape[-1] / 12)
+                                             ** 0.5)),
                         "retr_tau": a.retr_tau, "knn_file": knn_file,
                         "enc_gate": a.enc_gate,
                         "geo": a.geo, "d_geo": a.d_geo,

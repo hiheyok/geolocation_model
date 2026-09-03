@@ -48,6 +48,14 @@ def needed_keys(grid, exhaustive_z8):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", type=int, default=tm.G)
+    ap.add_argument("--sub", type=int, default=1,
+                    help="split each patch into sub x sub cells before "
+                         "histogramming, so within-patch layout survives. "
+                         "sub=1 is the original 12-d token")
+    ap.add_argument("--out-cache", default=None,
+                    help="write to this directory instead of the release's "
+                         "own map cache; use it for a sub>1 cache so the "
+                         "existing one stays valid for existing arms")
     ap.add_argument("--threads", type=int, default=16)
     ap.add_argument("--exhaustive-z8", action="store_true",
                     help="also fetch all 65,536 z8 tiles (only helps beam latency)")
@@ -58,10 +66,29 @@ def main():
                          "releases; only the row numbering differs.")
     a = ap.parse_args()
 
+    # Resolve the cache here, not at import: --out-cache writes a parallel
+    # cache so a sub>1 build cannot overwrite the one every existing arm was
+    # trained against.
+    global TOKENS, INDEX, DONE
+    if a.out_cache:
+        Path(a.out_cache).mkdir(parents=True, exist_ok=True)
+        TOKENS, INDEX, DONE = config.map_files(a.out_cache)
+
+    # OSV_RELEASE decides which targets.parquet defines "needed", and it
+    # defaults to s01. Building an s10 cache under the default silently fetches
+    # the 50k release's tiles, reports "0 errors", and fails much later inside
+    # GeoStepDataset with a KeyError on a tile that was never asked for. Print
+    # it where it cannot be missed.
+    print("release       {}  ({})".format(config.RELEASE,
+                                          config.TARGETS_PARQUET))
     keys = needed_keys(a.grid, a.exhaustive_z8)
     n, d = len(keys), a.grid * a.grid
+    width = T.N_CLASSES * a.sub * a.sub
     print("tiles needed   {:,}".format(n))
-    print("cache size     {:.0f} MB fp16".format(n * d * T.N_CLASSES * 2 / 1e6))
+    print("token width    {} ({} classes x {}x{} cells)".format(
+        width, T.N_CLASSES, a.sub, a.sub))
+    print("cache          {}".format(TOKENS))
+    print("cache size     {:,.0f} MB fp16".format(n * d * width * 2 / 1e6))
 
     idx = pa.table({
         "z": pa.array([k[0] for k in keys], pa.int8()),
@@ -77,12 +104,24 @@ def main():
                  and np.array_equal(np.asarray(old["x"]), np.asarray(idx["x"]))
                  and np.array_equal(np.asarray(old["y"]), np.asarray(idx["y"]))
                  and np.array_equal(np.asarray(old["z"]), np.asarray(idx["z"])))
+        if reuse:
+            # The address index says nothing about token width. Reusing a
+            # 12-d cache for a --sub 2 build would keep the old memmap and an
+            # all-complete done mask, then report "nothing to do".
+            try:
+                w = np.load(TOKENS, mmap_mode="r").shape[-1]
+            except Exception:
+                w = None
+            if w != width:
+                reuse = False
+                print("cache is {}-d, this build is {}-d -- starting fresh"
+                      .format(w, width))
         if not reuse:
             print("index changed -- starting a fresh cache")
 
     tok = np.lib.format.open_memmap(
         TOKENS, mode="r+" if reuse else "w+",
-        dtype=np.float16, shape=(n, d, T.N_CLASSES))
+        dtype=np.float16, shape=(n, d, width))
     done = (np.load(DONE) if reuse
             else np.zeros(n, dtype=np.uint8))
     pq.write_table(idx, INDEX)
@@ -96,6 +135,10 @@ def main():
         sidx = pq.read_table(sidx_p)
         sdone = np.load(sdone_p)
         stok = np.load(stok_p, mmap_mode="r")
+        if stok.shape[-1] != width:
+            sys.exit("--seed-from cache is {}-d, this build is {}-d; a token "
+                     "grid is only reusable at the same --sub"
+                     .format(stok.shape[-1], width))
         skey = {}
         for z, x, y, r in zip(np.asarray(sidx["z"]), np.asarray(sidx["x"]),
                               np.asarray(sidx["y"]), np.asarray(sidx["row"])):
@@ -127,7 +170,7 @@ def main():
         z, x, y = keys[row]
         try:
             m = client.mask(z, x, y)
-            tok[row] = T.to_tokens(m, a.grid).astype(np.float16)
+            tok[row] = T.to_tokens(m, a.grid, a.sub).astype(np.float16)
             with lock:
                 done[row] = 1
                 state["ok"] += 1

@@ -40,6 +40,22 @@
   #drop p { margin:.25rem 0; color:var(--ink-2); }
   #drop b { color:var(--ink); font-variation-settings:"wght" 600; }
   input[type=file] { display:none; }
+  #shots { margin: 0 0 1.5rem; }
+  .strip { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .strip figure { margin:0; position:relative; }
+  .strip img { height:78px; width:104px; object-fit:cover; border-radius:6px;
+               display:block; }
+  .strip figure:first-child img { outline:2px solid currentColor;
+                                  outline-offset:2px; }
+  .strip .tagno { position:absolute; left:4px; top:4px; font:600 11px/1.4
+                  ui-sans-serif,system-ui,sans-serif; padding:0 5px;
+                  border-radius:4px; background:rgba(0,0,0,.62); color:#fff; }
+  .shotbar { display:flex; align-items:center; gap:1rem; margin-top:.6rem;
+             font-size:.86rem; }
+  .shotbar button { font:inherit; padding:.3rem .8rem; border-radius:6px;
+                    border:1px solid currentColor; background:none;
+                    color:inherit; cursor:pointer; }
+  .shotbar button:hover { background:rgba(127,127,127,.14); }
 
   .panes { display:grid; gap:1.5rem; grid-template-columns:1fr; margin-top:1.75rem; }
   @media (min-width:52rem){ .panes{ grid-template-columns:18rem 1fr; } }
@@ -88,10 +104,21 @@
   looked at, with the cell it chose each time.</p>
 
   <div id="drop" tabindex="0" role="button" aria-label="Choose an image">
-    <p><b>Drop an image here</b></p>
+    <p><b>Drop one or more images here</b></p>
     <p>or click to choose, or paste with <kbd id="pastekey">Ctrl-V</kbd>
        &middot; any size, JPEG or PNG</p>
-    <input type="file" id="file" accept="image/*">
+    <p class="hint">Several photographs of the same spot &mdash; facing different
+       ways &mdash; localise better than one. The first drives the agent; all of
+       them are searched against the bank.</p>
+    <input type="file" id="file" accept="image/*" multiple>
+  </div>
+
+  <div id="shots" hidden>
+    <div class="strip" id="strip"></div>
+    <div class="shotbar">
+      <span id="shotn"></span>
+      <button type="button" id="reset">Start over</button>
+    </div>
   </div>
 
   <div class="panes" id="panes" hidden>
@@ -128,8 +155,56 @@ drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") 
 ["dragleave","drop"].forEach(t => drop.addEventListener(t, e => {
   e.preventDefault(); drop.classList.remove("over");
 }));
-drop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) go(e.dataTransfer.files[0]); });
-file.addEventListener("change", () => { if (file.files[0]) go(file.files[0]); });
+// Photographs accumulate. Each one added re-runs the query, so you watch the
+// answer move as evidence arrives rather than deciding up front how many to
+// supply.
+let shots = [];
+
+function addShots(list) {
+  for (const f of list) shots.push(f);
+  drawStrip();
+  run();
+}
+
+let stripUrls = [];
+
+function drawStrip() {
+  const strip = $("#strip");
+  // the strip is rebuilt on every add, so release the previous object URLs or
+  // each paste leaks a decoded image for the life of the page
+  stripUrls.forEach(URL.revokeObjectURL);
+  stripUrls = [];
+  strip.innerHTML = "";
+  shots.forEach((f, i) => {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img");
+    const u = URL.createObjectURL(f);
+    stripUrls.push(u);
+    img.src = u;
+    img.alt = i === 0 ? "primary photograph" : "photograph " + (i + 1);
+    const tag = document.createElement("span");
+    tag.className = "tagno";
+    tag.textContent = i === 0 ? "1 · drives the agent" : String(i + 1);
+    fig.append(img, tag);
+    strip.append(fig);
+  });
+  $("#shots").hidden = shots.length === 0;
+  $("#shotn").textContent = shots.length === 1
+    ? "1 photograph · paste another to add it"
+    : shots.length + " photographs · the first drives the agent, all are searched";
+}
+
+$("#reset").addEventListener("click", () => {
+  shots = [];
+  drawStrip();
+  $("#panes").hidden = true;
+  $("#out").hidden = true;
+  $("#err").hidden = true;
+  file.value = "";
+});
+
+drop.addEventListener("drop", e => { if (e.dataTransfer.files.length) addShots(e.dataTransfer.files); });
+file.addEventListener("change", () => { if (file.files.length) addShots(file.files); });
 
 // Paste anywhere on the page. A screenshot arrives as an image/* file on the
 // clipboard, so this is the same path as the picker -- but only when nothing
@@ -144,14 +219,17 @@ document.addEventListener("paste", e => {
   for (const it of items) {
     if (it.kind === "file" && it.type.startsWith("image/")) {
       const f = it.getAsFile();
-      if (f) { e.preventDefault(); go(f); return; }
+      if (f) { e.preventDefault(); addShots([f]); return; }
     }
   }
 });
 
 function fmt(v, d) { return v === null || v === undefined ? "—" : v.toFixed(d); }
 
-async function go(f) {
+async function run() {
+  const files = shots;
+  if (!files.length) return;
+  const f = files[0];
   $("#panes").hidden = false;
   $("#err").hidden = true;
   $("#out").hidden = true;
@@ -164,7 +242,12 @@ async function go(f) {
 
   let r;
   try {
-    r = await (await fetch("/locate", { method: "POST", body: f })).json();
+    let body = f;
+    if (files.length > 1) {                 // multipart carries them all
+      body = new FormData();
+      files.forEach((x, i) => body.append("image" + i, x, x.name || ("img" + i)));
+    }
+    r = await (await fetch("/locate", { method: "POST", body })).json();
   } catch (e) {
     $("#coord").textContent = "—";
     $("#err").hidden = false;
@@ -180,6 +263,7 @@ async function go(f) {
 
   $("#coord").textContent = fmt(r.lat, 5) + ", " + fmt(r.lon, 5);
   $("#meta").textContent =
+    (r.photos > 1 ? r.photos + " photos · " : "") +
     "confidence radius " + fmt(r.radius_km, 1) + " km · path [" +
     r.path.join(", ") + "] · " + r.secs + "s";
   $("#link").innerHTML =

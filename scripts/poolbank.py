@@ -12,7 +12,7 @@ worth a training run rather than a footnote:
   * `StreetProj` and the retrieval keys are both shaped by the 4608 input and
     are together 4.72M of the 9.22M trainable parameters.
 
-The comparison is against `s10_bal_bank25_c6`, and it is matched on schedule
+The comparison is against `d4608-b115-e6`, and it is matched on schedule
 rather than only on epoch count.  That arm was not trained as one six-epoch
 cosine -- it was 2 epochs, then +2 from a restart, then +2 -- and a single long
 cosine is a different optimiser trajectory, so this runs the same 2+2+2 ladder.
@@ -66,13 +66,13 @@ def main():
     log("deadline {}".format(O.hhmm(deadline)))
 
     plan = [
-        Stage("pb_2", train("s10_pool"), release=REL, est=27 * 60, retries=1),
-        Stage("pb_4", train("s10_pool_c4", "s10_pool"), release=REL,
+        Stage("pb_2", train("d1536-b115-e2"), release=REL, est=27 * 60, retries=1),
+        Stage("pb_4", train("d1536-b115-e4", "d1536-b115-e2"), release=REL,
               est=27 * 60, retries=1),
-        Stage("pb_6", train("s10_pool_c6", "s10_pool_c4"), release=REL,
+        Stage("pb_6", train("d1536-b115-e6", "d1536-b115-e4"), release=REL,
               est=27 * 60, retries=1),
         Stage("pb_eval",
-              boot("s10_bal_bank25_c6,s10_pool,s10_pool_c4,s10_pool_c6",
+              boot("d4608-b115-e6,d1536-b115-e2,d1536-b115-e4,d1536-b115-e6",
                    "BOOTSTRAP_pool.md"), release=REL, est=10 * 60, retries=1),
     ]
     for st in plan:

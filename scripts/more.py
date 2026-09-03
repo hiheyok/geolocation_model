@@ -103,14 +103,14 @@ def main():
                            BANK55 + ".f16.npy", "--split-mode", "sequence",
                            "--k", "32", "--bank-ext", META55], release=REL,
                est=15 * 60, retries=1), False),
-        (Stage("b55_2", train("s10_b55"), release=REL, est=30 * 60,
+        (Stage("b55_2", train("d1536-b265-e2"), release=REL, est=30 * 60,
                retries=1), True),
-        (Stage("b55_4", train("s10_b55_c4", "s10_b55"), release=REL,
+        (Stage("b55_4", train("d1536-b265-e4", "d1536-b265-e2"), release=REL,
                est=30 * 60, retries=1), True),
-        (Stage("b55_6", train("s10_b55_c6", "s10_b55_c4"), release=REL,
+        (Stage("b55_6", train("d1536-b265-e6", "d1536-b265-e4"), release=REL,
                est=30 * 60, retries=1), True),
-        (Stage("b55_eval", boot("s10_pool_c6,s10_b40_c6,s10_b55,s10_b55_c4,"
-                                "s10_b55_c6", "BOOTSTRAP_bank55.md"),
+        (Stage("b55_eval", boot("d1536-b115-e6,d1536-b190-e6,d1536-b265-e2,d1536-b265-e4,"
+                                "d1536-b265-e6", "BOOTSTRAP_bank55.md"),
                release=REL, est=15 * 60, retries=1), True),
     ]
 

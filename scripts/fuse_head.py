@@ -201,6 +201,11 @@ def main():
     ap.add_argument("--bucket-z", type=int, default=6,
                     help="zoom of the bucket grid; z6 cells are ~626 km")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--pyr-stem", default="pyr33",
+                    help="which pyramid cache --tokens pyr33 reads; the "
+                         "18,812-image pyr33 run was confounded by data "
+                         "volume, so the re-run needs its own cache rather "
+                         "than overwriting the one it is compared against")
     ap.add_argument("--tokens", default="osv", choices=("osv", "pyr33"),
                     help="osv: 3 crops + 6 tiles over OSV-5M, two levels. "
                          "pyr33: 3 + 6 + 24 over the high-resolution harvest, "
@@ -216,7 +221,8 @@ def main():
     torch.manual_seed(a.seed)
     t0 = time.time()
     if a.tokens == "pyr33":
-        m = np.load(config.STREET_CACHE / "pyr33_meta.npz", allow_pickle=True)
+        m = np.load(config.STREET_CACHE / (a.pyr_stem + "_meta.npz"),
+                    allow_pickle=True)
         lat, lon = m["lat"], m["lon"]
         seq = m["sequence"].astype("U40")
         level_of = m["level_of"].tolist()
@@ -231,7 +237,8 @@ def main():
                       for x in seq.tolist()])
         tr = np.flatnonzero(h < 8)
         te = np.flatnonzero(h >= 8)
-        X = np.asarray(np.load(config.STREET_CACHE / "pyr33.f16.npy",
+        X = np.asarray(np.load(config.STREET_CACHE
+                               / (a.pyr_stem + ".f16.npy"),
                                mmap_mode="r"), np.float32)
         X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
         X = X.astype(np.float16)
@@ -344,18 +351,26 @@ def main():
 
     # ---- evaluation: test queries against a train bank, same-sequence masked
     model.eval()
-    Z = np.zeros((len(sel), 768), np.float32)
+    Z = np.zeros((len(X), 768), np.float32)
     with torch.no_grad():
-        for s in range(0, len(sel), 1024):
-            Z[s:s + 1024] = model(take(np.arange(s, min(s + 1024, len(sel))))
+        for s in range(0, len(X), 1024):
+            Z[s:s + 1024] = model(take(np.arange(s, min(s + 1024, len(X))))
                                   ).cpu().numpy()
 
     Xf = X.astype(np.float32)
-    base_l0 = Xf[:, :3].reshape(len(sel), -1, D_ENC).mean(1)
+    base_l0 = Xf[:, :3].reshape(len(X), -1, D_ENC).mean(1)
     base_l0 = np.concatenate([l2(Xf[:, :3, 0].mean(1)),
                               l2(Xf[:, :3, 1].mean(1))], 1)
-    lvl = lambda i: (l2(Xf[:, :3, i].mean(1)) + l2(Xf[:, 3:, i].mean(1))) / 2
+    # The level-weighted mean pool, over however many levels the cache has.
+    # This MUST match FuseHead.baseline: the head is a residual on it, so if the
+    # printed baseline is computed differently the head is being scored against
+    # an arm it never started from. Hardcoding two levels here silently did
+    # exactly that on a three-level pyramid -- "3 crops vs all 30 tiles".
+    lo = np.asarray(model.level_of.cpu())
+    lvl = lambda i: np.stack([l2(Xf[:, lo == l, i].mean(1))
+                              for l in range(model.n_lvl)]).mean(0)
     base_un = np.concatenate([l2(lvl(0)), l2(lvl(1))], 1)
+    LBL = "L0+L1 level (mean)" if model.n_lvl == 2 else           "+".join("L%d" % l for l in range(model.n_lvl)) + " level (mean)"
 
     nq = min(a.queries, len(te))
     qi, bi = te[:nq], tr
@@ -395,17 +410,18 @@ def main():
         # without re-running the head.
         stem = config.STREET_CACHE / a.export
         np.save(str(stem) + ".f16.npy", combo_eq.astype(np.float16))
-        np.save(str(stem) + "_rows.i64.npy", sel)
+        np.save(str(stem) + "_rows.i64.npy",
+                sel if a.tokens == "osv" else np.arange(len(X)))
         torch.save({"state": model.state_dict(), "d": a.d, "tau": a.tau,
                     "pos_km": a.pos_km, "seed": a.seed,
-                    "n_rows": int(len(sel))}, str(stem) + "_head.pt")
+                    "n_rows": int(len(X))}, str(stem) + "_head.pt")
         print("")
         print("exported {}.f16.npy  {} x {}   (+ _rows.i64.npy, _head.pt)"
-              .format(a.export, len(sel), combo_eq.shape[1]),
+              .format(a.export, len(X), combo_eq.shape[1]),
               flush=True)
         print("NOTE: PCA output is not L2-normalised, like the pooled caches.")
     for name, V in (("L0 crops (mean)", base_l0),
-                    ("L0+L1 level (mean)", base_un),
+                    (LBL, base_un),
                     ("fusion head (learned)", Z),
                     ("mean + head (concat)", combo),
                     ("mean + head, PCA to 1536", combo_eq)):
@@ -419,7 +435,7 @@ def main():
                 "mean + head, PCA to 1536"):
         if arm not in err:
             continue
-        for base in ("L0 crops (mean)", "L0+L1 level (mean)"):
+        for base in ("L0 crops (mean)", LBL):
             cells = []
             for t in THRESH:
                 lo, hi = paired(err[base] < t, err[arm] < t, rng2)

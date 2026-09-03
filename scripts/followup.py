@@ -1,6 +1,6 @@
 """Continue the arm that turned out to be the good one.
 
-s10_bal_bank25 -- equal-norm encoders over the 1.15M bank -- reached 8.4 km and
+d4608-b115-e2 -- equal-norm encoders over the 1.15M bank -- reached 8.4 km and
 63.0% in TWO epochs, matching what the unbalanced arm needed six to reach. The
 marathon had no stage for it because the result that justifies it did not exist
 when the plan was written.
@@ -46,20 +46,20 @@ def main():
     O.SAMPLER = O.Sampler()
     O.SAMPLER.start()
     log("=" * 72)
-    log("followup: continue s10_bal_bank25, the equal-norm full-bank arm")
+    log("followup: continue d4608-b115-e2, the equal-norm full-bank arm")
     log("deadline {}   tiles until {}".format(O.hhmm(deadline),
                                               O.hhmm(tiles_until)))
 
     plan = [
-        Stage("fu_bal4", cont("s10_bal_bank25_c4", "s10_bal_bank25"),
+        Stage("fu_bal4", cont("d4608-b115-e4", "d4608-b115-e2"),
               release=REL, est=35 * 60, retries=1),
         Stage("fu_bal4_eval",
-              boot("s10_bal_bank25,s10_bal_bank25_c4,s10_n400k_bank25_c4",
+              boot("d4608-b115-e2,d4608-b115-e4,s10_n400k_bank25_c4",
                    "BOOTSTRAP_bal4.md"), release=REL, est=15 * 60, retries=1),
-        Stage("fu_bal6", cont("s10_bal_bank25_c6", "s10_bal_bank25_c4"),
+        Stage("fu_bal6", cont("d4608-b115-e6", "d4608-b115-e4"),
               release=REL, est=35 * 60, retries=1),
         Stage("fu_bal6_eval",
-              boot("s10_bal_bank25_c4,s10_bal_bank25_c6",
+              boot("d4608-b115-e4,d4608-b115-e6",
                    "BOOTSTRAP_bal6.md"), release=REL, est=10 * 60, retries=1),
     ]
 
