@@ -202,6 +202,19 @@ def main():
         print("  " + e)
     print("cached total {:,}/{:,}".format(int(done.sum()), n))
 
+    # Exiting 0 here is what let a partial cache look finished: the stage runner
+    # keys its markers on the exit code, so a run that lost tiles to a flaky
+    # server wrote a success marker and was never retried.  The unfetched rows
+    # stay at the memmap's zero fill, which is a legal token histogram, so
+    # nothing downstream complained either.  Re-running is safe and resumable.
+    short = n - int(done.sum())
+    if short:
+        print()
+        sys.exit("INCOMPLETE: {:,} of {:,} tiles were not fetched. The cache "
+                 "is not usable as it stands -- unfetched rows are all-zero "
+                 "token histograms that read as valid. Re-run to resume."
+                 .format(short, n))
+
 
 if __name__ == "__main__":
     main()

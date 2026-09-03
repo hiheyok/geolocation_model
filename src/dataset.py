@@ -90,6 +90,43 @@ def gather_nbr(table, rows, dev):
     return table[idx].to(dev, non_blocking=True).float()
 
 
+def _check_fetched(done_p, tok_row, zs, n_neg, split):
+    """An unfetched tile is a zero row, and a zero row is a legal histogram.
+
+    fetch_tiles marks each row it completes in done.u8.npy and leaves the rest
+    of the memmap at its zero fill.  Nothing here read that mask, so a cache
+    interrupted part way through trained happily against all-zero map tokens
+    for every tile it never got -- which no loss can show you, because a
+    uniform-zero histogram is a perfectly well-formed input.  It just makes a
+    quietly worse model, which is this project's most expensive failure shape.
+
+    Only the rows this split can actually reach are checked.  With negatives
+    enabled the reachable set widens to every z4 and z8 tile, because a sibling
+    negative may descend into any of them.
+    """
+    if not done_p.exists():
+        return                      # caches written before the mask existed
+    done = np.load(done_p)
+    if len(done) != len(zs):
+        raise SystemExit(
+            "map cache is inconsistent: {} index rows but a {}-row done mask "
+            "({}). Rebuild the cache; a stale mask cannot be interpreted."
+            .format(len(zs), len(done), done_p))
+
+    used = np.unique(tok_row)
+    if n_neg > 0:
+        # sibling negatives descend into arbitrary z4/z8 tiles
+        used = np.union1d(used, np.flatnonzero(zs <= 8))
+    miss = used[done[used] == 0]
+    if len(miss):
+        raise SystemExit(
+            "map cache is incomplete: {:,} of the {:,} tiles the {!r} split "
+            "reads were never fetched ({}). Those rows are all-zero token "
+            "histograms, which look valid and are not. Re-run fetch_tiles; it "
+            "is resumable and will fetch exactly these."
+            .format(len(miss), len(used), split, done_p))
+
+
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
                  street_file=None, n_neg=0, neg_seed=0,
@@ -115,7 +152,7 @@ class GeoStepDataset(Dataset):
 
         # street embeddings: row order matches dataset.parquet
         self._street_path = config.STREET_CACHE / street_file
-        self._tokens_path, index_p, _ = config.map_files(cache)
+        self._tokens_path, index_p, done_p = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
 
@@ -147,6 +184,10 @@ class GeoStepDataset(Dataset):
             [[lut[int(k)] for k in row] for row in tk[keep]], dtype=np.int64)
         self.action = act[keep][:, :steps]
         self.tile = np.stack([tz[keep], tx[keep], ty[keep]], axis=-1)
+
+        _check_fetched(done_p, self.tok_row,
+                       np.asarray(idx["z"]).astype(np.int64),
+                       n_neg, split)
 
         # Where inside each step's tile the true point falls, in units of grid
         # cells.  Hard CE cannot tell a neighbouring cell from the wrong
