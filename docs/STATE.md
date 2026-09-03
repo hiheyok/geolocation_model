@@ -211,8 +211,14 @@ the runner started.
 * **Do not theorise about performance; measure it.** One slowdown was blamed on
   token width, then cold cache, before the real cause (a game on the GPU); and
   the JPEG decode was assumed expensive when the 33-way crop was.
-* `\n` inside heredoc patch strings repeatedly produced broken files, and an
-  apostrophe inside a `$(printf ...)` in a heredoc broke a commit. Prefer
-  line-based edits and `-F -` for commit messages.
+* **A backslash inside a Bash heredoc does not survive.** `"\n"` written in a
+  patch script inside `python - <<'PY'` arrives as a real newline, producing an
+  unterminated string literal. This happened **four times on 2026-09-03 alone**,
+  despite already being on this list -- the old wording said "prefer line-based
+  edits", which was not a rule anyone could follow. The rule is:
+  **never type a backslash inside a Bash heredoc.** Either build it as
+  `N = chr(92) + "n"` and concatenate, or write the patch script to a file with
+  the Write tool and run it. Same for an apostrophe inside `$(printf ...)`,
+  which once broke a commit; use `git commit -F -`.
 * `python` on PATH is MSYS2's and lacks numpy. Always
   `/c/Users/longd/AppData/Local/Programs/Python/Python313/python.exe`.
