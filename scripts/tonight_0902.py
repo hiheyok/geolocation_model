@@ -152,7 +152,10 @@ def main():
     # longer orders the queue: stages run in value order instead. Kept as a
     # far-future value rather than deleted, since the gate is what makes an
     # unattended run safe when a cutoff does exist.
-    tile_off = float(os.environ.get("TILE_OFF_TS", O.now() + 30 * 86400))
+    # Tile server goes offline 12:30. Beam rollout fetches z12/z16 live, so
+    # every training and evaluation stage needs it; the pyramid and fusion
+    # stages do not and are ordered to survive the cutoff.
+    tile_off = float(os.environ.get("TILE_OFF_TS", at_today(12, 20)))
     deadline = O.now() + hours * 3600
 
     O.SAMPLER = O.Sampler()
@@ -527,6 +530,29 @@ def main():
         (Stage("hrfix-d1536drop30",
                ["scripts/eval_highres.py", "--tag", "d1536-b350-e6-drop30", "--n", "5000",
                 "--export", str(O.RUNS / "hrfix_d1536drop30.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        # The obvious gap in the matrix: d1536 is the best benchmark width and
+        # p=0.7 is the best external setting, and no arm has both. Needs tiles
+        # (the --select hit rollout), so it must start before the 12:30 cutoff.
+        (Stage("train-d1536-b350-e2-drop70",
+               train1536("d1536-b350-e2-drop70", drop="0.7"),
+               release=REL, est=32 * 60, retries=3), True),
+        (Stage("train-d1536-b350-e4-drop70",
+               train1536("d1536-b350-e4-drop70", "d1536-b350-e2-drop70", "0.7"),
+               release=REL, est=32 * 60, retries=3), True),
+        (Stage("train-d1536-b350-e6-drop70",
+               train1536("d1536-b350-e6-drop70", "d1536-b350-e4-drop70", "0.7"),
+               release=REL, est=32 * 60, retries=3), True),
+        (Stage("boot-d1536-drop70",
+               ["scripts/boot_existing.py", "--tags",
+                "d1536-b350-e6,d1536-b350-e6-drop30,d1536-b350-e6-drop70,"
+                "d768-b350-e6-drop70",
+                "--out", str(O.RUNS / "BOOTSTRAP_d1536_drop70.md")],
+               release=REL, est=12 * 60, retries=2), True),
+        (Stage("hrfix-d1536drop70",
+               ["scripts/eval_highres.py", "--tag", "d1536-b350-e6-drop70",
+                "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_d1536drop70.npz")],
                release=REL, est=25 * 60, retries=2), True),
         (Stage("fuse-attn-pyr47",
                ["scripts/fuse_head.py", "--tokens", "pyr33",

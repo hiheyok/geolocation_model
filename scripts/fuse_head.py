@@ -289,6 +289,33 @@ def main():
                                                 pct_start=0.1)
     print("head {:,} params   {:,} steps".format(n_par, steps), flush=True)
 
+    # The token table is read-only and small enough to live on the card at
+    # this size, which removes the host gather and the PCIe copy entirely --
+    # indexing then happens in VRAM. Falls back to a pinned host gather when it
+    # does not fit, and the two lookups per step are combined into one so the
+    # expensive fancy-index runs once rather than twice.
+    Xg = None
+    if dev == "cuda":
+        free, _ = torch.cuda.mem_get_info()
+        need = X.nbytes + (1 << 30)          # table plus a gigabyte of headroom
+        if need < free:
+            Xg = torch.from_numpy(X).to(dev)
+            print("tokens on GPU  {:.2f} GB resident, {:.2f} GB free"
+                  .format(X.nbytes / 1e9, free / 1e9), flush=True)
+        else:
+            print("tokens stay on host: {:.2f} GB needed, {:.2f} GB free"
+                  .format(need / 1e9, free / 1e9), flush=True)
+
+    def take_pair(idx):
+        """Both halves of the batch in one gather -> (2B, ntok, 2, D)."""
+        flat = np.concatenate([idx[:, 0], idx[:, 1]])
+        if Xg is not None:
+            t = Xg[torch.from_numpy(flat).to(dev)].float()
+        else:
+            t = torch.from_numpy(X[flat]).pin_memory().to(
+                dev, non_blocking=True).float()
+        return t[:len(idx)], t[len(idx):]
+
     def take(rows):
         return torch.from_numpy(X[rows]).to(dev).float()
 
@@ -331,8 +358,8 @@ def main():
         model.train()
         tot, nb = 0.0, 0
         for idx in batches():
-            za = model(take(idx[:, 0]))
-            zp = model(take(idx[:, 1]))
+            ta, tp = take_pair(idx)
+            za, zp = model(ta), model(tp)
             logits = za @ zp.T / a.tau
             tgt = torch.arange(len(idx), device=dev)
             loss = 0.5 * (nn.functional.cross_entropy(logits, tgt) +
