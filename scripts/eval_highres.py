@@ -207,6 +207,22 @@ def main():
     # confound for anything studying how much the policy leans on retrieval.
     keep = None
     kf = ck.get("knn_file")
+    if a.bank and a.bank != ck.get("street_file"):
+        # --bank swaps the corpus out from under the checkpoint, which is the
+        # whole point of the 2x2. But the checkpoint's bank_rows index its OWN
+        # bank file, and applying them to a different one selects a different
+        # set of images -- in range, so silently. Ask for the rows built over
+        # the bank actually in use, via the same constructor build_knn writes
+        # with, and refuse rather than guess if there is no such cache.
+        kf = config.knn_name(bank_file, ck.get("split_mode", "sequence"),
+                             ext=meta_stem)
+        if not (config.STREET_CACHE / kf).exists():
+            sys.exit("--bank {} needs the kNN cache built over it ({}) to know "
+                     "which rows that bank contains; the checkpoint's own "
+                     "{} describes a different file."
+                     .format(bank_file, kf, ck.get("knn_file")))
+        print("bank override: rows from {} (not the checkpoint's {})"
+              .format(kf, ck.get("knn_file")), flush=True)
     if kf and (config.STREET_CACHE / kf).exists():
         meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
         if "bank_rows" in meta.files:
@@ -271,7 +287,12 @@ def main():
                  score_steps=a.score_steps, street_gpu=tbl)
 
     e = m["err"]
-    print("\n{}  ({})".format(a.tag, names.describe(a.tag)))
+    # names.describe() reports the bank the arm TRAINED on. Under --bank
+    # that is not the bank just searched, and a line reading "2.65M bank"
+    # over a 3.40M result is the confusion the 2x2 exists to resolve.
+    swapped = ("   [evaluated against {}]".format(bank_file)
+               if a.bank and a.bank != ck.get("street_file") else "")
+    print("\n{}  ({}){}".format(a.tag, names.describe(a.tag), swapped))
     print("{:,} high-res images   median {:.1f} km   mean {:.1f}   <25km {:.1%}"
           .format(len(e), float(np.median(e)), float(e.mean()),
                   float((e < 25).mean())))

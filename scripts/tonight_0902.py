@@ -531,6 +531,22 @@ def main():
                ["scripts/eval_highres.py", "--tag", "d1536-b350-e6-drop30", "--n", "5000",
                 "--export", str(O.RUNS / "hrfix_d1536drop30.npz")],
                release=REL, est=25 * 60, retries=2), True),
+        # The 2x2 that attributes the corpus effect to the model rather than
+        # the bank, at parity too. It was measured with each cell searching its
+        # whole bank file at K=32, which is internally consistent but not what
+        # ships -- and the first two parity re-runs already moved the headline
+        # contrast from -1.32 pp separated to -0.46 pp inside noise, so the
+        # attribution rests on numbers that have to be re-measured with it.
+        (Stage("hrfix-x-m265-b350",
+               ["scripts/eval_highres.py", "--tag", "d768-b265-e6",
+                "--bank", "pca768_bank70.f16.npy", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_m265_b350.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-x-m350-b265",
+               ["scripts/eval_highres.py", "--tag", TAG,
+                "--bank", "pca768_bank55.f16.npy", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_m350_b265.npz")],
+               release=REL, est=25 * 60, retries=2), True),
         # The obvious gap in the matrix: d1536 is the best benchmark width and
         # p=0.7 is the best external setting, and no arm has both. Needs tiles
         # (the --select hit rollout), so it must start before the 12:30 cutoff.
