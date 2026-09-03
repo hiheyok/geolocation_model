@@ -1,4 +1,4 @@
-# Live state — rewritten 2026-09-03 02:10, before a context compaction
+# Live state — updated 2026-09-03 02:45
 
 Read this first after a compaction. `docs/BACKLOG.md` holds deferred code and
 performance work, `docs/ARCHITECTURE_NEXT.md` the reviewed architecture
@@ -12,35 +12,47 @@ queue; restarting it is always safe and resumes from markers.
 Every training and evaluation stage needs it, because beam rollout fetches
 z12/z16 live. The pyramid and fusion stages do not, and are ordered last.
 
-## The headline result of 2026-09-02
+## The headline result, as it stands after parity
 
-**The corpus axis, which produced nearly every gain in this project, is
-negative on real photographs.**
+**The corpus axis, which produced nearly every gain in this project, does not
+transfer to real photographs -- but the claim narrowed on 2026-09-03.**
 
-| step | OSV-5M `<25 km` | KartaView `<25 km`, n=5,000 |
+| 2.65M -> 3.40M bank | as first reported | at shipping parity |
 |---|---|---|
-| 2.65M → 3.40M bank | **+2.8 pp [+1.96, +3.66]** | **−1.32 pp [−2.04, −0.60]** |
+| OSV-5M `<25 km` | **+2.8 pp [+1.96, +3.66]** | unaffected (bootstraps were never wrong) |
+| KartaView `<25 km` | **-1.32 pp [-2.04, -0.60]** separated | **-0.46 pp [-1.12, +0.18]** inside noise |
+| KartaView `<200 km` | -1.84 pp separated | -0.92 pp [-1.90, +0.02] inside noise |
+| KartaView median | +35.5 km separated | **+30.8 km [+11.5, +47.8]** separated |
+| KartaView `<1 km` | +0.08 pp noise | **+0.30 pp [+0.02, +0.60]** separated, *favouring* the bigger bank |
 
-Both separated. A 2×2 (each model against both banks) blames the **model**, not
-the bank: model effect at fixed bank −0.76 and −1.20 pp, both separated; bank
-effect at fixed model −0.12 pp (noise) and −0.56 pp. Training against dense
-retrieval teaches a dependency that fails where top-1 similarity is 0.71
-rather than 0.90.
+Parity cost the small-bank arm 0.86 pp and the large-bank arm nothing, which is
+why the gap closed. **What survives: the bigger corpus makes the typical
+off-domain error ~31 km worse. What does not: that it costs hit rate.**
 
-**`--retr-drop` fixes it and costs nothing.** Hide each retrieved neighbour
-with probability p during training:
+The 2x2 attributing this to the **model** rather than the bank (model effect
+-0.76 and -1.20 pp, both separated; bank effect -0.12 pp noise and -0.56 pp)
+is **still on the old measurement** and is re-running as `hrfix-x-*`. Do not
+quote it until then -- and note `--bank` had its own bug, fixed 2026-09-03: it
+took the row restriction from the checkpoint's k-NN cache, which indexes a
+different bank file.
+
+**`--retr-drop` fixes it and costs nothing** -- also on the old measurement,
+and the one most exposed, because neighbour count is exactly what the knob
+manipulates:
 
 | p | 0.0 | 0.1 | 0.3 | 0.5 | **0.7** | 0.9 |
 |---|---|---|---|---|---|---|
 | external `<25 km` | 11.6% | 11.7% | 12.7% | 13.3% | **14.1%** | 14.1% |
 | external `<1 km` | 2.2% | 2.0% | 2.2% | 2.3% | **2.3%** | 1.7% |
 | external median | 486 | 497 | 475 | 436 | **410 km** | 382 |
-| benchmark vs p=0 | — | borderline | noise | noise | noise | **−5.7 pp** |
+| benchmark vs p=0 | -- | borderline | noise | noise | noise | **-5.7 pp** |
 
-**Use p = 0.7.** The benchmark is flat across the whole useful range and only
-reacts to the overshoot at 0.9, so tuning this on OSV-5M alone sets it to zero.
-p=0.9 costs the `<1 km` bucket, which is the bucket retrieval delivers: dropout
-trades fine precision for coarse robustness, and past 0.7 the trade turns.
+**p = 0.7 is not tuned until the parity curve confirms it.** The benchmark is
+flat across the whole useful range and only reacts to the overshoot at 0.9, so
+tuning this on OSV-5M alone sets it to zero.
+
+`scripts/parity_report.py` builds the whole comparison from the exports as they
+land; run it rather than reading numbers out of logs.
 
 ## Arms
 
@@ -57,16 +69,20 @@ Best benchmark and best real-world are **not the same arm**.
 
 ## READ BEFORE QUOTING ANY EXTERNAL NUMBER
 
-Every KartaView figure above was measured with `eval_highres` **searching all
-3,500,000 rows of the embedding file rather than the 3,400,180 the checkpoint's
-k-NN was built over, and with K=32 where these arms train with `retr_k=16`.**
-Fixed — it now reads `bank_rows` and `retr_k` from the k-NN metadata — and
-eleven `hrfix-*` re-runs are queued.
+Every KartaView figure in the arms table was measured with `eval_highres`
+**searching all 3,500,000 rows of the embedding file rather than the 3,400,180
+the checkpoint's k-NN was built over, and with K=32 where these arms train with
+`retr_k=16`.** Fixed; the `hrfix-*` stages re-measure the same 5,000 images.
 
-Every arm was measured identically, so the paired *directions* should hold. But
-**neighbour count is exactly what `--retr-drop` manipulates**, so the p=0.7
-optimum must be reconfirmed at K=16 before it is called tuned. The four
-affected memory files carry this caveat. OSV-5M bootstraps are unaffected.
+**Two arms are re-measured so far, and parity is not a uniform shift.** It cost
+`d768-b265-e6` 0.86 pp on `<25 km` (separated) and `d768-b350-e6` nothing
+(+0.00 pp). So the assumption that every arm was measured identically and the
+paired directions would hold is **not safe**: the size of the correction
+depends on the arm, and it already turned one separated contrast into noise.
+
+Treat every un-re-run external number as provisional, including the whole
+p-curve. Run `scripts/parity_report.py` rather than reading logs; it marks what
+has landed. OSV-5M bootstraps were never affected.
 
 ## Other results
 
@@ -96,55 +112,75 @@ affected memory files carry this caveat. OSV-5M bootstraps are unaffected.
 
 ## Queue
 
-1. Eleven `hrfix-*` shipping-parity external re-runs (~2.5 h, needs tiles).
-2. `d1536-b350-e6-drop70` ladder + bootstrap + external (~2 h, needs tiles).
-3. `fuse-attn-pyr47` — the deconfounded pyramid attention arm. **Must re-run:
-   it reached epoch 11 of 12 and was killed by accident (see below). Needs no
-   tiles.** 38,009 training images against the 14,938 that produced the
-   −15.75 pp collapse, which was recorded as confounded and is still unsettled.
+The runner (pid 23964 as of 02:40) holds the list it was started with. A second
+process is chained to its exit -- it polls that **pid**, not a log, and has no
+"proceed anyway" fallback, because two jobs on one GPU is the thing the
+measurements say never to do. That relaunch picks up the two stages added after
+the runner started.
+
+1. Eight remaining `hrfix-*` shipping-parity external re-runs (~13 min each,
+   needs tiles). `b265` and `b350` are done.
+2. `hrfix-x-m265-b350` and `hrfix-x-m350-b265` -- the 2x2 at parity. **Added
+   after the runner started, so they need the chained relaunch.**
+3. `d1536-b350-e6-drop70` ladder + bootstrap + external (~2 h, needs tiles).
+4. `fuse-attn-pyr47` -- the deconfounded pyramid attention arm. **Must re-run:
+   it reached epoch 11 of 12 and was killed by accident. Needs no tiles.**
+   38,009 training images against the 14,938 that produced the -15.75 pp
+   collapse, which was recorded as confounded and is still unsettled.
 
 `cache/street/s10/pyr47.f16.npy` is complete and verified: 47,646 images,
-33 × 2 × 768, 4.83 GB, both encoder slices non-zero, zero decode failures.
+33 x 2 x 768, 4.83 GB, both encoder slices non-zero, zero decode failures.
 
-## Fixes still to do
+## Fixes: what got done on 2026-09-03, and what is left
 
-Priority order; detail in `docs/BACKLOG.md`.
+**Done tonight**, each verified by making it fire, not by reading it:
 
-**Behavioural**
+* `config.RELEASE` no longer defaults to `s01`. It was the root cause of five
+  silent failures; 39 scripts were relying on the default. Tests name a release
+  in `tests/conftest.py`. The live queue is unaffected -- the runner sets the
+  variable before importing config.
+* `dataset.py` reads `done.u8.npy` and refuses a half-fetched tile cache; an
+  unfetched tile is an all-zero histogram, which is a legal input. Checks the
+  rows a split can reach, plus all z4/z8 once negatives are on. `fetch_tiles`
+  exits non-zero when the mask is short, so the runner stops marking it done.
+  Both live s10 caches are complete, so nothing in flight is affected.
+* Beam width can no longer go ragged under sink pruning (it would have paired a
+  beam with another image's street row, and an unused score slot read as 0.0 --
+  better than any real path). Old and new code give **bit-identical** per-image
+  errors at k=1, 2, 16.
+* The kNN contract: split hash, street file, query count and neighbour count
+  are checked, not just `split_mode`. All 14 distinct combinations load clean.
+* `eval_highres --bank` took its row restriction from the checkpoint's own kNN
+  cache, which indexes a different file -- silently, since the indices are in
+  range. It now uses the cache built over the bank in use, and its summary line
+  names that bank.
+* bootstrap's per-image error cache is keyed on the checkpoint file, not the
+  tag. Of 66 existing caches, 46 were provably written after their checkpoint,
+  20 belong to deleted arms, and **none were stale** -- so the bug never fired,
+  and the migration recomputes nothing.
+* `diag_beam` now gathers `nbr_emb` (it was diagnosing `pos` arms on raw cosine
+  and `dual` arms with the negative branch off); `error_profile` takes
+  `evaluate()`'s seeded sample instead of the geographically biased first N;
+  all three diagnostics call `check_split`.
 
-* `config.RELEASE` defaults to `s01` — **root cause of four silent failures**.
-  The fix is no default at all; touches every script and runner.
-* `dataset.py` never reads `done.u8.npy`, so a partially-fetched tile cache
-  gives zero-filled token rows that look valid. `fetch_tiles` also exits 0 with
-  failures outstanding, so the runner writes a success marker.
+**Still open**
+
 * `quality()` in the retrieval prior sees the **unmasked** top-1 similarity even
   when `--retr-drop` hid that neighbour. **Deliberately unfixed:** changing it
   alters training semantics and breaks comparability with the p-curve. Fix with
   a re-baseline, not silently.
-* k-NN caches validated on `split_mode` only — not split hash, street file,
-  query count or `knn_k`.
-* Bootstrap error cache keyed by tag with no checkpoint hash, so retraining
-  under one tag returns stale numbers.
-* `diag_beam` builds the right dataset but never gathers `nbr_emb`, so `pos`
-  falls back to raw cosine and `dual` loses its negative branch.
-* Beam sink pruning assumes equal live beams per image; unequal counts can pair
-  a beam with the wrong street image.
-* `error_profile` samples the first N test rows, which are geographically
-  biased; the main evaluator uses a seeded random sample.
-* `summary_table`, `error_profile`, `diag_beam` never call `check_split()`.
 * `--save-opt` saves optimizer state that nothing loads; scheduler and RNG are
   not saved. A 2+2+2 ladder is therefore **three optimizer restarts**, not six
-  continuous epochs — which bears on reading "e4 vs e6 is inside noise" as
-  convergence.
-
-**Structural** — one checkpoint runtime factory; a versioned checkpoint schema;
-artifact provenance manifests (subsumes filename inference and cache keys, and
-would have prevented three of this week's guards); one public `score_policy` so
-a caller cannot drop an argument.
-
-**Highest-value test** — a checkpoint-contract integration test through
-training, beam, bootstrap and serve. Component tests could not have caught the
-sink parity bug: the defect was in how a caller assembled the pieces.
+  continuous epochs -- which bears on reading "e4 vs e6 is inside noise" as
+  convergence. Deferred for the same reason as `quality()`: fixing it changes
+  training, and every arm on file was trained the current way.
+* **Structural** -- one checkpoint runtime factory; a versioned checkpoint
+  schema; artifact provenance manifests (subsumes filename inference and cache
+  keys, and would have prevented four of this week's guards); one public
+  `score_policy` so a caller cannot drop an argument.
+* **Highest-value test** -- a checkpoint-contract integration test through
+  training, beam, bootstrap and serve. Component tests could not have caught the
+  sink parity bug: the defect was in how a caller assembled the pieces.
 
 ## Hardware, measured
 
