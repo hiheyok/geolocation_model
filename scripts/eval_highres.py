@@ -200,19 +200,45 @@ def main():
                      .format(q.shape[1], bank_dim))
 
     bank = np.load(config.STREET_CACHE / bank_file, mmap_mode="r")
+    # Search the rows the checkpoint's k-NN was actually built over, and take
+    # the neighbour count it trained with. Searching the whole embedding file
+    # added 99,820 rows the training bank excluded, and a hardcoded K=32 fed
+    # the prior twice the neighbours it saw in training -- which is a direct
+    # confound for anything studying how much the policy leans on retrieval.
+    keep = None
+    kf = ck.get("knn_file")
+    if kf and (config.STREET_CACHE / kf).exists():
+        meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
+        if "bank_rows" in meta.files:
+            keep = np.asarray(meta["bank_rows"], np.int64)
+    if keep is None:
+        keep = np.arange(bank.shape[0], dtype=np.int64)
+        print("bank rows  {:,} (checkpoint records none)".format(len(keep)))
+    else:
+        print("bank rows  {:,} of {:,} in the file, from {}"
+              .format(len(keep), bank.shape[0], kf))
+    keep_set = np.zeros(bank.shape[0], bool)
+    keep_set[keep] = True
+
     qn = torch.from_numpy(q.astype(np.float32)).to(dev)
     qn = torch.nn.functional.normalize(qn, dim=1)
-    K = 32
+    K = int(ck.get("retr_k", 16)) if ck.get("retr") else 16
+    print("neighbours {} (the checkpoint's retr_k)".format(K))
     best_v = torch.full((len(q), K), -2.0, device=dev)
     best_i = torch.zeros((len(q), K), dtype=torch.long, device=dev)
     t0 = time.time()
     for s in range(0, bank.shape[0], 200000):
-        B = torch.from_numpy(np.asarray(bank[s:s + 200000], np.float32)).to(dev)
+        m = keep_set[s:s + 200000]
+        if not m.any():
+            continue
+        gidx = torch.from_numpy(np.flatnonzero(m).astype(np.int64) + s).to(dev)
+        B = torch.from_numpy(
+            np.asarray(bank[s:s + 200000][m], np.float32)).to(dev)
         B = torch.nn.functional.normalize(B, dim=1)
         sim = qn @ B.T
         v, i = torch.topk(sim, min(K, sim.shape[1]), dim=1)
         cat_v = torch.cat([best_v, v], 1)
-        cat_i = torch.cat([best_i, i + s], 1)
+        cat_i = torch.cat([best_i, gidx[i]], 1)   # local -> global row id
         best_v, sel = torch.topk(cat_v, K, dim=1)
         best_i = torch.gather(cat_i, 1, sel)
         del B, sim

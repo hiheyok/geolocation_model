@@ -465,28 +465,14 @@ def main():
                 "d768-b350-e6-drop70,d768-b350-e6-drop70-sub2",
                 "--out", str(O.RUNS / "BOOTSTRAP_sub2.md")],
                release=REL, est=12 * 60, retries=2), True),
-        (Stage("train-d768-b350-e2-drop70-sink4",
-               drop_sink("d768-b350-e2-drop70-sink4", None, "0.7", 4),
-               release=REL, est=28 * 60, retries=3), True),
-        (Stage("train-d768-b350-e4-drop70-sink4",
-               drop_sink("d768-b350-e4-drop70-sink4",
-                         "d768-b350-e2-drop70-sink4", "0.7", 4),
-               release=REL, est=28 * 60, retries=3), True),
-        (Stage("train-d768-b350-e6-drop70-sink4",
-               drop_sink("d768-b350-e6-drop70-sink4",
-                         "d768-b350-e4-drop70-sink4", "0.7", 4),
-               release=REL, est=28 * 60, retries=3), True),
-        (Stage("kartaview-sink4-n5k",
-               ["scripts/eval_highres.py", "--tag",
-                "d768-b350-e6-drop70-sink4", "--n", "5000",
-                "--export", str(O.RUNS / "hr_sink4_n5k.npz")],
-               release=REL, est=25 * 60, retries=2), True),
-        (Stage("boot-sink4",
-               ["scripts/boot_existing.py", "--tags",
-                "d768-b350-e6-drop70,d768-b350-e6-drop70-sink4,"
-                "d1536-b350-e6-drop30",
-                "--out", str(O.RUNS / "BOOTSTRAP_sink4.md")],
-               release=REL, est=12 * 60, retries=2), True),
+        # sink4 removed 2026-09-02 21:10, not deferred but retired as
+        # designed. After one rung the per-step gates read
+        # [-0.08, +0.11, +0.04, -1.58]: dataset._negatives samples t in {1,2},
+        # so step 3 has no sink positives and used the new capacity to learn
+        # "never reject here" -- which every step-3 training row rewards and
+        # beam search at z12 punishes. The arm would measure that gap, not
+        # sink capacity. Re-run it after negatives cover step 3
+        # (docs/ARCHITECTURE_NEXT.md, tier 1).
         (Stage("pyrcache-hr47k",
                ["scripts/pyramid_cache.py", "--out", "pyr47", "--n", "0"],
                release=REL, est=620 * 60, retries=2), False),
@@ -494,6 +480,54 @@ def main():
         # that stage is dropped for lack of time this one fails three times in
         # three seconds against a missing file. A stage that cannot run should
         # be skipped, not retried.
+        # Re-run the external table at shipping parity. The first pass
+        # searched all 3,500,000 rows of the embedding file rather than the
+        # 3,400,180 the checkpoint's k-NN was built over, and fed the prior
+        # K=32 neighbours where these arms train with retr_k=16. Every arm was
+        # measured the same way, so the paired directions should hold, but the
+        # absolute numbers are not what production would give -- and neighbour
+        # count is the very quantity --retr-drop manipulates, so the p-curve
+        # optimum in particular has to be confirmed at K=16.
+        (Stage("hrfix-b265",
+               ["scripts/eval_highres.py", "--tag", "d768-b265-e6", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_b265.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-b350",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_b350.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-drop10",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop10", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_drop10.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-drop30",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop30", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_drop30.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-drop50",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop50", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_drop50.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-drop70",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop70", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_drop70.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-drop90",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop90", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_drop90.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-sub2",
+               ["scripts/eval_highres.py", "--tag", "d768-b350-e6-drop70-sub2", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_sub2.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-d1536",
+               ["scripts/eval_highres.py", "--tag", "d1536-b350-e6", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_d1536.npz")],
+               release=REL, est=25 * 60, retries=2), True),
+        (Stage("hrfix-d1536drop30",
+               ["scripts/eval_highres.py", "--tag", "d1536-b350-e6-drop30", "--n", "5000",
+                "--export", str(O.RUNS / "hrfix_d1536drop30.npz")],
+               release=REL, est=25 * 60, retries=2), True),
         (Stage("fuse-attn-pyr47",
                ["scripts/fuse_head.py", "--tokens", "pyr33",
                 "--pyr-stem", "pyr47", "--epochs", "12"],

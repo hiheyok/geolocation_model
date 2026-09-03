@@ -64,6 +64,34 @@ def level_index():
                            for i, k in enumerate(LEVELS)])
 
 
+def _load_done(path, n):
+    """Per-encoder completion, (n, 2). A 1-D file is a pre-2026-09-02 cache
+    where a row could only be written after both passes, so both are done."""
+    if not path.exists():
+        return np.zeros((n, 2), np.uint8)
+    d = np.load(path)
+    if d.ndim == 1:
+        return np.repeat(d.reshape(-1, 1), 2, axis=1).astype(np.uint8)
+    return d.astype(np.uint8)
+
+
+def _mark(done, loaded, ei, path):
+    """Persist progress for one encoder.
+
+    The mask used to be written once, after *both* passes. Fourteen attempts
+    were logged and one reached 14,000 images; every restart resumed from zero
+    because nothing had been recorded. Saving per flush makes an interruption
+    cost one batch instead of the whole run.
+    """
+    if not loaded:
+        return
+    done[np.array(sorted(loaded), np.int64), ei] = 1
+    loaded.clear()
+    tmp = path.with_suffix(".tmp.npy")
+    np.save(tmp, done)
+    os.replace(tmp, path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="E:/data/kartaview_hr")
@@ -102,12 +130,14 @@ def main():
     shape = (n, ntok, 2, D_ENC)
     if out.exists() and np.load(out, mmap_mode="r").shape == shape:
         X = np.load(out, mmap_mode="r+")
-        done = np.load(donep) if donep.exists() else np.zeros(n, np.uint8)
-        print("resuming: {:,}/{:,} already cached".format(int(done.sum()), n))
+        done = _load_done(donep, n)
+        print("resuming: {:,}/{:,} complete  (dinov2 {:,}, siglip {:,})".format(
+            int(done.all(1).sum()), n,
+            int(done[:, 0].sum()), int(done[:, 1].sum())))
     else:
         X = np.lib.format.open_memmap(out, mode="w+", dtype=np.float16,
                                       shape=shape)
-        done = np.zeros(n, np.uint8)
+        done = np.zeros((n, 2), np.uint8)
     print("{}  {:.2f} GB".format(out.name, X.nbytes / 1e9), flush=True)
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -115,20 +145,37 @@ def main():
     enc_order = ["dinov2", "siglip"]
 
     def load_img(k):
+        """Decode AND cut the 33 views, both in the worker.
+
+        Cutting them on the consumer side serialised the expensive half onto
+        one thread: `variants` resizes a 6 MP image up to 1344x896 and cuts 33
+        tiles, which is far more work than the JPEG decode. Measured mid-run,
+        neither resource was saturated -- E: queue length 0.5, CPU 13% -- while
+        the GPU alternated 100/0, which is the signature of a single-threaded
+        stage in the middle of the pipeline.
+
+        This also shrinks what the queue holds: 33 x 224 x 224 x 3 is 4.96 MB
+        against roughly 18 MB for the decoded 6 MP image.
+        """
         try:
             im = Image.open(root / "img" / ("%s.jpg" % order[k]))
             im.load()
-            return k, im.convert("RGB")
+            v = variants(im.convert("RGB"), LEVELS)
+            return k, np.concatenate([v[name] for name in LEVELS])
         except Exception:
             return k, None
 
-    todo = np.flatnonzero(done == 0)
-    if not len(todo):
+    if done.all():
         print("nothing to do")
         return
 
-    loaded = set()
     for ei, mname in enumerate(enc_order):
+        # per encoder, so a run interrupted during siglip does not redo dinov2
+        todo = np.flatnonzero(done[:, ei] == 0)
+        if not len(todo):
+            print("  {:<7} already complete".format(mname))
+            continue
+        loaded = set()
         # img_size must be given: DINOv2's timm default is 518, and every
         # token here is 224. mean/std come from the model's own config -- they
         # differ between these two encoders (ImageNet vs 0.5), and hardcoding
@@ -179,11 +226,10 @@ def main():
                 buf_v.clear()
                 buf_k.clear()
 
-            for k, im in decoded(todo.tolist(), 2 * a.workers):
-                if im is None:
+            for k, views in decoded(todo.tolist(), 2 * a.workers):
+                if views is None:
                     continue
-                v = variants(im, LEVELS)
-                buf_v.append(np.concatenate([v[k2] for k2 in LEVELS]))
+                buf_v.append(views)
                 buf_k.append(k)
                 loaded.add(int(k))
                 seen += 1
@@ -196,6 +242,7 @@ def main():
                                   (len(todo) - seen) / max(seen / el, 1e-9) / 60),
                           flush=True)
             flush()
+            _mark(done, loaded, ei, donep)
         del net
         torch.cuda.empty_cache()
         print("  {} done in {:.0f} min".format(mname, (time.time() - t0) / 60),
@@ -205,16 +252,20 @@ def main():
     # stamp a failed decode as cached and leave 33 all-zero tokens behind --
     # the same silent-null failure the GeoMem table had, and it would look like
     # an honest result rather than an error.
-    ok = np.array(sorted(loaded), np.int64)
-    done[ok] = 1
-    np.save(donep, done)
-    bad = int((np.abs(np.asarray(X[ok][:, :, 0, :], np.float32)).sum(-1) == 0).sum())
-    if bad:
-        raise SystemExit("{:,} all-zero tokens among images marked done"
-                         .format(bad))
-    if len(ok) < len(todo):
-        print("{:,} of {:,} images failed to decode and are left unmarked"
-              .format(len(todo) - len(ok), len(todo)))
+    ok = np.flatnonzero(done.all(1))
+    # Validate BOTH encoder slices. Checking only slice 0 would pass an image
+    # that decoded for dinov2 and failed for siglip, leaving half its tokens
+    # zero behind a "done" flag -- the silent-null failure this check exists
+    # to prevent.
+    for ei, mname in enumerate(enc_order):
+        z = int((np.abs(np.asarray(X[ok][:, :, ei, :], np.float32)).sum(-1)
+                 == 0).sum())
+        if z:
+            raise SystemExit("{:,} all-zero {} tokens among images marked "
+                             "complete".format(z, mname))
+    if len(ok) < n:
+        print("{:,} of {:,} images are not complete for both encoders"
+              .format(n - len(ok), n))
     lat = np.array([recs[i]["lat"] for i in order], np.float64)
     lon = np.array([recs[i]["lon"] for i in order], np.float64)
     seq = np.array([str(recs[i].get("sequence_id", i)) for i in order])
