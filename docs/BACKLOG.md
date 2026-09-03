@@ -94,13 +94,20 @@ Prune when touching each file; do not do a sweep.
 implied by convention. Dataclasses would prevent field drift between
 evaluators.
 
-## Testing, deferred
+## Testing
 
-**13 — Checkpoint-contract integration tests.** Build a tiny checkpoint and run
-it through training forward, beam, bootstrap and serve, asserting identical
-logits. Component tests did not catch the sink parity failure and by
-construction could not: the bug was in how a caller assembled the pieces.
-**Highest value of the testing items.**
+**13 — Checkpoint-contract tests. Partly done 2026-09-03**, in
+`tests/test_checkpoint_contract.py`. Two halves: a round-trip of every
+architecture field through `load_model` (subsuming item 16), and a check that
+every field `train.py` writes has a reader, with the field list parsed out of
+train.py rather than restated. The second found `--save-opt` unprompted on its
+first run. Verified to have teeth both ways: writing `sink_k=1` over four sink
+keys must raise, and adding an unread field to train.py must fail the test.
+
+**Still to do**: running an actual checkpoint through beam, bootstrap and serve
+and asserting identical logits. That is the half that would have caught the
+sink parity failure, whose defect was in how a caller assembled the pieces —
+the round-trip alone cannot see it.
 
 **14 — Cache tests with a fake tile client.** Widths, incomplete caches,
 mismatched indices, release metadata, seed caches, live-fetch fallback. Note
@@ -110,9 +117,10 @@ parquet or the client must be faked at a higher level.
 **15 — CLI smoke tests.** `--help` on every script would have caught the
 `diag_beam` signature rot. Cheap once item 7 lands.
 
-**16 — Checkpoint round-trip tests.** Save every architecture option, reload
-through the public loader, compare logits. Covers sink, retrieval modes, map
-sub, positional modes, memory, encoder gates.
+**16 — Checkpoint round-trip tests. Done**, folded into item 13. Ten
+architecture fields, compared on the parameter set rather than on logits: a
+dropped field changes the network's shape, so a strict `load_state_dict` is a
+stronger assertion than matching outputs and needs no forward pass.
 
 **17 — Static checks in CI.** Ruff and Pyright on `src/`, plus compile, tests
 and smoke checks.
@@ -132,29 +140,61 @@ artifact/config summary at startup.
 **24** Shape annotations and type aliases for image batches, policy rows, map
 tokens, neighbour tensors.
 
-## Behavioural items deferred from PR #13
+## Behavioural items from PR #13 — mostly done 2026-09-03
 
-Not code quality, but they belong on the same list:
+**Done**, each verified by making the guard fire rather than by reading it:
 
-* `config.RELEASE` defaults to `s01`. **This is the root cause of four silent
-  failures.** The fix is no default at all, which touches every script and
-  every runner — worth doing as its own change, with item 7.
-* `dataset.py` never reads `done.u8.npy`, so a partially-fetched cache yields
-  zero-filled token rows that look valid.
-* kNN caches are validated on `split_mode` only, not split hash, street file,
-  query count or `knn_k`.
-* The bootstrap error cache is keyed by tag without a checkpoint hash, so
-  retraining under the same tag returns stale numbers.
-* `--save-opt` saves optimizer state that no code path loads; scheduler and RNG
-  state are not saved at all.
+* `config.RELEASE` no longer defaults to `s01`. It was the root cause of five
+  silent failures (the fifth was an ad-hoc query written while fixing this
+  list). No default at all; unset or unknown exits at import. 18 scripts
+  already named a release, 39 relied on the default. Tests name one in
+  `tests/conftest.py`. The live queue was unaffected — the runner sets the
+  variable before importing config, and `run_stage` copies `os.environ`.
+* `dataset.py` reads `done.u8.npy` and refuses a half-fetched cache, checking
+  the rows a split can reach plus all z4/z8 once negatives are on. `fetch_tiles`
+  exits non-zero when the mask is short, so the runner stops marking it done.
+* kNN caches are validated on split hash, street file, query count and
+  neighbour count as well as `split_mode`. All 14 distinct combinations in the
+  checkpoint directory load clean. The first version compared the query count
+  against the street file's length, which rejected every legitimate cache —
+  a bank file has its extension rows appended, so it is longer by construction.
+* The bootstrap error cache is keyed on the checkpoint file's size and mtime.
+  Of 66 existing caches, 46 were provably written after their checkpoint, 20
+  belong to deleted arms, and none were stale, so the bug never fired and the
+  migration recomputes nothing.
+* `eval_highres --bank` took its row restriction from the checkpoint's own kNN
+  cache, which indexes a different file — in range, so silent. It now uses the
+  cache built over the bank in use and names that bank in its summary.
+* Beam width can no longer go ragged under sink pruning. Old and new code give
+  bit-identical per-image errors at k=1, 2 and 16.
+
+**Still deferred, both for the same reason** — fixing either changes training,
+and every arm on file was trained the current way, so each needs a re-baseline
+rather than a silent change:
+
 * `quality()` in the retrieval prior sees the unmasked top-1 similarity even
   when `--retr-drop` hid that neighbour, so the conditioning gate is told about
-  evidence the prior no longer contains. **Deliberately not fixed yet**:
-  changing it alters training semantics and would make new arms incomparable to
-  the p-curve measured on 2026-09-02. Fix with a re-baseline, not silently.
+  evidence the prior no longer contains.
+* `--save-opt` saves optimizer state that no code path loads; scheduler and RNG
+  are not saved at all. A 2+2+2 ladder is therefore three optimizer restarts,
+  not six continuous epochs, which bears on reading "e4 vs e6 is inside noise"
+  as convergence. Now recorded in `tests/test_checkpoint_contract.py` as a
+  known orphan, so it cannot be forgotten and a *new* orphan still fails.
+
+**Not worth doing while the queue runs**
+
+* **21** Atomic writes for checkpoints and reports. Worth having, but it
+  touches the save path with training stages queued: the bug it prevents needs
+  a crash mid-write, while a mistake in the change loses a whole 32-minute
+  stage. Do it with nothing running.
+
+**Open, unchanged**
+
 * `eval_highres` hash sampling takes the lowest N, so a growing manifest can
-  displace members. Stable for a fixed manifest, which the harvest now is;
-  revisit when it next grows.
+  displace members. Stable for a fixed manifest, which the harvest now is —
+  and confirmed empirically: the `hrfix-*` re-runs paired against the original
+  exports on image id with no reordering. Revisit when the harvest next grows.
+
 
 ---
 
