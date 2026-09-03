@@ -118,9 +118,17 @@ N_QUALITY = 6
 
 class RetrievalPrior(nn.Module):
     def __init__(self, g=16, tau=0.07, eps=0.01, mode="scalar",
-                 d_street=0, d_key=128, n_steps=4, d_hidden=64):
+                 d_street=0, d_key=128, n_steps=4, d_hidden=64, nbr_drop=0.0):
         super().__init__()
         self.g, self.mode, self.n_steps = g, mode, n_steps
+        # Thin the neighbour set at random during training. The model trained
+        # against the 3.40M bank beats the 2.65M one by +2.8 pp on the
+        # benchmark and loses 0.76-1.20 pp on held-out KartaView *whichever
+        # bank it is given at inference* -- the damage follows the model, not
+        # the bank, so it is a training-time dependency on dense retrieval.
+        # Off-domain a query gets fewer and worse neighbours (top-1 0.71 vs
+        # 0.90); a policy that only ever saw dense coverage over-trusts them.
+        self.nbr_drop = float(nbr_drop)
         self.log_tau = nn.Parameter(torch.tensor(float(tau)).log())
         self.log_eps = nn.Parameter(torch.tensor(float(eps)).log())
 
@@ -173,12 +181,26 @@ class RetrievalPrior(nn.Module):
         if self.mode in ("pos", "dual") and nbr_emb is not None:
             score = score + self.w_pos * self._cos(self.q_pos(q_emb),
                                                    self.k_pos(nbr_emb))
+        keep = None
+        if self.training and self.nbr_drop > 0:
+            keep = torch.rand_like(score) >= self.nbr_drop
+            # A row with every neighbour dropped softmaxes -inf to NaN, so
+            # rescue one at random rather than always keeping the top-1 --
+            # keeping the best one is not the condition being simulated.
+            empty = ~keep.any(dim=1)
+            if bool(empty.any()):
+                j = torch.randint(0, score.shape[1], (int(empty.sum()),),
+                                  device=score.device)
+                keep[empty.nonzero(as_tuple=True)[0], j] = True
+            score = score.masked_fill(~keep, float("-inf"))
         a_pos = torch.softmax(score, dim=1)
         a_neg = None
         if self.mode == "dual" and nbr_emb is not None:
-            a_neg = torch.softmax(
-                self._cos(self.q_neg(q_emb), self.k_neg(nbr_emb))
-                / self.log_tau_neg.exp().clamp_min(1e-3), dim=1)
+            ns = (self._cos(self.q_neg(q_emb), self.k_neg(nbr_emb))
+                  / self.log_tau_neg.exp().clamp_min(1e-3))
+            if keep is not None:            # same neighbours hidden from both
+                ns = ns.masked_fill(~keep, float("-inf"))
+            a_neg = torch.softmax(ns, dim=1)
         return a_pos, a_neg
 
     def forward(self, nbr_x16, nbr_y16, sim, x0, y0, step, n_logits,

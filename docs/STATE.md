@@ -10,13 +10,32 @@ stopped. `git status` is clean apart from two probe `.npz` files in `runs/`.
 
 ## What ships
 
-**`d1536-b350-e6` — 1.8 km median, 311.0 mean, 76.2% within 25 km** on the
-`sequence` test split at n=5,000 (`runs/BOOTSTRAP_bank70.md`). Pooled 1536-d
-street vector, 3.50M-image retrieval bank, ~6.07M trainable parameters in front
-of 178.6M frozen.
+**`d1536-b350-e6-drop30`** for quality; **`d768-b350-e6-drop30`** if the corpus
+is to grow past 3.40M. The two are indistinguishable on held-out photographs;
+the 1536-d arm wins the benchmark, the 768-d arm is the only one whose bank can
+reach 4.90M on a 31.7 GB machine.
 
-Read that number with the coverage caveat below. It is a benchmark figure, not
-accuracy on an arbitrary photograph.
+| arm | OSV-5M `<25 km` | KartaView `<25 km` (n=5,000) | KartaView median |
+|---|---|---|---|
+| `d768-b265-e6` | 72.8% | 12.9% | 450.6 km |
+| `d768-b350-e6` | 75.6% | 11.6% | 486.2 km |
+| `d768-b350-e6-drop30` | ~75.6% | 12.7% | 475.3 km |
+| `d1536-b350-e6` | 76.2% | 11.7% | 518.2 km |
+| **`d1536-b350-e6-drop30`** | **~76.9%** | **12.5%** | **458.1 km** |
+
+`d1536-b350-e6-drop30` beats `d1536-b350-e6` by +0.10 to +1.30 pp on the
+benchmark and by +0.82 pp [+0.26, +1.38] and −60.1 km [−76.0, −38.8] externally,
+all separated. Against `d768-b350-e6-drop30` it is separated-better on the
+benchmark and inside noise on every external metric.
+
+**Neighbour dropout is a plain regulariser, not a trade.** Across both widths it
+is separated-better in five of six benchmark/external cells and **never
+measurably worse anywhere**. The retrieval prior was under-regularised; the
+transfer gap was the symptom that made it visible.
+
+**The selection set is not evidence.** Its 2,000 images said dropout was 0.6 pp
+*behind* on `d1536` at e4; the 5,000-image bootstrap says it is ahead,
+separated. It picks checkpoints, it does not measure them.
 
 ## The corpus curve, four points
 
@@ -25,7 +44,7 @@ accuracy on an arbitrary photograph.
 | 1.15M `d1536-b115-e6` | 7.7 | 391.4 | 64.1% | — |
 | 1.90M `d1536-b190-e6` | 3.6 | 367.5 | 70.6% | +6.50 [+5.50, +7.64] |
 | 2.65M `d1536-b265-e6` | 2.5 | 356.7 | 73.8% | +3.21 [+2.40, +4.02] |
-| **3.50M `d1536-b350-e6`** | **1.8** | **311.0** | **76.2%** | **+2.34 [+1.56, +3.12]** |
+| **3.40M `d1536-b350-e6`** | **1.8** | **311.0** | **76.2%** | **+2.34 [+1.56, +3.12]** |
 
 **4.3x median reduction, +12.1 pp, architecture untouched throughout.** Every
 ladder converges at six epochs (e4 vs e6 inside noise), so the gains are not
@@ -45,74 +64,121 @@ tail alone. On `cell8` the mean sits near 1,020 km for every arm because there
 almost everything is tail. The mean is close to useless for selection here,
 which is why `--select hit` exists.
 
-## The benchmark measures bank coverage as much as model quality
+## The benchmark and the world disagree in sign
 
-1,000 held-out KartaView photographs through the shipping pipeline and the real
-beam rollout, identical settings (beam 2, ranked s0–s2):
+Measured 2026-09-02 on 5,000 held-out KartaView photographs, paired, each model
+against its own bank:
 
-| | OSV-5M test | KartaView |
+| step | OSV-5M `<25 km` | KartaView `<25 km` |
 |---|---|---|
-| top-1 retrieval sim | ~0.90 | **0.7182** |
-| median | 2.7 km | **442.6 km** |
-| `<25 km` | 72.8% | **12.8%** |
+| `d768-b265-e6` → `d768-b350-e6` | **+2.8 pp [+1.96, +3.66]** | **−1.32 pp [−2.04, −0.60]** |
 
-**Two explanations were tested and both are dead.** Aspect ratio: top-1 is flat
-at 0.70–0.73 across portrait, square, 4:3 and 16:9 — including the 16:9 bucket
-that matches OSV-5M's uniform 910×512 exactly. Encoder domain shift: killed by
-the self-retrieval control, where KartaView scores **0.7103 against the OSV-5M
-bank** and only **0.6830 against other KartaView images**. It retrieves better
-from OSV-5M than from itself, which is what a 146x larger bank should do.
+Both separated. **The corpus step that is this project's main axis buys
+benchmark points and loses real ones.** `<1 km` is unchanged (+0.08 pp): the
+damage is at 25–200 km, exactly where the retrieval prior operates.
 
-What remains is corpus density. OSV-5M's 0.90 comes from queries whose own
-streets the bank covers densely — the `sequence` split holds out a drive but not
-the road. That is legitimate geolocation and it is what the retrieval prior is
-for, but it means the headline is partly a statement about coverage.
+**A 2×2 blames the model, not the bank.** Each model run against both banks
+(`eval_highres --bank` overrides the checkpoint's own):
 
-Every paired comparison here is unaffected, since all arms are measured
-identically. The absolute number is optimistic for arbitrary photographs.
-`scripts/eval_highres.py` runs this end to end and verifies its own embedding
-against stored bank vectors first (projection cosine 1.000000, embedding
-0.992–0.996).
+| `<25 km` | bank 2.65M | bank 3.50M |
+|---|---|---|
+| model b265 | 12.92% | 12.80% |
+| model b350 | 12.16% | 11.60% |
 
-## Multi-photograph queries — built, demoed, not yet measured
+* bank effect at fixed model: −0.12 pp [−0.66, +0.40] and −0.56 pp [−1.04, −0.08]
+* model effect at fixed bank: **−0.76 pp [−1.44, −0.06]** and **−1.20 pp [−1.86, −0.54]**
 
-If the benchmark is easy because the *bank* is dense around the query, then
-several photographs of one spot manufacture that density on the **query** side,
-which is free. The retrieval prior takes k neighbours as a similarity-weighted
-set and cannot tell which image produced them, so **this needed no retraining**:
-extra photographs contribute candidates, one image still drives the policy.
+The model trained against denser retrieval is worse off-domain *whichever bank
+it is given at inference*. It is a training-time dependency on dense coverage,
+not a property of the bank. Off-domain top-1 similarity is 0.71 against 0.90 on
+the benchmark, and a policy that only ever saw 0.90 over-trusts the prior.
 
-`scripts/serve.py` does it live and the page accumulates pasted photographs with
-a thumbnail strip and a Start over button. Ten hand-checked groups gave median
-820 → 578 → 409 km for 1 → 2 → 4 photographs, with one case going 10,824 → 319
-and one getting *worse*, 68 → 820. **n=10 is not evidence.**
-`scripts/multiquery.py` is written and unrun: it builds spatial groups from the
-harvest and measures the 1/2/4/8 curve properly.
+**`--retr-drop` fixes it, for free.** Hiding each retrieved neighbour with
+probability 0.3 during training recovers the external loss
+(**+1.10 pp [+0.44, +1.78]** over `d768-b350-e6`, back to level with
+`d768-b265-e6` at −0.22 pp inside noise) while costing nothing on the benchmark
+([−0.98, +0.30] pp). The prediction that it would trade benchmark for
+generalisation was **falsified** — the selection curve suggests the earlier arms
+were simply under-regularised: no-drop drifts 74.4% → 74.2% from e4 to e6 while
+drop30 holds 75.0%. The median against `b265` is still worse
+(+24.6 km [+3.5, +44.9]), so the recovery is in hit rate, not everywhere.
+p was not tuned; the p-curve is open.
 
-Two design points already learned: a global top-k lets the strongest-matching
-photograph fill every slot (four photographs changed the answer in one case of
-five), so each photograph gets its own share round-robin by rank; and dedupe, or
-one bank image found by two photographs votes twice. If the noisy behaviour
-persists, similarity-weighted allocation instead of equal shares is the next
-refinement.
+**Two measurement lessons, both of which nearly produced wrong answers.**
+At n=1,000 the corpus contrast reads −1.40 pp [−3.00, +0.20] — inside noise. I
+briefly reported it as "no transfer", and only n=5,000 separated it. A wide
+interval is a reason to get more data, not to weaken the claim. And
+`--n 1000 --seed 0` was *not* a fixed sample: it permuted the manifest, which
+grew 18,812 → 47,646 overnight, so two runs with identical flags scored
+different images. Selection is now `crc32(seed + image_id)`, stable under
+growth. Numbers from before that fix (the 442.6 km figure) are not comparable.
 
-## 768-d: costs about a point, worth paying
+## Multi-photograph queries — measured, real, small
 
-| rung | 1536-d | 768-d | `<25 km` deficit |
+If the benchmark is easy because the *bank* is dense around the query, several
+photographs of one spot manufacture that density on the **query** side, which is
+free. The retrieval prior takes k neighbours as a similarity-weighted set and
+cannot tell which image produced them, so **this needed no retraining**.
+
+2,496 spatial groups within 100 m, paired on the same anchors:
+
+| photos | median km | `<25 km` | hit rate vs 1 | median vs 1 |
+|---|---|---|---|---|
+| 1 | 557.0 | 10.7% | — | — |
+| 2 | 513.6 | 11.9% | **+1.2 pp [+0.12, +2.32]** | **−43 km [−74, −14]** |
+| 4 | 498.1 | 12.0% | +1.3 pp [+0.12, +2.56] | −59 km [−94, −27] |
+
+**It saturates at two.** The second photograph buys +1.2 pp; the third and
+fourth add +0.1 pp between them. Ask for one more angle, not eight. Worth about
+half a corpus doubling, for free.
+
+**Three things it needs to be visible at all**, each of which produced a wrong
+answer first:
+
+* **Groups chosen before embedding, and full.** Sampling images first and
+  grouping second gave 200 groups of which *one* had four members, so
+  `take[:N]` returned the same two photographs for N=2, 4 and 8 and the curve
+  read as saturating at two when there was never a third to add.
+* **Round-robin the merge, and dedupe.** Ranking all N×32 candidates together
+  lets the strongest-matching photograph fill every slot. On the same groups the
+  naive merge reads +0.5/+0.8/+1.3 and round-robin reads +2.1/+2.3/+1.8.
+  `serve.py` already did this; the experiment did not.
+* **~2,500 groups.** At 390 every step is inside noise and the `near` control
+  came out non-monotone — 8.0 → 7.5 → 6.4 → 9.5 — which is what noise looks
+  like when only one ordering is run and it happens to rise.
+
+Never compare absolute numbers across group populations: requiring 8
+photographs within 100 m selects a harder set of places (1221 km median) than
+requiring 4 (557 km). Per-group errors are in `runs/multiq_pow4.npz`.
+
+## 768-d: the width cost vanishes as the bank grows
+
+**Updated 2026-09-02: at the bank size that matters the cost is gone.** On the
+3.40M bank, `d768-b350-e6` is **1.9 km / 320.4 mean / 75.6%** against
+`d1536-b350-e6` at 1.8 / 311.0 / 76.2% — a gap of **+0.6 pp, CI
+[−0.18, +1.32], inside noise**. At 2.65M the same contrast was +1.05 pp
+[+0.28, +1.82] and separated.
+
+| bank | 1536-d | 768-d | deficit |
 |---|---|---|---|
-| e2 | 2.7 km / 72.8% | 3.2 / 70.6% | +3.23 [+2.46, +4.00] |
-| e4 | 2.6 / 73.6% | 2.8 / 72.3% | +1.49 [+0.76, +2.22] |
-| e6 | 2.5 / 73.8% | 2.7 / 72.8% | **+1.05 [+0.28, +1.82]** |
+| 2.65M | 2.5 km / 73.8% | 2.7 / 72.8% | +1.05 [+0.28, +1.82] separated |
+| **3.40M** | 1.8 / 76.2% | **1.9 / 75.6%** | **+0.6 [−0.18, +1.32]** inside noise |
 
-The gap closes (3.23 → 1.49 → 1.05) and both ladders converge, but unlike
-pooling it never reaches parity. 768-d is *better* on the mean at e6 (330.8 vs
-356.7) while worse on median and hit rate — it trades the head of the
-distribution for the tail.
+**The width cost shrinks as the corpus grows**, which was the branch written
+down before the run ("if much better, the projection is cheaper on a denser
+bank"). Treat +1.05 pp as a decaying upper bound, not a fixed toll. The ladder
+converges as every other one does — e4 (75.5%) vs e6 (75.6%) is inside noise.
 
-**Adopt it anyway.** Doubling the corpus is worth ~+3.9 pp against a 1.05 pp
-cost, and at 1536-d a 4.90M table is 15.05 GB, which can never clear
-`0.4 × free` on a 31.7 GB machine. 768-d is the only configuration in which all
-of OSV-5M is resident (7.53 GB).
+768-d is still worse on the *mean* (320.4 vs 311.0) while level on median and
+hit rate: it trades the head of the distribution for the tail.
+
+**So 768-d is the route to 4.90M.** At 1536-d that table is 15.05 GB and can
+never clear `0.4 × free` on a 31.7 GB machine; at 768-d it is 7.53 GB and
+resident. The only argument against the projection was its accuracy cost, and
+at 3.40M that cost is not measurable.
+
+**The prediction was recorded before the run and held:** ~75.2% and ~2.0 km
+against an observed 75.6% and 1.9 km.
 
 Retrieval said it was free (−0.17 pp [−1.00, +0.63], while 384 was separated at
 −0.87). The mechanism for the disagreement: PCA keeps 97.89% of *variance* and a
@@ -161,16 +227,27 @@ OSV-5M.
 
 ## Unfinished, resumable
 
-**`scripts/w768b70.py`** — 768-d on the 3.50M bank. `w70_proj` is marked done
-(the projection exists); it was stopped during `w70_knn`. Re-running resumes
-there: index, then the 2+2+2 ladder, then the eval.
-**Prediction recorded in the script**: the width cost should be roughly constant
-in bank size, so **~1 pp, about 75.2% and a ~2.0 km median** against
-`d1536-b350-e6`. If much worse, the cost grows with corpus and 768-d stops being
-the route to 4.90M.
+**`pyrcache-hr47k`** — the pyramid cache over the full 47,646-image harvest,
+running since 07:24 with a 900-minute window for a ~620-minute job (2.6 img/s
+per encoder, two encoders). Needs no tile server. Resumable through its own
+`pyr47_done.u8.npy` mask, so killing it costs one image. `fuse-attn-pyr47`
+follows and is guarded by `Stage(needs=...)`, so it skips rather than failing
+three times in three seconds when the cache is absent.
 
-Also queued and unrun: `scripts/multiquery.py` (the multi-photograph curve), and
-re-running the pyramid attention arm on 47k images rather than 18k.
+Open questions in rough order of value:
+
+* **The `--retr-drop` p-curve.** 0.3 was a guess that happened to work. 0.1 and
+  0.5 would say whether the effect is a plateau or a peak.
+* **Does `d1536` carry the same dependency?** It holds the best benchmark
+  number and has never been measured externally. If it behaves like `d768`,
+  the shipping recommendation changes again.
+* **A second external domain.** Every transfer claim here rests on one test set
+  of KartaView dashcam frames. "Does not transfer to KartaView" is not "does not
+  transfer".
+* **Seeds.** Every arm here is a single seed, and seeds have differed by 18 km
+  on the median in this project.
+* Shards 70–97 remain unused — 1.4M more images to the 4.90M ceiling. Worth
+  doing *with* `--retr-drop`, given what the corpus step did without it.
 
 ## Hardware constraints, measured
 
@@ -184,10 +261,16 @@ re-running the pyramid attention arm on 47k images rather than 18k.
   machine; four hours later with three jobs running, 4.22 GB succeeds and
   10.75 GB fails with ERROR_NO_SYSTEM_RESOURCES. `dataset.py` tries and falls
   back cleanly, saying why. `NO_LARGE_PAGES=1` disables it.
-* **Training is data-bound, not GPU-bound.** Every training run logs 1% GPU;
-  the only 99% readings came from a concurrent encoder pass. Consequently
-  stacking jobs costs far more than memory arithmetic suggests — three at once
-  made a rung 2.6x slower, where I predicted 30%.
+* **Training is GPU-bound.** Corrected 2026-09-02: measured directly at
+  **94-96% utilisation and 172 W** with nothing else on the card. The earlier
+  "every run logs 1% GPU" reading is from before the reboot and cannot be
+  reconciled with the same ~27 min per rung; two other measurements agree with
+  the new one and not the old, which is what settles it. The memmap tier costs
+  only ~4%, which a genuinely data-bound run could not manage, and stacking
+  three jobs cost 2.6x, which a data-bound run would not — they would interleave
+  their I/O rather than queue for one saturated device. Treat 1% as a broken
+  sensor, not as evidence. The practical consequence: **never stack GPU jobs**,
+  and faster iteration comes from less work per step, not more I/O throughput.
 * **C: is NVMe (0.20 ms), E: is a 2 TB HDD.** Shard zips live on E:, which is
   why sequential `slurp()` took `embed_street` from 3 to 83 MB/s.
 

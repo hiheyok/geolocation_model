@@ -128,11 +128,24 @@ def check_legal(mask):
         raise TileError(f"class id {hi} out of range 0..{N_CLASSES - 1}")
 
 
-def to_tokens(mask, grid=16):
-    """(512, 512) class mask -> (grid*grid, 12) float32 class fractions per patch.
+def to_tokens(mask, grid=16, sub=1):
+    """(512, 512) class mask -> (grid*grid, 12*sub*sub) float32 class fractions.
 
     Aggregation, never interpolation: every pixel contributes, and the result is
     a strict superset of majority vote (majority is its argmax).
+
+    `sub` splits each patch into sub x sub cells and histograms each, so
+    within-patch layout survives. sub=1 is the original token and is what every
+    arm before 2026-09-02 was trained on.
+
+    **Why it matters.** A 32x32 patch is 1024 pixels and sub=1 turns it into 12
+    fractions, which is orientation-blind by construction: a north-south road
+    and an east-west road give byte-identical tokens, as do a T-junction and a
+    straight road with the same pixel count. Measured on 16,600 z12 patches with
+    a coherent road direction, an MLP recovers that direction 52.7% of the time
+    from sub=1 -- the majority rate, i.e. not at all -- against 77.6% from sub=2
+    and 82.9% from sub=4. The structure is in the tile; the tokenizer discards
+    it. See scripts/map_structure_probe.py.
     """
     if mask.shape != (TILE_PX, TILE_PX):
         raise TileError(f"expected {TILE_PX}x{TILE_PX}, got {mask.shape}")
@@ -141,15 +154,19 @@ def to_tokens(mask, grid=16):
     check_legal(mask)
 
     p = TILE_PX // grid
+    if p % sub:
+        raise TileError(f"sub {sub} does not divide the {p}px patch")
     ids = (mask // CLASS_STEP).astype(np.uint8)
-    # (grid, p, grid, p) -> (grid*grid, p*p): one row per patch, row-major
-    patches = ids.reshape(grid, p, grid, p).transpose(0, 2, 1, 3).reshape(grid * grid, p * p)
+    c = p // sub
+    # (grid, sub, c, grid, sub, c) -> one row per patch, cells row-major within
+    a = ids.reshape(grid, sub, c, grid, sub, c)
+    a = a.transpose(0, 3, 1, 4, 2, 5).reshape(grid * grid, sub * sub, c * c)
 
-    out = np.zeros((grid * grid, N_CLASSES), dtype=np.float32)
-    for c in range(N_CLASSES):
-        out[:, c] = (patches == c).sum(axis=1)
-    out /= float(p * p)
-    return out
+    out = np.zeros((grid * grid, sub * sub, N_CLASSES), dtype=np.float32)
+    for k in range(N_CLASSES):
+        out[:, :, k] = (a == k).sum(axis=-1)
+    out /= float(c * c)
+    return out.reshape(grid * grid, sub * sub * N_CLASSES)
 
 
 def token_row_order(grid=16):

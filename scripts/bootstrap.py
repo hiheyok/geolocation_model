@@ -29,7 +29,7 @@ import config
 import names
 import splits as sp
 import tile_math as tm
-from beam import TokenSource
+from beam import TokenSource, source_for
 from dataset import GeoStepDataset, street_table
 from evaluate import check_split, evaluate, load_model, street_file_for
 
@@ -78,7 +78,14 @@ def paired(a, b, reps, rng, thresh=25.0):
 
 
 def verdict(lo, hi):
-    return "separated" if (lo > 0) == (hi > 0) else "inside noise"
+    """Separated only if the whole interval is strictly one side of zero.
+
+    `(lo > 0) == (hi > 0)` calls [-0.5, 0.0] separated, because both
+    comparisons are false -- an interval that contains zero reported as a real
+    effect. Hit-rate differences are multiples of 1/n, so an endpoint landing
+    exactly on zero is not hypothetical.
+    """
+    return "separated" if (lo > 0 or hi < 0) else "inside noise"
 
 
 def main():
@@ -94,12 +101,21 @@ def main():
 
     tags = [t.strip() for t in a.tags.split(",") if t.strip()]
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    source = TokenSource(tm.G)
+    # One source per arm, not one shared: two arms in the same table may be
+    # tokenised at different `sub`, and a shared source would score one of them
+    # against the other's map representation.
     rng = np.random.default_rng(config.SPLIT_SEED)
+    src_for_tag = {}
 
     errs = {}
     for t in tags:
-        errs[t] = errors_for(t, a.split, a.n, a.beam, a.score_steps, dev, source)
+        ckt = torch.load(config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
+                         weights_only=False)
+        key = (ckt.get("map_cache"), ckt.get("map_sub", 1))
+        if key not in src_for_tag:
+            src_for_tag[key] = source_for(ckt)
+        errs[t] = errors_for(t, a.split, a.n, a.beam, a.score_steps, dev,
+                             src_for_tag[key])
         print("{:<24} n={:,}  median {:7.1f} km  mean {:8.1f}  <25km {:5.1%}"
               .format(t, len(errs[t]), float(np.median(errs[t])),
                       float(errs[t].mean()), float((errs[t] < 25).mean())),

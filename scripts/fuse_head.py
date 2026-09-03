@@ -201,6 +201,11 @@ def main():
     ap.add_argument("--bucket-z", type=int, default=6,
                     help="zoom of the bucket grid; z6 cells are ~626 km")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--pyr-stem", default="pyr33",
+                    help="which pyramid cache --tokens pyr33 reads; the "
+                         "18,812-image pyr33 run was confounded by data "
+                         "volume, so the re-run needs its own cache rather "
+                         "than overwriting the one it is compared against")
     ap.add_argument("--tokens", default="osv", choices=("osv", "pyr33"),
                     help="osv: 3 crops + 6 tiles over OSV-5M, two levels. "
                          "pyr33: 3 + 6 + 24 over the high-resolution harvest, "
@@ -216,7 +221,8 @@ def main():
     torch.manual_seed(a.seed)
     t0 = time.time()
     if a.tokens == "pyr33":
-        m = np.load(config.STREET_CACHE / "pyr33_meta.npz", allow_pickle=True)
+        m = np.load(config.STREET_CACHE / (a.pyr_stem + "_meta.npz"),
+                    allow_pickle=True)
         lat, lon = m["lat"], m["lon"]
         seq = m["sequence"].astype("U40")
         level_of = m["level_of"].tolist()
@@ -231,7 +237,8 @@ def main():
                       for x in seq.tolist()])
         tr = np.flatnonzero(h < 8)
         te = np.flatnonzero(h >= 8)
-        X = np.asarray(np.load(config.STREET_CACHE / "pyr33.f16.npy",
+        X = np.asarray(np.load(config.STREET_CACHE
+                               / (a.pyr_stem + ".f16.npy"),
                                mmap_mode="r"), np.float32)
         X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
         X = X.astype(np.float16)

@@ -29,6 +29,7 @@ import json
 import os
 import sys
 import time
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -46,7 +47,7 @@ import names
 import tile_math as tm
 from dataset import street_table
 from evaluate import evaluate, load_model
-from beam import TokenSource
+from beam import TokenSource, source_for
 
 D_ENC = 768
 DINO = "vit_base_patch14_dinov2.lvd142m"
@@ -128,11 +129,20 @@ def embed(paths, dev, batch=16):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="d768-b265-e6")
+    ap.add_argument("--bank", default=None,
+                    help="defaults to the checkpoint's own street file")
+    ap.add_argument("--export", default="",
+                    help="npz of per-image errors and ids, so two arms on the "
+                         "same sample can be compared with a paired interval "
+                         "instead of by eyeballing two point estimates")
     ap.add_argument("--data", default="E:/data/kartaview_hr")
     ap.add_argument("--n", type=int, default=1000)
     ap.add_argument("--beam", type=int, default=2)
     ap.add_argument("--score-steps", type=int, default=3)
     ap.add_argument("--scale-b", type=float, default=4.03)
+    ap.add_argument("--basis", default="pca768_bank55_pca.npz",
+                    help="PCA basis, used only when the bank is narrower than "
+                         "the pooled vector")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
 
@@ -143,23 +153,53 @@ def main():
         recs[r["id"]] = r
     ids = sorted(recs)
     rng = np.random.default_rng(a.seed)
-    pick = [ids[i] for i in rng.permutation(len(ids))[:a.n]]
+    # Pick by hashing the id, not by permuting the manifest. The harvest grew
+    # 18,812 -> 47,646 overnight and `permutation(len(ids))[:n]` silently
+    # selected a different thousand images, so two runs that both reported
+    # "n=1000, seed 0" scored different sets and were compared as though they
+    # were the same benchmark. Hash selection is stable as the manifest grows:
+    # an image's membership depends only on its own id.
+    key = np.array([zlib.crc32((str(a.seed) + i).encode()) for i in ids])
+    pick = [ids[i] for i in np.argsort(key)[:a.n]]
     paths = [str(Path(a.data) / "img" / (i + ".jpg")) for i in pick]
     lat = np.array([recs[i]["lat"] for i in pick], np.float64)
     lon = np.array([recs[i]["lon"] for i in pick], np.float64)
     print("{:,} high-resolution images, evaluated as {} on the {} pipeline\n"
           .format(len(pick), a.tag, "224px 3-crop"), flush=True)
 
+    model, ck, _ = load_model(a.tag, dev)
+    # The bank must be the one this checkpoint was TRAINED with. Hardcoding it
+    # silently evaluated d768-b350-e6 against the 2.75M bank it had never seen
+    # and reported the number as that arm's external score.
+    bank_file = a.bank or ck.get("street_file")
+    meta_stem = "bank_ext"
+    for n in ("70", "55", "40"):
+        if "bank" + n in bank_file:
+            meta_stem = "bank_ext" + n
+            break
+    print("bank {}   addresses {}".format(bank_file, meta_stem), flush=True)
+
     E = embed(paths, dev)
-    # equal-norm join, mean-pool over crops, then the SAVED PCA basis
+    # equal-norm join, mean-pool over crops, then the SAVED PCA basis -- but
+    # only for a projected bank. A 1536-d arm (pool_bal_*) stores the pooled
+    # vector itself, so projecting it would compare a 768-d query against a
+    # 1536-d bank; the width is read off the bank rather than assumed.
     tok = np.concatenate([E["dinov2"], a.scale_b * E["siglip"]], axis=2)
     pooled = tok.mean(1).astype(np.float32)          # (n, 1536)
-    z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
-    q = ((pooled - z["mu"]) @ z["P"]).astype(np.float16)
-    print("\nquery vectors {}  projected with the bank's own basis"
-          .format(q.shape), flush=True)
+    bank_dim = np.load(config.STREET_CACHE / bank_file, mmap_mode="r").shape[1]
+    if bank_dim == pooled.shape[1]:
+        q = pooled.astype(np.float16)
+        print("")
+        print("query vectors {}  pooled, no projection (bank is {}-d)"
+              .format(q.shape, bank_dim), flush=True)
+    else:
+        z = np.load(config.STREET_CACHE / a.basis)
+        q = ((pooled - z["mu"]) @ z["P"]).astype(np.float16)
+        if q.shape[1] != bank_dim:
+            sys.exit("projected to {}-d but the bank is {}-d"
+                     .format(q.shape[1], bank_dim))
 
-    bank = np.load(config.STREET_CACHE / "pca768_bank55.f16.npy", mmap_mode="r")
+    bank = np.load(config.STREET_CACHE / bank_file, mmap_mode="r")
     qn = torch.from_numpy(q.astype(np.float32)).to(dev)
     qn = torch.nn.functional.normalize(qn, dim=1)
     K = 32
@@ -185,20 +225,18 @@ def main():
     ds = pq.read_table(config.DATASET_PARQUET, columns=["lat", "lon"])
     bx, by = tile_for_vec(np.asarray(ds["lat"], np.float64),
                           np.asarray(ds["lon"], np.float64), 4 * tm.STEPS)
-    for stem in ("bank_ext", "bank_ext2", "bank_ext3"):
-        m = np.load(config.bank_meta(stem), allow_pickle=True)
-        bx = np.concatenate([bx, m["x16"].astype(bx.dtype)])
-        by = np.concatenate([by, m["y16"].astype(by.dtype)])
-    assert len(bx) == bank.shape[0], (len(bx), bank.shape[0])
+    m = np.load(config.bank_meta(meta_stem), allow_pickle=True)
+    bx = np.concatenate([bx, m["x16"].astype(bx.dtype)])
+    by = np.concatenate([by, m["y16"].astype(by.dtype)])
+    assert len(bx) == bank.shape[0], (meta_stem, len(bx), bank.shape[0])
 
     ext = ExternalSet(q, lat, lon, best_i.cpu().numpy(),
                       best_v.cpu().numpy().astype(np.float32), bx, by)
 
-    model, ck, _ = load_model(a.tag, dev)
     tbl = None
     if ck.get("retr_mode") in ("pos", "dual"):
-        tbl = street_table(config.STREET_CACHE / "pca768_bank55.f16.npy", dev)
-    src = TokenSource(tm.G)
+        tbl = street_table(config.STREET_CACHE / bank_file, dev)
+    src = source_for(ck)
     m = evaluate(model, ext, src, dev, None, beam_k=a.beam,
                  top_m=max(4, a.beam), greedy=(a.beam == 1),
                  score_steps=a.score_steps, street_gpu=tbl)
@@ -212,7 +250,15 @@ def main():
         print("   <{:>5} km  {:5.1%}".format(t, float((e < t).mean())))
     print("\nper-step tile accuracy " + "  ".join(
         "s{} {:.1%}".format(i, v) for i, v in enumerate(m["step_acc"])))
-    print("\nOSV-5M test for the same checkpoint: 2.7 km / 330.8 mean / 72.8%")
+    if a.export:
+        np.savez(a.export, err=e,
+                 image_id=np.array(pick),
+                 tag=a.tag, bank=bank_file)
+        print("wrote " + a.export)
+    print("")
+    print("Compare against this checkpoint's own row in the matching "
+          "BOOTSTRAP_*.md. Do not hardcode it here: that printed one "
+          "arm's OSV-5M number under another arm's name.")
     print("A gap here is domain shift, not overfitting: these images are not in "
           "the bank\nand share no sequence with anything in it.")
 

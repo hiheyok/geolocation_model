@@ -23,13 +23,33 @@ import tile_math as tm
 import tiles as T
 
 
+def source_for(ck, grid=tm.G, **kw):
+    """A TokenSource matching a checkpoint's map representation.
+
+    The cache and the `sub` it was tokenised at are properties of the arm, not
+    of the release. Building one with the defaults scores a sub=2 model against
+    12-d tokens, which is a different model than the one that was trained.
+    """
+    return TokenSource(grid, cache=ck.get("map_cache"),
+                       sub=ck.get("map_sub", 1), **kw)
+
+
 class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
-    def __init__(self, grid=tm.G, cache=None, client=None, threads=16):
+    def __init__(self, grid=tm.G, cache=None, client=None, threads=16, sub=1):
         tokens_p, index_p, _ = config.map_files(cache)
         self.grid = grid
+        self.sub = int(sub)
         self.tokens = np.load(tokens_p, mmap_mode="r")
+        # A live-fetched tile must be tokenised exactly as the cache was, or
+        # the two paths silently disagree in width and the beam scores a
+        # different representation than the model was trained on.
+        want = T.N_CLASSES * self.sub * self.sub
+        if self.tokens.shape[-1] != want:
+            raise ValueError(
+                "map cache is {}-d but sub={} implies {}-d".format(
+                    self.tokens.shape[-1], self.sub, want))
         idx = pq.read_table(index_p)
         k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
                         np.asarray(idx["x"]).astype(np.int64),
@@ -42,7 +62,8 @@ class TokenSource:
 
     def get(self, keys):
         """keys: list of (z, x, y) -> (N, A, C) float32."""
-        out = np.zeros((len(keys), self.grid * self.grid, T.N_CLASSES), np.float32)
+        out = np.zeros((len(keys), self.grid * self.grid,
+                        self.tokens.shape[-1]), np.float32)
         misses = []
         for i, (z, x, y) in enumerate(keys):
             kk = tm.tile_key(z, x, y)
@@ -61,7 +82,8 @@ class TokenSource:
 
             def fetch(m):
                 _, z, x, y, _ = m
-                return T.to_tokens(self.client.mask(z, x, y), self.grid)
+                return T.to_tokens(self.client.mask(z, x, y), self.grid,
+                                   self.sub)
 
             for m, arr in zip(misses, self.pool.map(fetch, misses)):
                 out[m[0]] = arr
@@ -118,7 +140,10 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
             prior = model.retr_prior(nbrs, street, x0, y0, sp, nb, n_logits)
             # and the tile memory, through the same slot -- see _add_geo
             prior = model._add_geo(prior, f, x0, y0, sp, n_logits)
-            logits = model.policy_logits(f, keys, prior).float()
+            # `sp` is required, not optional: the extra sink keys are indexed
+            # by step, and omitting it silently evaluates a sink-k 1 model --
+            # training one network and scoring another.
+            logits = model.policy_logits(f, keys, prior, sp).float()
         # With a sink class the softmax spans A+1: log p(a) already decomposes
         # into log p(not-sink) + log p(a | not-sink), so a beam the model
         # believes is dead is penalised in its own cumulative score.  The sink

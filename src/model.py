@@ -25,9 +25,10 @@ from retrieval import RetrievalPrior
 class GeoAgent(nn.Module):
     def __init__(self, d_street=768, d=512, d_tok=256, n_classes=12,
                  n_actions=256, n_steps=5, dropout=0.1, map_layers=0,
-                 pool="mean", n_pool_q=4, pos="learned", sink=False,
+                 pool="mean", n_pool_q=4, pos="learned", sink=False, sink_k=1,
                  map_loop=False, mem="none", d_mem=64, mem_drop=0.0,
                  retr=False, retr_tau=0.07, retr_mode="scalar", d_key=128,
+                 nbr_drop=0.0,
                  enc_gate=False, geo="none", d_geo=128):
         super().__init__()
         self.n_actions = n_actions
@@ -43,6 +44,28 @@ class GeoAgent(nn.Module):
         # thinks is dead pays for it in its own cumulative score, with no
         # threshold to tune.
         self.sink = nn.Parameter(torch.randn(d_tok) * d_tok ** -0.5) if sink else None
+
+        # Extra sink capacity.  The base sink is a single fixed direction, so
+        # its logit is one linear probe on the fused state -- it cannot look at
+        # the map the way a real action key does, and one direction has to
+        # serve all four zoom steps.  `sink_k > 1` adds K-1 further keys *per
+        # step* and takes a logsumexp, which reads as "reject if ANY of K
+        # reasons fires" and is piecewise-linear rather than linear.
+        #
+        # Neutral at init: the extra biases start at -20, so the logsumexp is
+        # the base logit to within 1e-8 and the arm begins as an exact copy of
+        # the current model.  An extra key costs nothing until it earns its
+        # place, which is the same contract as the zero-init gates elsewhere.
+        self.sink_k = int(sink_k) if sink else 1
+        self.sink_steps = max(1, n_steps - 1)
+        if sink and self.sink_k > 1:
+            self.sink_ext = nn.Parameter(
+                torch.randn(self.sink_steps, self.sink_k - 1, d_tok)
+                * d_tok ** -0.5)
+            self.sink_ext_b = nn.Parameter(
+                torch.full((self.sink_steps, self.sink_k - 1), -20.0))
+        else:
+            self.sink_ext = None
 
         # enc_gate: one scalar per (step, encoder block) in front of the street
         # projection.  See StreetProj -- the encoders win at different spatial
@@ -91,7 +114,8 @@ class GeoAgent(nn.Module):
 
         self.retr = (RetrievalPrior(int(n_actions ** 0.5), retr_tau,
                                     mode=retr_mode, d_street=d_street,
-                                    d_key=d_key, n_steps=n_steps - 1)
+                                    d_key=d_key, n_steps=n_steps - 1,
+                                    nbr_drop=nbr_drop)
                      if retr else None)
 
         self.q_proj = nn.Linear(d, d_tok)
@@ -155,7 +179,7 @@ class GeoAgent(nn.Module):
             return prior
         return g if prior is None else prior + g
 
-    def policy_logits(self, fused, keys, prior=None):
+    def policy_logits(self, fused, keys, prior=None, step=None):
         """The action distribution *is* the attention distribution over map tokens."""
         if self.map_tf is not None:
             keys = self.map_tf(keys, fused)
@@ -166,6 +190,14 @@ class GeoAgent(nn.Module):
                 [keys, self.sink.expand(keys.shape[0], 1, -1).to(keys.dtype)], dim=1)
         q = self.q_proj(fused)
         logits = torch.bmm(keys, q.unsqueeze(-1)).squeeze(-1) / math.sqrt(self.d_tok)
+        if self.sink_ext is not None and step is not None:
+            st = step.reshape(-1).clamp(max=self.sink_steps - 1)
+            ext = self.sink_ext[st]                       # (B, K-1, d_tok)
+            el = torch.einsum("bkd,bd->bk", ext.to(q.dtype), q)
+            el = el / math.sqrt(self.d_tok) + self.sink_ext_b[st].to(q.dtype)
+            merged = torch.logsumexp(
+                torch.cat([logits[:, -1:], el], dim=1), dim=1, keepdim=True)
+            logits = torch.cat([logits[:, :-1], merged], dim=1)
         if prior is not None:
             logits = logits + prior.to(logits.dtype)
         return logits
@@ -211,7 +243,7 @@ class GeoAgent(nn.Module):
             step.shape[1], n_logits)
         prior = self._add_geo(prior, f, x0.reshape(-1), y0.reshape(-1),
                               step.reshape(-1), n_logits)
-        return self.policy_logits(f, k, prior)
+        return self.policy_logits(f, k, prior, step)
 
     def click_uv(self, fused):
         return torch.sigmoid(self.click(fused))
@@ -243,7 +275,9 @@ class GeoAgent(nn.Module):
             batch["y0"][:, :n_policy].reshape(-1),
             batch["step"][:, :n_policy].reshape(-1),
             kp.shape[1] + (1 if self.sink is not None else 0))
-        logits = self.policy_logits(fp, kp, prior).view(B, n_policy, -1)
+        logits = self.policy_logits(
+            fp, kp, prior,
+            batch["step"][:, :n_policy]).view(B, n_policy, -1)
         uv = self.click_uv(f[:, -1])
         return logits, uv
 

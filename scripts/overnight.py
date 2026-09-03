@@ -172,7 +172,7 @@ SAMPLER = None
 
 class Stage:
     def __init__(self, name, argv, release=None, est=600, retries=2,
-                 check=None, critical=False):
+                 check=None, critical=False, needs=None):
         self.name = name
         self.argv = argv
         self.release = release
@@ -180,6 +180,7 @@ class Stage:
         self.retries = retries
         self.check = check              # () -> bool, "already satisfied"
         self.critical = critical        # if it fails, dependents are dropped
+        self.needs = needs              # input path that must exist first
 
     def marker(self):
         return MARKS / (self.name + ".done")
@@ -193,10 +194,35 @@ class Stage:
         return False
 
 
+def legacy_check(*old_names):
+    """Let a renamed stage see the work its old name already did.
+
+    A stage name is a marker filename, so it is not merely a label: renaming
+    `w70_6` to `train-d768-b350-e6` makes a finished 26-minute rung look
+    unfinished and it trains again, over the checkpoint it already produced.
+    Passed as `Stage(check=...)`, this reports the old marker as satisfying the
+    new stage and `satisfied()` then writes the new marker, so the migration
+    happens once and the old name stops mattering.
+
+    It also closes the race where a stage is renamed while the old runner is
+    still going: whichever name that runner writes, the new one is satisfied.
+    """
+    def ok():
+        return any((MARKS / (n + ".done")).exists() for n in old_names)
+    return ok
+
+
 def run_stage(st, state, deadline):
     if st.satisfied():
         log("skip   {}  (already done)".format(st.name))
         return True
+    if st.needs is not None and not Path(st.needs).exists():
+        # Retrying a missing input burns the whole retry budget in seconds and
+        # buries the real cause -- usually that the stage which builds it was
+        # dropped for time.
+        log("skip   {}  (needs {}, which does not exist)"
+            .format(st.name, Path(st.needs).name))
+        return False
     left = deadline - now()
     if left < st.est:
         log("drop   {}  (needs ~{:.0f} min, {:.0f} min left)"

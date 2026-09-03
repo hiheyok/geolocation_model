@@ -32,7 +32,7 @@ import config
 import splits as sp
 import tile_math as tm
 import tiles as T
-from beam import TokenSource, search
+from beam import TokenSource, source_for, search
 from embed_street import preprocess
 from evaluate import load_model, street_file_for
 
@@ -103,7 +103,7 @@ def load_everything(tag, dev, bank_gpu):
 
     STATE.update(model=model, ck=ck, dev=dev, bank=B, rows=rows,
                  x16=tx, y16=ty, lat=lat, lon=lon, encs=encs,
-                 source=TokenSource(tm.G),
+                 source=source_for(ck),
                  client=T.TileClient(config.TILE_SERVER),
                  street=torch.from_numpy(np.asarray(emb)) if not bank_gpu else None,
                  k=ck.get("retr_k", 16))

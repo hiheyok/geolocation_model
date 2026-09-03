@@ -13,7 +13,7 @@ import config
 import splits as sp
 import tile_math as tm
 from baselines import great_circle_km, print_table, report
-from beam import TokenSource, search
+from beam import TokenSource, source_for, search
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent
 
@@ -28,6 +28,11 @@ def load_model(tag, dev):
                  pool=ck.get("pool", "mean"), n_pool_q=ck.get("pool_q", 4),
                  pos=ck.get("pos", "learned"),
                  sink=ck.get("neg", 0) > 0,
+                 # must come from the checkpoint: building with the default
+                 # would drop the extra sink keys as "unexpected" and evaluate
+                 # a different model than the one that was trained
+                 sink_k=ck.get("sink_k", 1),
+                 n_classes=12 * ck.get("map_sub", 1) ** 2,
                  map_loop=ck.get("map_loop", False),
                  mem=ck.get("mem", "none"),
                  d_mem=ck.get("d_mem", 64),
@@ -208,8 +213,9 @@ def main():
         street_gpu = street_table(config.STREET_CACHE / sf, dev)
     ds = GeoStepDataset(a.split, street_file=sf, split_mode=mode,
                         knn_file=ck.get("knn_file"),
-                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
-    src = TokenSource(tm.G)
+                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                        cache=ck.get("map_cache"))
+    src = source_for(ck)
     km = ck.get("val_km")
     sel = ("" if km is None or km != km else
            "  val_km {:.1f} (selected on {})".format(km, ck.get("select", "loss")))
