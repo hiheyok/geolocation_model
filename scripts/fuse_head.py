@@ -286,7 +286,10 @@ def main():
             if j != i and seq[tr[j]] != seq[tr[i]]:
                 pairs.append((tr[i], tr[j]))
     pairs = np.array(pairs, np.int64)
-    print("{:,} anchor-positive pairs within {:.0f} km, different sequence "
+    # {:g}, not {:.0f}: --pos-km 0.5 printed "within 0 km", which is the
+    # radius that defines a positive misreported in the one line anyone would
+    # check it against.
+    print("{:,} anchor-positive pairs within {:g} km, different sequence "
           "({:.1f}% of train images have one)".format(
               len(pairs), a.pos_km,
               100 * len(np.unique(pairs[:, 0])) / len(tr)), flush=True)
