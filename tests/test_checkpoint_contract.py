@@ -78,6 +78,21 @@ def build(**kw):
     return GeoAgent(**base)
 
 
+
+def logits_of(model, n_classes=12, seed=3):
+    """A fixed forward, for comparing two models that hold the same weights."""
+    torch.manual_seed(seed)
+    B, S, A = 2, tm.STEPS + 1, tm.actions()
+    batch = {"street": torch.randn(B, 768),
+             "tokens": torch.randn(B, S, A, n_classes),
+             "x0": torch.rand(B, S), "y0": torch.rand(B, S),
+             "step": torch.arange(S).unsqueeze(0).expand(B, S).contiguous()}
+    model.eval()
+    with torch.no_grad():
+        lg, _ = model(batch)
+    return lg
+
+
 @pytest.mark.parametrize("name,kw", ARCH_CASES, ids=[c[0] for c in ARCH_CASES])
 def test_load_model_rebuilds_what_the_checkpoint_describes(
         name, kw, tmp_path, monkeypatch):
@@ -99,6 +114,25 @@ def test_load_model_rebuilds_what_the_checkpoint_describes(
     assert set(a) == set(b), "{}: parameter set differs".format(name)
     for k in a:
         assert a[k].shape == b[k].shape, "{}: {} shape differs".format(name, k)
+
+    nc = kw.get("n_classes", 12)
+    assert torch.allclose(logits_of(m, nc), logits_of(loaded, nc), atol=1e-6), (
+        "{}: the reloaded model scores differently".format(name))
+
+    # A case only proves something if the field actually changes the model.
+    # geo="tile" was silently not a value GeoAgent recognises, and the
+    # comparison passed because both sides built the same default. Where the
+    # parameter sets differ, a strict load already proves it; where they match,
+    # the difference has to be behavioural -- pos="both" adds rotary, which has
+    # no parameters at all, so a reader that dropped it would load cleanly and
+    # score a different network in silence.
+    d = build()
+    ds = d.state_dict()
+    if set(ds) == set(a) and all(ds[k].shape == a[k].shape for k in ds):
+        d.load_state_dict(a)
+        assert not torch.allclose(logits_of(d, nc), logits_of(m, nc), atol=1e-6), (
+            "{}: same parameters AND same outputs as the default, so this case "
+            "cannot detect a reader that ignores the field".format(name))
 
 
 def test_the_round_trip_would_notice_a_dropped_field(tmp_path, monkeypatch):
