@@ -155,3 +155,110 @@ Not code quality, but they belong on the same list:
 * `eval_highres` hash sampling takes the lowest N, so a growing manifest can
   displace members. Stable for a fixed manifest, which the harvest now is;
   revisit when it next grows.
+
+---
+
+# Performance and gradient backlog
+
+From a second static review on 2026-09-02. Same rule: applied where safe with a
+ladder running, recorded where not. The efficiency items are worth real time —
+training is GPU-bound at 94%, so saved work is saved wall-clock, not just tidiness.
+
+## Done
+
+* **Blocker — `--neg` was rejected for every run.** `check_args` tested
+  `args.soft` for truthiness, but `--soft` is a comma-separated string whose
+  default `"0"` is truthy, so every sink-training command failed validation.
+  Introduced and fixed the same day; now parses the temperatures and tests
+  `any(t > 0)`. Verified against the actual queued commands rather than
+  synthetic ones, which is how it was caught.
+* **Per-step sink gate.** The extra sink keys had one shared scalar gate across
+  four step-specific key sets. Combined with the item below — negatives are
+  sampled only at steps 1 and 2 — the unsupervised steps contribute nothing but
+  "do not fire" and can drive a shared gate negative, which is not the
+  interpolation the formula claims. Now one gate per step.
+
+## Highest value, deferred
+
+**Step-3 sink keys have no positive supervision.** `dataset._negatives` draws
+`t = rng.integers(1, 3)`, so sink positives exist only at steps 1 and 2. Step 3
+is where a wrong beam descendant most needs rejecting, and step 0 cannot be
+off-path at all and arguably should not expose a sink action. Fixing needs a
+bounded cache of z12 negative siblings, or mining off-path z12 tiles already on
+disk. **Interpret any sink-capacity result with this in mind: half the
+step-specific keys are currently unsupervised.**
+
+**A ladder is three optimizer restarts, not six epochs.** Each 2-epoch stage
+warm-starts weights only, discards Adam moments, and runs a fresh
+warmup-plus-cosine cycle that decays to zero. So "e6" is three independent
+optimisations, and "e4 vs e6 is inside noise" partly reflects that rather than
+convergence. Wants distinct `--init-weights` and `--resume`, the latter
+restoring optimizer, scheduler, epoch and RNG state. Changes training, so it
+needs a re-baseline.
+
+**Optimizer parameter classification is wrong.** The substring rule puts
+`retr.q_pos.weight` and `retr.k_pos.weight` in the no-decay group because their
+names contain `"pos"`; `mem.weight` gets decay despite being an embedding;
+matrix-shaped `sink_ext_b` gets decay despite being a bias; `street.gate` gets
+decay because it is 2-D. Classify by owning module and explicit role. Changes
+training, so it needs a re-baseline.
+
+**Instrument the objective.** Four policy losses, a click loss and a sink loss,
+averaged independently, then one global clip at 1.0. Record pre-clip total and
+per-module gradient norms, clip frequency, gradient norms behind each gate, each
+loss component's contribution, and the retrieval temperatures and gates. If
+clipping is frequent, normalise the components before touching learning rates.
+
+## Efficiency, deferred
+
+Ordered by expected saving. None applied: all touch the training or beam path
+that was executing.
+
+1. **Street projection runs nine times per image** — five main steps plus four
+   negatives, for one 1536→512 layer. Project once per block, then apply the
+   cheap per-step encoder gates. Removes roughly 8/9 of that layer.
+2. **Retrieval weights recomputed everywhere** — `q_pos`/`k_pos`/`q_neg`/`k_neg`
+   and the neighbour softmax are recomputed for the main forward, again for
+   negatives, and again at every beam step. An image-level `RetrievalContext`
+   holding projected neighbours, weights and the dropout mask would be computed
+   once. (It would also fix the dropout/quality inconsistency for free, by
+   giving both paths the same mask.)
+3. **Fuse the negative pass into the main one** — one model call concatenating
+   policy rows, sharing street and retrieval context.
+4. **Per-batch CUDA syncs in metric collection** — `float(loss)`, four per-step
+   conversions, sink metrics and a `.cpu().numpy()` every batch. Accumulate
+   detached tensors on device, transfer one packed tensor per epoch.
+5. **Beam ranking is a NumPy round trip** — the whole `B×K×256` log-prob tensor
+   goes to host, then nested Python loops rank it. Do `scores + logp`, sink
+   masking and top-k over flattened `K×A` in torch; transfer only the chosen
+   `B×K` actions and scores.
+6. **Beam-invariant state recomputed per step** — street projections and
+   retrieval weights depend on image and step, not the live beam.
+7. **FP16 caches upcast in the worker** — `dataset` converts FP16 street and map
+   rows to FP32 per item, doubling host traffic and pinned memory before BF16
+   autocast converts them again. Ship FP16 and let autocast handle it.
+8. **`expand().reshape()` materialises copies** of coordinates, similarities and
+   weights per step and beam. Teach `child_prior` to take
+   `(batch, rows, neighbours)` directly.
+9. **Map tokens re-encoded per row** — the world tile is identical for every
+   image and z4 tiles repeat constantly. Return token row ids, encode unique
+   tiles once, gather back. Keep dropout after the deterministic projection.
+10. **Dataset worker duplication** — the kNN `.npz` cannot be memmapped and is
+    copied into every spawned Windows worker. Store indices and similarities as
+    separate `.npy` memmaps reopened in `__setstate__`, and replace the per-item
+    `np.random.default_rng()` with worker-local generators.
+11. **`zero_grad` after the next forward** — correctness is unaffected, but the
+    previous batch's gradients occupy memory across the next forward.
+
+## Smaller
+
+* Region-memory dropout zeros vectors without dividing survivors by `1-p`, so
+  training sees a weaker expected signal than inference. Use inverted dropout
+  unless the shift is deliberate.
+* The click head is `SmoothL1(sigmoid(logit), target)`, whose gradient vanishes
+  near tile boundaries once the sigmoid saturates. Compare against unconstrained
+  regression with inference-time clamping, or `BCEWithLogitsLoss` on continuous
+  targets.
+* Cache sinusoidal and grid tensors as buffers; use `inference_mode` rather than
+  `no_grad` in evaluation; try fused AdamW; drop `torch.cuda.empty_cache()` from
+  repeated loops.

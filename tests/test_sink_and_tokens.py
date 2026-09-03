@@ -92,8 +92,12 @@ def test_sink_gate_can_actually_learn():
     loss = m.policy_logits(f, keys, None, step)[:, -1].sum()
     loss.backward()
     g = m.sink_ext_g.grad
-    assert g is not None and g.abs().item() > 1e-3, (
-        "sink gate gradient is {}; the extras cannot learn".format(g))
+    assert g is not None, "sink gate has no gradient"
+    # one gate per step; every step present in the batch must receive one
+    seen = torch.unique(step).tolist()
+    assert g.abs()[seen].min().item() > 1e-3, (
+        "sink gate gradient {} at steps {}; the extras cannot learn"
+        .format(g.tolist(), seen))
 
 
 def test_sub_tokens_contain_the_original():

@@ -186,7 +186,16 @@ def check_args(a):
     if a.sink_k > 1 and a.neg <= 0:
         bad.append("--sink-k {} without --neg: there is no sink to give keys "
                    "to".format(a.sink_k))
-    if getattr(a, "soft", 0) and a.neg > 0:
+    # --soft is a comma-separated string of per-step temperatures, so its
+    # default "0" is truthy. Testing it directly rejected every --neg run,
+    # which is all of them.
+    try:
+        soft_on = any(float(v) > 0 for v in str(a.soft).split(","))
+    except ValueError:
+        bad.append("--soft {} is not a number or comma-separated list"
+                   .format(a.soft))
+        soft_on = False
+    if soft_on and a.neg > 0:
         bad.append("--soft with --neg: soft targets are g*g wide and the "
                    "logits are g*g+1 with a sink")
     if bad:

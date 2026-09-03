@@ -69,7 +69,13 @@ class GeoAgent(nn.Module):
                 * d_tok ** -0.5)
             self.sink_ext_b = nn.Parameter(
                 torch.zeros(self.sink_steps, self.sink_k - 1))
-            self.sink_ext_g = nn.Parameter(torch.zeros(()))
+            # One gate per step, not one scalar. Sink negatives are sampled
+            # only at steps 1 and 2 (dataset._negatives), so the step-0 and
+            # step-3 keys see nothing but "do not fire". Under a shared gate
+            # those gradients fight the two supervised steps and can drive it
+            # negative, which is not the interpolation the formula describes.
+            # Per-step, an unsupervised step simply keeps its gate near zero.
+            self.sink_ext_g = nn.Parameter(torch.zeros(self.sink_steps))
         else:
             self.sink_ext = None
 
@@ -210,7 +216,8 @@ class GeoAgent(nn.Module):
             base = logits[:, -1:]
             lse = torch.logsumexp(torch.cat([base, el], dim=1), dim=1,
                                   keepdim=True)
-            merged = base + self.sink_ext_g.to(q.dtype) * (lse - base)
+            g = self.sink_ext_g[st].unsqueeze(1).to(q.dtype)
+            merged = base + g * (lse - base)
             logits = torch.cat([logits[:, :-1], merged], dim=1)
         if prior is not None:
             logits = logits + prior.to(logits.dtype)
