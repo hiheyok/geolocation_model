@@ -178,6 +178,13 @@ def load_tokens(sel):
     return X.astype(np.float16)
 
 
+def unit3_t(la, lo, dev):
+    """Unit vectors on the device, for in-batch great-circle masking."""
+    la = torch.as_tensor(np.radians(la), dtype=torch.float32, device=dev)
+    lo = torch.as_tensor(np.radians(lo), dtype=torch.float32, device=dev)
+    return torch.stack([la.cos() * lo.cos(), la.cos() * lo.sin(), la.sin()], 1)
+
+
 def unit3(lat, lon):
     p = np.pi / 180
     return np.stack([np.cos(lat * p) * np.cos(lon * p),
@@ -191,6 +198,12 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--d", type=int, default=256)
     ap.add_argument("--pos-km", type=float, default=5.0)
+    ap.add_argument("--mask-fn", type=int, default=1,
+                    help="mask off-diagonal true positives in the "
+                         "contrastive loss; 0 reproduces the runs "
+                         "before 2026-09-03")
+    ap.add_argument("--uniq-anchor", type=int, default=1,
+                    help="at most one row per anchor per batch")
     ap.add_argument("--tau", type=float, default=0.05)
     ap.add_argument("--queries", type=int, default=3000)
     ap.add_argument("--hard", action="store_true",
@@ -344,6 +357,24 @@ def main():
     def batches():
         if not a.hard:
             order = rng.permutation(len(pairs))
+            if a.uniq_anchor:
+                # One row per anchor per batch. An anchor with many neighbours
+                # contributes many pairs, so a plain permutation put the same
+                # anchor in a batch twice in 100% of batches -- and the diagonal
+                # target then asks one identical vector to match its own
+                # positive and *not* another equally valid one. Measured before
+                # this was added: every batch affected.
+                seen, keep = set(), []
+                for k in order:
+                    ai = int(pairs[k, 0])
+                    if ai in seen:
+                        continue
+                    seen.add(ai)
+                    keep.append(k)
+                    if len(keep) == a.batch:
+                        yield pairs[keep]
+                        seen, keep = set(), []
+                return
             for s in range(0, len(order) - a.batch + 1, a.batch):
                 yield pairs[order[s:s + a.batch]]
             return
@@ -363,8 +394,26 @@ def main():
             za, zp = model(ta), model(tp)
             logits = za @ zp.T / a.tau
             tgt = torch.arange(len(idx), device=dev)
+            if a.mask_fn:
+                # Mask off-diagonal cells that are *true* positives. The pair
+                # list is every image within --pos-km of another, and the
+                # harvest is geographically clustered, so a random batch is
+                # full of co-located images: 50.3% of the off-diagonal cells
+                # were valid positives being trained as negatives -- 128 of
+                # every 255 "negatives". Half the gradient was pushing apart
+                # images within 5 km of each other, which is the objective
+                # working against the thing it is supposed to learn.
+                A = unit3_t(lat[idx[:, 0]], lon[idx[:, 0]], dev)
+                P = unit3_t(lat[idx[:, 1]], lon[idx[:, 1]], dev)
+                near = (A @ P.T).clamp(-1, 1).arccos() * 6371.0088 < a.pos_km
+                eye = torch.eye(len(idx), dtype=torch.bool, device=dev)
+                logits = logits.masked_fill(near & ~eye, float("-inf"))
+                lt = (za @ zp.T / a.tau).T.masked_fill(near.T & ~eye,
+                                                       float("-inf"))
+            else:
+                lt = logits.T
             loss = 0.5 * (nn.functional.cross_entropy(logits, tgt) +
-                          nn.functional.cross_entropy(logits.T, tgt))
+                          nn.functional.cross_entropy(lt, tgt))
             opt.zero_grad(set_to_none=True)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
