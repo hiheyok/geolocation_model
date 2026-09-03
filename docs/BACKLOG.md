@@ -181,12 +181,16 @@ rather than a silent change:
   as convergence. Now recorded in `tests/test_checkpoint_contract.py` as a
   known orphan, so it cannot be forgotten and a *new* orphan still fails.
 
-**Not worth doing while the queue runs**
+**Done after the queue drained**
 
-* **21** Atomic writes for checkpoints and reports. Worth having, but it
-  touches the save path with training stages queued: the bug it prevents needs
-  a crash mid-write, while a mistake in the change loses a whole 32-minute
-  stage. Do it with nothing running.
+* **21** Atomic writes for checkpoints and reports. `src/safeio.py` writes
+  beside the target and renames, which `os.replace` makes atomic on one volume;
+  the temp file goes in the destination directory because checkpoints are on C:
+  and some caches on E:. Six tests, including a simulated disk failure at
+  `fsync` asserting the previous checkpoint survives with no debris. Wiring it
+  in put `import safeio` above the `sys.path` line in three files and broke the
+  runner, which only a `--help` sweep of all 72 scripts caught -- now guarded
+  permanently by `tests/test_import_order.py`.
 
 **Open, unchanged**
 
