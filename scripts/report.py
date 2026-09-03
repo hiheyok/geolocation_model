@@ -21,6 +21,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import safeio
+
 RUNS = ROOT / "runs"
 LOGS = RUNS / "logs"
 
@@ -180,7 +182,7 @@ def main():
             "{} ({})".format(k, v) for k, v in state["failed"].items()) + "\n")
 
     txt = "\n".join(L) + "\n"
-    Path(a.out).write_text(txt, encoding="utf-8")
+    safeio.write_text(a.out, txt)
     print(txt)
 
 

@@ -159,11 +159,26 @@ def saved_fields():
     Restating them here is the mistake this file exists to catch: the list
     would go stale exactly when a field is added, which is the moment it
     matters.
+
+    Parsed from the AST rather than matched against the call, because the call
+    keeps changing shape and the test kept failing for the wrong reason -- once
+    when the write moved from `torch.save` to `safeio.save_torch`, and again
+    when the dict was lifted into a local. The checkpoint dict is identifiable
+    on its own terms: it is by far the largest string-keyed dict literal in the
+    file.
     """
-    src = (ROOT / "src" / "train.py").read_text(encoding="utf-8")
-    i = src.index("torch.save({")
-    j = src.index("config.CHECKPOINTS", i)
-    return set(re.findall(r'"([a-z_0-9]+)":', src[i:j]))
+    import ast
+
+    tree = ast.parse((ROOT / "src" / "train.py").read_text(encoding="utf-8"))
+    best = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = {k.value for k in node.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+        if len(keys) > len(best):
+            best = keys
+    return best
 
 
 # Fields written for provenance -- a human or a report reads them, nothing

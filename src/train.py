@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import splits as sp
 import tile_math as tm
+import safeio
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent, param_report
 
@@ -505,31 +506,31 @@ def main():
                 "loss": mva["loss"]}[a.select]
         if crit == crit and crit < best:
             best = crit
-            torch.save({"model": model.state_dict(), "g": tm.G, "steps": steps,
-                        "map_layers": a.map_layers, "street_file": a.street_file,
-                        "pool": a.pool, "pool_q": a.pool_q, "pos": a.pos,
-                        "soft": a.soft, "neg": a.neg, "map_loop": a.map_loop,
-                        "mem": a.mem, "d_mem": a.d_mem,
-                        "retr": a.retr, "retr_k": a.retr_k,
-                        "retr_mode": a.retr_mode, "d_key": a.d_key,
-                        "retr_drop": a.retr_drop, "sink_k": a.sink_k,
-                        "map_cache": a.map_cache,
-                        "map_sub": int(round(((tr.dataset if hasattr(tr, "dataset")
-                                               else tr).tokens.shape[-1] / 12)
-                                             ** 0.5)),
-                        "retr_tau": a.retr_tau, "knn_file": knn_file,
-                        "enc_gate": a.enc_gate,
-                        "geo": a.geo, "d_geo": a.d_geo,
-                        "split_mode": split_mode,
-                        "split_hash": split_hash,
-                        "release": config.RELEASE,
-                        "init_from": a.init,
-                        "epochs_total": prev_epochs + ep,
-                        "opt": opt.state_dict() if a.save_opt else None,
-                        "epoch": ep, "val_loss": mva["loss"],
-                        "val_km": km, "val_hit": hit, "select": a.select,
-                        "sel_n": a.sel_n, "sel_k": a.sel_k},
-                       config.CHECKPOINTS / (a.tag + ".pt"))
+            ck = {"model": model.state_dict(), "g": tm.G, "steps": steps,
+                  "map_layers": a.map_layers, "street_file": a.street_file,
+                  "pool": a.pool, "pool_q": a.pool_q, "pos": a.pos,
+                  "soft": a.soft, "neg": a.neg, "map_loop": a.map_loop,
+                  "mem": a.mem, "d_mem": a.d_mem,
+                  "retr": a.retr, "retr_k": a.retr_k,
+                  "retr_mode": a.retr_mode, "d_key": a.d_key,
+                  "retr_drop": a.retr_drop, "sink_k": a.sink_k,
+                  "map_cache": a.map_cache,
+                  "map_sub": int(round(((tr.dataset if hasattr(tr, "dataset")
+                                         else tr).tokens.shape[-1] / 12)
+                                       ** 0.5)),
+                  "retr_tau": a.retr_tau, "knn_file": knn_file,
+                  "enc_gate": a.enc_gate,
+                  "geo": a.geo, "d_geo": a.d_geo,
+                  "split_mode": split_mode,
+                  "split_hash": split_hash,
+                  "release": config.RELEASE,
+                  "init_from": a.init,
+                  "epochs_total": prev_epochs + ep,
+                  "opt": opt.state_dict() if a.save_opt else None,
+                  "epoch": ep, "val_loss": mva["loss"],
+                  "val_km": km, "val_hit": hit, "select": a.select,
+                  "sel_n": a.sel_n, "sel_k": a.sel_k}
+            safeio.save_torch(ck, config.CHECKPOINTS / (a.tag + ".pt"))
     if best == float("inf"):
         raise SystemExit(
             "no checkpoint was written: the {!r} criterion never produced a "

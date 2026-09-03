@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import safeio
 import splits as sp
 from tile_pool import l2, paired
 from tile_match import dense_sim, topk_stats
@@ -439,7 +440,7 @@ def main():
         np.save(str(stem) + ".f16.npy", combo_eq.astype(np.float16))
         np.save(str(stem) + "_rows.i64.npy",
                 sel if a.tokens == "osv" else np.arange(len(X)))
-        torch.save({"state": model.state_dict(), "d": a.d, "tau": a.tau,
+        safeio.save_torch({"state": model.state_dict(), "d": a.d, "tau": a.tau,
                     "pos_km": a.pos_km, "seed": a.seed,
                     "n_rows": int(len(X))}, str(stem) + "_head.pt")
         print("")

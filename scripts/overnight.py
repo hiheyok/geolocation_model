@@ -36,6 +36,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import safeio
+
 PY = sys.executable
 RUNS = ROOT / "runs"
 LOGS = RUNS / "logs"
@@ -83,7 +85,7 @@ def load_state():
 
 
 def save_state(st):
-    STATE.write_text(json.dumps(st, indent=2), encoding="utf-8")
+    safeio.write_text(STATE, json.dumps(st, indent=2))
 
 
 # ------------------------------------------------------ system utilisation --
@@ -106,7 +108,7 @@ class Sampler(threading.Thread):
         self.stop_flag = threading.Event()
         self.rows = []
         if not UTIL.exists():
-            UTIL.write_text("t,stage,gpu_util,gpu_mem_mb,gpu_shared_mb,gpu_w,"
+            safeio.write_text(UTIL, "t,stage,gpu_util,gpu_mem_mb,gpu_shared_mb,gpu_w,"
                             "gpu_c,cpu_pct,ram_used_gb\n", encoding="utf-8")
 
     def _nvidia(self):

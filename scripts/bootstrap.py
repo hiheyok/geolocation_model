@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import config
 import names
+import safeio
 import splits as sp
 import tile_math as tm
 from beam import TokenSource, source_for
@@ -179,7 +180,7 @@ def main():
     txt = "\n".join(L)
     print(txt)
     if a.out:
-        Path(a.out).write_text(txt + "\n", encoding="utf-8")
+        safeio.write_text(a.out, txt + "\n")
 
 
 if __name__ == "__main__":

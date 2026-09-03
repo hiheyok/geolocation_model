@@ -34,6 +34,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import safeio
+
 # OCR confuses 0/o, 1/l/I, 5/S and 8/B in the small fixed-width fonts overlays use
 FIX = str.maketrans({"o": "0", "O": "0", "l": "1", "I": "1", "S": "5", "B": "8"})
 PAT = re.compile(r"([NSEW])\s*([0-9oOlIB]{1,3})[.,\s]{1,3}([0-9oOlIB]{3,8})", re.I)
@@ -138,7 +140,7 @@ def main():
             print("    {}  {:.2f} km   {}".format(e["id"], e["km"], e["text"][:80]))
     if a.write_blocklist:
         p = root / "leak_blocklist.json"
-        p.write_text(json.dumps({"screened": n, "match_km": a.match_km,
+        safeio.write_text(p, json.dumps({"screened": n, "match_km": a.match_km,
                                  "ids": [e["id"] for e in leaks],
                                  "detail": leaks}, indent=1), encoding="utf-8")
         print("\nblocklist -> {}  ({} ids)".format(p, len(leaks)))

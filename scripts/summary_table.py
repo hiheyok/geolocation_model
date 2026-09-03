@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import config
+import safeio
 import splits as sp
 import tile_math as tm
 from beam import TokenSource, source_for
@@ -159,7 +160,7 @@ def main():
         L.append("| " + " | ".join(cells) + " |")
 
     txt = "\n".join(L) + "\n"
-    Path(a.out).write_text(txt, encoding="utf-8")
+    safeio.write_text(a.out, txt)
     print("\n" + txt)
 
 
