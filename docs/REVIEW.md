@@ -68,8 +68,22 @@ deferred. Unmarked items are not yet triaged.
    > **Confirmed.** Confirmed. Both scripts set `OSV_RELEASE=s10` when unset, before importing config, which bypasses the no-default rule in exactly the two tools that produce every external number. Narrower than stated in one respect: they only set it when unset, so an explicit choice is never overridden.
 
 
-13. **The external KartaView corpus has no enforced OSV-overlap exclusion.**
+13. `[-]` **The external KartaView corpus has no enforced OSV-overlap exclusion.**
     The harvest is seeded near OSV images and KartaView is an OSV source, but neither image IDs nor sequences are checked against OSV. The assumption that external queries need no same-sequence masking is therefore unproven. This is a high-confidence leakage risk; an actual collision requires a data audit.
+
+   > **Audited - bounded and immaterial.** No shared identifiers: 0 image-id
+   > and 0 sequence-id overlaps between the 47,646 KartaView images and the
+   > 500,000 OSV rows. Geographically the corpora are co-located by design
+   > (the harvest was seeded near OSV), median nearest-OSV distance 231 m, but
+   > true same-spot duplicates are rare: **0.02% of evaluated queries within
+   > 1 m, 0.48% within 5 m, 1.06% within 10 m**. And they do not move the
+   > conclusions, because a duplicate is solved by every arm and cancels in a
+   > paired difference - measured, not assumed: dropping all 53 queries within
+   > 10 m takes the dropout result from +1.80 pp [+1.08, +2.50] to +1.80 pp
+   > [+1.09, +2.49], and the corpus result from +1.34 pp to +1.33 pp. So the
+   > risk is real in principle; absolute hit rates may be inflated by at most
+   > ~1 pp, and every paired contrast reported is unaffected.
+
 
 14. **Leak screening does not gate downstream use.**
     `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
