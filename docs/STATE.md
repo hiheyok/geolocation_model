@@ -36,20 +36,47 @@ quote it until then -- and note `--bank` had its own bug, fixed 2026-09-03: it
 took the row restriction from the checkpoint's k-NN cache, which indexes a
 different bank file.
 
-**`--retr-drop` fixes it and costs nothing** -- also on the old measurement,
-and the one most exposed, because neighbour count is exactly what the knob
-manipulates:
+**`--retr-drop` works, and p = 0.7 survives parity.** The full curve,
+re-measured at each checkpoint's own bank and its own `retr_k`, n=5,000 paired:
 
-| p | 0.0 | 0.1 | 0.3 | 0.5 | **0.7** | 0.9 |
-|---|---|---|---|---|---|---|
-| external `<25 km` | 11.6% | 11.7% | 12.7% | 13.3% | **14.1%** | 14.1% |
-| external `<1 km` | 2.2% | 2.0% | 2.2% | 2.3% | **2.3%** | 1.7% |
-| external median | 486 | 497 | 475 | 436 | **410 km** | 382 |
-| benchmark vs p=0 | -- | borderline | noise | noise | noise | **-5.7 pp** |
+| p | ext `<1 km` | ext `<25 km` | ext median | vs p=0 on `<25 km` | vs p=0 on `<1 km` |
+|---|---|---|---|---|---|
+| 0.0 | 2.3% | 11.6% | 505.6 | — | — |
+| 0.1 | 2.2% | 11.1% | 515.9 | -0.46 noise | -0.14 noise |
+| 0.3 | 2.1% | 12.1% | 503.1 | +0.50 noise | -0.20 noise |
+| 0.5 | 2.2% | 12.6% | 468.1 | **+1.00 [+0.36, +1.62]** | -0.12 noise |
+| **0.7** | 2.1% | 13.4% | **435.7** | **+1.80 [+1.08, +2.50]** | -0.20 noise |
+| 0.9 | **1.7%** | 14.0% | 390.0 | **+2.38 [+1.50, +3.22]** | **-0.58 [-0.92, -0.24]** |
 
-**p = 0.7 is not tuned until the parity curve confirms it.** The benchmark is
-flat across the whole useful range and only reacts to the overshoot at 0.9, so
-tuning this on OSV-5M alone sets it to zero.
+**Still use p = 0.7, but for a different reason than before.** The old story was
+that 0.9 overshoots on the external hit rate. It does not: 0.7 vs 0.9 on
+`<25 km` is +0.58 pp [-0.24, +1.38], inside noise, and 0.9 is separated *better*
+on `<200 km` (+2.02 pp) and on the median (-45.7 km). What 0.9 actually costs is
+`<1 km` -- separated worse than 0.7 by 0.38 pp and worse than no dropout at all
+by 0.58 pp -- plus a **-5.7 pp separated benchmark regression**, which is an
+OSV-5M bootstrap and so untouched by the parity bug. So 0.9 buys coarse
+accuracy with fine precision and with the dense-coverage case.
+
+**Two claims did not survive.** The effect at p=0.3 is now inside noise
+(+0.50 pp, was +1.10 pp separated), so p >= 0.5 is needed before anything is
+separable -- the original 0.3 guess is no longer supported by this data. And
+the headline size shrinks: +1.80 pp rather than the +2.48 pp on file.
+
+**Why parity moved the dropout arms and not p=0.** Every arm in the curve shares
+one bank and one restriction, so the spread is about the arm: p=0 lost 0.00 pp,
+while p=0.1 to 0.7 lost 0.56 to 0.68. K=32 is twice the neighbours these arms
+train with, and a model trained on a randomly thinned neighbour set has more to
+gain from the extras than one tuned to exactly 16 -- so **the confound was
+correlated with the treatment**, and the old measurement flattered the very
+thing under test. p=0.9 breaks the pattern (-0.16 pp), which fits: at 0.9 the
+policy barely uses retrieval, so extra neighbours do little for it either. The
+relationship is an inverted U in p, not monotone.
+
+**And with dropout the corpus does transfer.** b265 (no dropout, 2.65M) against
+drop70 (3.40M), at parity: `<25 km` **+1.34 pp [+0.60, +2.06]**, `<200 km`
+**+3.58 pp [+2.52, +4.64]**, median **-39.2 km [-61.1, -20.4]**, all separated.
+So "the corpus axis does not transfer" is a statement about the *untreated*
+model. Scale the corpus **and** train with `--retr-drop 0.7`.
 
 `scripts/parity_report.py` builds the whole comparison from the exports as they
 land; run it rather than reading numbers out of logs.
