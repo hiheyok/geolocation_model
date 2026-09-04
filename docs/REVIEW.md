@@ -116,13 +116,17 @@ deferred. Unmarked items are not yet triaged.
     `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
 
    > **Confirmed.** Inspected. Unreadable images are skipped while the denominator stays the manifest size, so the screened fraction is overstated.
+   >
+   > **Fixed:** `examined` now counts only images that opened, and the run reports how many it could not.
 
-15. `[~]` **Leak-screen failures are counted as successfully screened.**
+15. `[x]` **Leak-screen failures are counted as successfully screened.**
     Unreadable images are skipped, but the denominator remains the complete manifest size.
 
    > **Confirmed.** Inspected. The blocklist is written, not merged. Compounds 14, where nothing reads it at all.
+   >
+   > **Fixed:** The blocklist merges by id and accumulates the screened count instead of replacing.
 
-16. `[~]` **Partial screening can overwrite a previous blocklist.**
+16. `[x]` **Partial screening can overwrite a previous blocklist.**
     A sampled run replaces rather than merges exclusions.
 
    > **Confirmed.** Inspected. Failed decodes keep their row, so a zero embedding is scored as if it were an image.
@@ -138,8 +142,10 @@ deferred. Unmarked items are not yet triaged.
 ## Serving and multi-photograph retrieval
 
    > **Confirmed.** Confirmed. `serve.py` calls no split check anywhere, so it will happily serve a checkpoint from another release or split mode against caches indexed by row order.
+   >
+   > **Fixed:** serve.py calls check_split before loading anything addressed by row order.
 
-19. `[~]` **Serving does not validate checkpoint split/release provenance.**
+19. `[x]` **Serving does not validate checkpoint split/release provenance.**
     [serve.py:40](/C:/Users/longd/Programming/geolocation_model/scripts/serve.py:40) reads positional artifacts without calling the repository’s split check.
 
    > **Confirmed.** Confirmed twice over: the encoder scale is chosen by `"pca768" in sf`, and the basis is the hardcoded `pca768_bank55_pca.npz` regardless of what produced the file.
@@ -148,13 +154,17 @@ deferred. Unmarked items are not yet triaged.
     Any filename containing `pca768` receives the bank55 basis, whether or not it was produced with that basis.
 
    > **Confirmed.** Confirmed. `ck["knn_file"]` is a bare subscript, so a non-retrieval checkpoint dies with a KeyError rather than being supported or refused with a reason.
+   >
+   > **Fixed:** A non-retrieval checkpoint is refused with a reason instead of a KeyError three frames deep.
 
-21. `[~]` **Serving assumes every checkpoint contains `knn_file`.**
+21. `[x]` **Serving assumes every checkpoint contains `knn_file`.**
     Non-retrieval checkpoints fail with an incidental `KeyError` instead of being supported or rejected explicitly.
 
    > **Confirmed.** Confirmed. `sims.topk(k)` with no clamp to the bank size.
+   >
+   > **Fixed:** topk is clamped to the bank size.
 
-22. `[~]` **`topk` can exceed the available bank size.**
+22. `[x]` **`topk` can exceed the available bank size.**
 
    > **Confirmed.** Inspected and the mechanism is right: slots are allocated per photograph, then raw similarities from different photographs go into one softmax with no per-image calibration.
 
@@ -212,17 +222,23 @@ deferred. Unmarked items are not yet triaged.
     Its magnitude distribution changes between training and evaluation.
 
    > **Confirmed.** Confirmed in part: `tr = Subset(tr, range(a.overfit))` builds invalid indices when `--overfit` exceeds the (possibly `--limit`-ed) training set.
+   >
+   > **Fixed:** --overfit larger than the training set is refused instead of indexing past the end.
 
-33. `[~]` **`--overfit` is broken with the default hit-based selector.**
+33. `[x]` **`--overfit` is broken with the default hit-based selector.**
     Validation is disabled, selection metrics stay `NaN`, and no best checkpoint is written. An overfit size larger than the limited training set also creates invalid subset indices.
 
    > **Confirmed.** Confirmed. `soft` is parsed with `float()` and gated on `soft[t] > 0`, so a negative temperature falls through to hard CE with no warning.
+   >
+   > **Fixed:** A negative --soft temperature is refused instead of silently meaning hard CE.
 
-34. `[~]` **Negative `--soft` temperatures are silently treated as hard CE.**
+34. `[x]` **Negative `--soft` temperatures are silently treated as hard CE.**
 
    > **Confirmed.** Confirmed. `map_sub` is `round((width/12) ** 0.5)` with no check that `width == 12 * sub ** 2`.
+   >
+   > **Fixed:** _map_sub refuses any width that is not 12*sub^2; verified on 12/48/192 and 13/47/0.
 
-35. `[~]` **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
+35. `[x]` **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
     Invalid dimensions can be accepted and misinterpreted.
 
    > **Fixed.** Confirmed and fixed, with the gap enumerated rather than described: **18 CLI arguments were never saved**, including `lr`, `wd`, `warmup`, `batch`, `smooth`, `sink_w`, `emb_drop`, `emb_noise`, `mem_drop`, `limit` and `epochs`. Two arms trained at different learning rates were indistinguishable from their checkpoints, and the only other record is the runner's log, which is append-only and reused across attempts. Thirteen are now recorded; the rest are either already saved under another name or genuinely runtime-only (`workers`, `tag`, `init`, `overfit`, `save_opt`). Purely additive, so old checkpoints still load.
@@ -252,8 +268,10 @@ deferred. Unmarked items are not yet triaged.
     [dataset.py](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:141) does not prove that street embeddings, target files, image-ID sidecars and map indices describe the same ordered rows.
 
    > **Confirmed.** Confirmed. `z["idx"][:, :knn_k]` is sliced with no range check, and a negative index would read from the end of the table and return a neighbour that is not the one recorded.
+   >
+   > **Fixed:** Neighbour indices are bounded against the address tables. No cost: datasets still build in 2.2 s.
 
-41. `[~]` **k-NN indices are not fully validated.**
+41. `[x]` **k-NN indices are not fully validated.**
     Negative or out-of-range indices can survive; negative NumPy indices read from the end and silently reference the wrong sample.
 
    > **Fixed.** Confirmed and fixed -- and it was a gap in a fix made earlier the same day. `TokenSource` discarded the done-mask path with `_`, so an indexed-but-unfetched row returned the memmap's zero fill; the live fallback only covers tiles missing from the *index*. `dataset.py` had been taught to refuse exactly this, and the sibling path in beam search had not. Unfetched rows are now dropped from the lookup, which makes them ordinary misses: beam already fetches live, so an incomplete cache degrades to slower and correct rather than silently blank. Verified no change on the complete cache (75.2%, median 2.2 km, identical).
@@ -271,8 +289,10 @@ deferred. Unmarked items are not yet triaged.
     A custom parquet/model invocation without `--out` writes to the normal release embedding path.
 
    > **Confirmed.** Confirmed. There is no completion mask for street embeddings, and the closing check reads `emb[:512]` -- so an interrupted write is caught only if it stopped inside the first 512 rows.
+   >
+   > **Fixed:** The zero-fill scan covers every row, in 200k blocks -- the first version asked for a 10.7 GB allocation.
 
-45. `[~]` **Street embedding has no completion mask.**
+45. `[x]` **Street embedding has no completion mask.**
     An interrupted full-shaped memmap appears complete. Its final sanity check examines only the first 512 rows.
 
    > **Confirmed.** Confirmed; an instance of 40.
@@ -296,17 +316,23 @@ deferred. Unmarked items are not yet triaged.
     A mid-pass interruption loses all resumable progress from that pass.
 
    > **Confirmed.** Confirmed. Decode failures are counted and printed but do not change the exit status.
+   >
+   > **Fixed:** pyramid_cache exits non-zero when rows are missing an encoder pass.
 
-50. `[~]` **Pyramid decode failures are swallowed and the command can exit successfully with incomplete output.**
+50. `[x]` **Pyramid decode failures are swallowed and the command can exit successfully with incomplete output.**
 
    > **Confirmed.** Confirmed. The token memmap is never `flush()`ed, while the done bits are written durably through tmp+replace -- so a crash can leave rows marked complete whose data never reached disk. The ordering is exactly backwards.
+   >
+   > **Fixed:** The token memmap is flushed before the completion bits are written.
 
-51. `[~]` **Completion bits can be persisted before embedding data is flushed.**
+51. `[x]` **Completion bits can be persisted before embedding data is flushed.**
     A crash can leave rows marked complete whose token data was not durable.
 
    > **Confirmed.** Inspected. An existing done array is loaded without checking shape or that its values are 0/1.
+   >
+   > **Fixed:** A resume mask of the wrong length, or holding anything but 0/1, is refused. Verified against the real pyr47 mask.
 
-52. `[~]` **Existing pyramid completion arrays are not validated for shape and legal values.**
+52. `[x]` **Existing pyramid completion arrays are not validated for shape and legal values.**
 
    > **Confirmed.** Inspected. Reuse is keyed on tile count, not grid geometry.
 
@@ -314,8 +340,10 @@ deferred. Unmarked items are not yet triaged.
     Configurations such as 3×2 and 2×3 with the same tile count can reuse incompatible data.
 
    > **Confirmed.** Confirmed; the same ordering defect as 51, in the tile cache.
+   >
+   > **Refuted on a closer read:** The tile cache already had this right: `tok.flush()` runs before `np.save(DONE, done)`. Only the pyramid cache (51) had the ordering backwards. Documented rather than changed.
 
-54. `[~]` **Tile-cache completion can also be saved before the memmap is flushed.**
+54. `[-]` **Tile-cache completion can also be saved before the memmap is flushed.**
 
    > **Confirmed.** Confirmed by the fix to 42: pooling and matching consult the completion data and the beam path did not. Now it does.
 
@@ -328,13 +356,17 @@ deferred. Unmarked items are not yet triaged.
     A crash between truncating the cache and rewriting the mask can bless new zero rows on restart.
 
    > **Confirmed.** Confirmed exactly: `return (s * np.abs(X) ** p).mean(1)` with no `** (1/p)`. A signed third moment, not a generalised mean.
+   >
+   > **Fixed:** The p-th root is restored, so it is a generalised mean again.
 
-57. `[~]` **The tile “GeM” implementation is missing the p-th root.**
+57. `[x]` **The tile “GeM” implementation is missing the p-th root.**
     It computes a signed p-th moment, not generalized-mean pooling.
 
    > **Confirmed.** Confirmed exactly: `k = min(K, S.shape[1] - 1)`. One valid neighbour is dropped whenever query and bank are disjoint, and a one-row bank gives k=0.
+   >
+   > **Fixed:** min(K, n) rather than n-1, which assumed the query sits inside the bank.
 
-58. `[~]` **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
+58. `[x]` **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
     It unnecessarily drops one valid neighbor and breaks on a one-row bank.
 
    > **Fixed, and then measured: inert here.** The defect is real -- `best`
@@ -383,8 +415,10 @@ deferred. Unmarked items are not yet triaged.
 64. `[~]` **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
 
    > **Confirmed.** Inspected. Duplicate extension ids are not rejected.
+   >
+   > **Fixed:** Duplicate extension ids are refused. The guard was written and initially never called; testing caught that.
 
-65. `[~]` **Extension duplicate image IDs are not rejected.**
+65. `[x]` **Extension duplicate image IDs are not rejected.**
 
    > **Confirmed.** Confirmed; an instance of 40 -- total length is checked, part order is not.
 
@@ -396,8 +430,10 @@ deferred. Unmarked items are not yet triaged.
     Failed or undersized images suppress later valid candidates.
 
    > **Confirmed.** Confirmed. `--save-dir` only does `save.mkdir(...)`; no image bytes are ever written.
+   >
+   > **Fixed:** --save-dir says it writes metadata and URLs only.
 
-68. `[~]` **Mapillary `--save-dir` does not save images.**
+68. `[x]` **Mapillary `--save-dir` does not save images.**
     The directory is created, but the implementation writes only metadata/URLs.
 
    > **Confirmed.** Inspected.
@@ -426,8 +462,10 @@ deferred. Unmarked items are not yet triaged.
     Logs beginning with an attempt header may produce an empty epoch list and `NaN` seconds-per-epoch.
 
    > **Confirmed.** Confirmed. `state["failed"][name]` is written on failure and never cleared, so a stage that later succeeds still reports as failed in the summary.
+   >
+   > **Fixed:** A retry that succeeds clears the earlier failure.
 
-74. `[~]` **A later successful retry does not clear the stage’s stale failure record.**
+74. `[x]` **A later successful retry does not clear the stage’s stale failure record.**
 
    > **Confirmed.** Confirmed -- `st.needs` is an existence check only, which is the same hole 51 and 54 create on the producing side.
 
@@ -439,8 +477,10 @@ deferred. Unmarked items are not yet triaged.
 76. `[~]` **Retry deadlines are checked before, rather than during, the retry loop.**
 
    > **Confirmed.** Confirmed. The stamped bootstrap filenames introduced on 2026-09-03 broke this lookup; marathon still expects the unstamped name.
+   >
+   > **Fixed:** One resolver, find_err_cache, handles stamped and pre-stamp names. This was a regression I introduced the same day.
 
-77. `[~]` **Marathon looks for an obsolete unstamped bootstrap filename.**
+77. `[x]` **Marathon looks for an obsolete unstamped bootstrap filename.**
     It can fall back to validation data or stale legacy errors instead of the current test bootstrap.
 
 78. `[x]` **Bootstrap cache hits bypass model and split validation.**
@@ -465,8 +505,10 @@ deferred. Unmarked items are not yet triaged.
 81. `[~]` **The report glob omits current `d768`/`d1536`-style runs.**
 
    > **Confirmed.** Confirmed; caused by the stamped filenames added on 2026-09-03, as with 77.
+   >
+   > **Fixed:** tag_of_err_cache strips the stamp. Also my regression; verified on tags containing underscores.
 
-82. `[~]` **Digest cannot parse current stamped bootstrap filenames correctly.**
+82. `[x]` **Digest cannot parse current stamped bootstrap filenames correctly.**
 
 83. `[-]` **Several runners now fail standalone because they import `config` before setting their declared release.**
     Conversely, another group silently hardcodes `s10`; together these undermine the explicit-release invariant.
