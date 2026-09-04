@@ -19,7 +19,7 @@ below. Findings are ordered by impact, not by file.
 
 > **Triage, 2026-09-04 13:45.** Read this before working the list.
 >
-> **1 fixed: #20** (`[x]` below). It guards the KartaView benchmark, which is
+> **3 fixed so far: #4, #5, #20** (`[x]` below). It guards the KartaView benchmark, which is
 > the selection benchmark and which `seqfix3` is about to measure against, so
 > it could not wait.
 >
@@ -54,6 +54,12 @@ below. Findings are ordered by impact, not by file.
 > worked while it runs; the rest (1, 2, 6, 7, 9, 10, 14, 16, 18, 19, 22) must
 > wait for it to finish, because they touch `train.py`, `dataset.py`,
 > `bootstrap.py`, `runlog.py` or `eval_highres.py`.
+>
+> **#8 is half done.** `concat_street` now records a structured
+> `combined` identity naming both encoders and the exact scale. The other
+> half -- teaching `provenance.encoder_of` to return it, so the PCA basis
+> check and the server actually read it -- touches `provenance.py`, which
+> the running chain imports, so it waits.
 >
 > **#6 and #7 are corrections to my round-three fix.** I made stage
 > input/output discovery generic and rejected per-stage declaration as "a big
@@ -132,7 +138,7 @@ only after the data is flushed and verified. A regression test should simulate
 termination after a middle block and prove the resulting path is not
 consumable.
 
-### 4. Embedding transforms overwrite their destination before validating inputs
+### 4. `[x]` Embedding transforms overwrite their destination before validating inputs
 
 Both [`concat_street.py`](../scripts/concat_street.py#L58) and
 [`stack_bank.py`](../scripts/stack_bank.py#L51) open the destination with
@@ -153,7 +159,7 @@ A regression test should start with a valid output and sidecar, run a transform
 with deliberately mismatched input provenance, and verify the original output
 is unchanged.
 
-### 5. Concatenation certifies the result when the second input has no provenance
+### 5. `[x]` Concatenation certifies the result when the second input has no provenance
 
 [`concat_street.py:83-95`](../scripts/concat_street.py#L83) refuses only when
 *both* sidecars exist and their digests differ. If A has a sidecar and B does

@@ -10,6 +10,7 @@ is not something to hold in RAM alongside both inputs.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -55,6 +56,33 @@ def main():
     print("output     {}  ({:,}, {})  {:.2f} GB".format(
         out.name, n, d, n * d * 2 / 1e9), flush=True)
 
+    # Validate BEFORE opening the destination. `mode="w+"` truncates, so a
+    # check that runs after the copy does not prevent a bad publication -- it
+    # destroys a good artifact and then fails, leaving the previous run's valid
+    # sidecar sitting beside the new bad bytes. The next consumer reads that
+    # sidecar, finds a matching digest, and accepts them.
+    #
+    # Both inputs must be provenanced, not just one. Refusing only when both
+    # sidecars exist and disagree is asymmetric in a way that is easy to miss:
+    # a missing sidecar on A leaves the output unstamped, while a missing one
+    # on B launders the result through A's digest, so the combined file claims
+    # rows nothing ever established B has.
+    ra, rb = prov.read(pa), prov.read(pb)
+    if not ra or not rb:
+        raise SystemExit(
+            "{} has no provenance sidecar, so nothing establishes that the two "
+            "inputs are the same rows in the same order. A positional join "
+            "cannot be checked by row count -- two encoders run over different "
+            "builds agree on length and on nothing else, and every image would "
+            "get another image's second half. Run scripts/backfill_prov.py."
+            .format(a.a if not ra else a.b))
+    if ra.get("rows_digest") != rb.get("rows_digest"):
+        raise SystemExit(
+            "{} describes rows {} and {} describes rows {}; they are different "
+            "builds, so joining them positionally pairs each image's features "
+            "with another image's."
+            .format(a.a, ra.get("rows_digest"), a.b, rb.get("rows_digest")))
+
     C = np.lib.format.open_memmap(out, mode="w+", dtype=np.float16, shape=(n, d))
     zeros = 0
     for lo in range(0, n, a.chunk):
@@ -73,26 +101,15 @@ def main():
     if zeros:
         raise SystemExit("{:,} all-zero rows -- an embedding pass did not "
                          "finish; delete its cache and rerun it".format(zeros))
-    # Row i of the output is row i of A beside row i of B, so the two inputs
-    # have to be the same rows in the same order. Equal row counts do not show
-    # that -- two encoders run over two different builds of the release agree
-    # on length and on nothing else, and the joined vector would pair each
-    # image's DINOv2 with another image's SigLIP. Nothing downstream could
-    # notice: the width is right, the norms are ordinary, and the arm just
-    # comes out mysteriously weak.
-    ra, rb = prov.read(pa), prov.read(pb)
-    if ra and rb and ra.get("rows_digest") != rb.get("rows_digest"):
-        raise SystemExit(
-            "{} describes rows {} and {} describes rows {}; they are "
-            "different builds, so joining them positionally pairs each "
-            "image's features with another image's."
-            .format(a.a, ra.get("rows_digest"), a.b, rb.get("rows_digest")))
-    if not (ra and rb):
-        print("warning: {} has no provenance sidecar, so nothing proves the "
-              "two inputs are the same rows in the same order (run "
-              "scripts/backfill_prov.py)".format(a.a if not ra else a.b),
-              flush=True)
-    prov.carry(pa, out, n, joined_with=a.b, scale_b=a.scale_b)
+    # Both inputs were verified equal before the destination was opened, so
+    # the output describes those same rows. The second encoder and the scale
+    # are recorded structurally: `encoder_of` returns only model/crops/size, so
+    # without these a basis fitted on [DINO | SigLIP x4.03] and one fitted on
+    # [DINO | some other SigLIP] compare equal and are reused across spaces.
+    prov.carry(pa, out, n, joined_with=a.b, scale_b=a.scale_b,
+               combined=json.dumps({"a": prov.encoder_of(pa),
+                                    "b": prov.encoder_of(pb),
+                                    "scale_b": a.scale_b}, sort_keys=True))
 
     s = np.asarray(C[:512], dtype=np.float32)
     print("\nwrote {}  {:.2f} GB   mean L2 {:.2f}   zero rows 0".format(
