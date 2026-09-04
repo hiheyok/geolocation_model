@@ -257,6 +257,22 @@ changed is that it is now a measured claim about training rather than an
 artefact of a confounded comparison. If it is ever reopened, the thing to
 attack is capacity and data volume, not the objective's details.
 
+**And the degradation is monotone in training, which settles the mechanism.**
+A one-epoch run of the same arm, added 2026-09-03:
+
+| epochs | train loss | head `<25 km` | head median |
+|---|---|---|---|
+| **1** | -- | **32.2%** | 207.4 km |
+| 12 | 0.063 | 20.5% | 384.1 km |
+| 12, 0.5 km positives | 0.0145 | 12.9% | 670.5 km |
+
+The head arm is untouched by the PCA change made in the same commit, so these
+are directly comparable. At one epoch it sits at the L0-crops baseline (32.2%
+against 32.2%) and still below the multi-level mean's 33.8% -- so it never
+beats mean pooling -- but it is training, not the architecture, that takes it
+from 32.2% to 20.5% to 12.9%. Loss falls, retrieval falls with it. 2.5M
+parameters against 38,009 images.
+
 **What still stands, untouched by all of this:** the multi-level mean. L0+L1+L2
 beats L0 crops alone by +1.6 pp at 25 km and 40 km of median at equal width,
 with no learned head anywhere in it.
