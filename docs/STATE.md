@@ -4,7 +4,7 @@ Read this first. `docs/REVIEW.md` and `docs/REVIEW2.md` hold the two Codex
 reviews with every item marked; `docs/BACKLOG.md` the code and performance
 work; `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings
 are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
-**142 tests pass. Nothing is running. Tile server is up.**
+**257 tests pass. Nothing is running. Tile server is up.**
 
 ---
 
@@ -112,7 +112,7 @@ corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
 
 ## 4. Reviews
 
-`docs/REVIEW.md` — 86 items: **40 fixed, 8 refuted, 7 deferred, 30 open, 1
+`docs/REVIEW.md` — 86 items: **48 fixed, 8 refuted, 7 deferred, 22 open, 1
 forced a retraction.**
 `docs/REVIEW2.md` — 22 items: **all 22 fixed.**
 
@@ -122,8 +122,8 @@ file. Chief among them: `split_hash` hashed only each label's first character,
 so train and test were indistinguishable and the bootstrap row-parity guarantee
 was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
 
-**Still open, REVIEW.md:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 40, 43, 44,
-46, 47, 48, 49, 60, 61, 62, 63, 64, 66, 67, 69, 70, 71, 72, 73.
+**Still open, REVIEW.md:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49, 60,
+61, 64, 67, 69, 70, 71, 72, 73.
 **Still open, REVIEW2.md:** none.
 
 The last eight of round two closed on 2026-09-04, and each was checked by
@@ -132,10 +132,23 @@ absence produced three wrong fixes in round one. Five of the eight are the same
 shape: a consumer reading an artifact without asking which of its rows are
 real, or a guard that stopped one file short of the last place it was needed.
 
-Twelve of those thirty are two structural problems: **#40 with 43, 44, 46,
-47, 62, 63, 66** is one issue — every artifact addressed by row position with
-nothing proving two describe the same rows (the provenance-manifest item; one
-design change retires eight). **#70–73** is the runner's marker and log design.
+**The provenance family closed on 2026-09-04.** #40 with 43, 44, 46, 47, 62,
+63 and 66 were one issue — every artifact addressed by row position with
+nothing proving two describe the same rows — and one design change retired all
+eight: `src/provenance.py`, a digest of the ordered ids in a sidecar beside
+each artifact, with `scripts/backfill_prov.py` for the 38 that already existed.
+Absent warns, mismatched refuses. See the closing section of `docs/REVIEW.md`.
+
+Doing it turned up two things reading would not have. The first resolver
+stamped `pyr47_fuse_p05` as release rows: its `_rows.i64.npy` holds 0..47645,
+a legal index into a 500,000-row release that actually indexes a KartaView
+cache. And **a live regression**: the strong `split_hash` had landed without a
+legacy fallback in `dataset.py`, so every kNN cache on disk was refused and the
+shipping retrieval path could not build at all. All three sites comparing a
+split digest now go through one `splits.hash_matches`.
+
+**#70–73** is the runner's marker and log design, and is now the only
+structural group left.
 
 ---
 

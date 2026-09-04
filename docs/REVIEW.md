@@ -284,7 +284,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed and it is the root of this whole family. Every cache here is addressed by row position and nothing proves two artifacts describe the same ordered rows. This is what the backlog calls provenance manifests, and it subsumes 43, 44, 46, 47, 63 and 66.
 
-40. `[~]` **Dataset artifacts are trusted purely by row position.**
+40. `[x]` **Dataset artifacts are trusted purely by row position.**
     [dataset.py](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:141) does not prove that street embeddings, target files, image-ID sidecars and map indices describe the same ordered rows.
 
    > **Confirmed.** Confirmed. `z["idx"][:, :knn_k]` is sliced with no range check, and a negative index would read from the end of the table and return a neighbour that is not the one recorded.
@@ -300,12 +300,12 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed; an instance of 40.
 
-43. `[~]` **Dataset and target files are published separately.**
+43. `[x]` **Dataset and target files are published separately.**
     An interruption can leave two valid-looking files from different generations.
 
    > **Confirmed.** Confirmed. A custom invocation without `--out` writes the release's canonical embedding path.
 
-44. `[~]` **Generic street embedding can overwrite the canonical cache.**
+44. `[x]` **Generic street embedding can overwrite the canonical cache.**
     A custom parquet/model invocation without `--out` writes to the normal release embedding path.
 
    > **Confirmed.** Confirmed. There is no completion mask for street embeddings, and the closing check reads `emb[:512]` -- so an interrupted write is caught only if it stopped inside the first 512 rows.
@@ -317,12 +317,12 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed; an instance of 40.
 
-46. `[~]` **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
+46. `[x]` **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
     Same-shaped artifacts from different orders can be combined without error.
 
    > **Confirmed.** Confirmed; the same shape as 9.
 
-47. `[~]` **Reused PCA bases are validated by shape only.**
+47. `[x]` **Reused PCA bases are validated by shape only.**
 
 ## Cache construction
 
@@ -432,11 +432,11 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected; an instance of 40 in the extension metadata.
 
-62. `[~]` **Extension release metadata is ignored.**
+62. `[x]` **Extension release metadata is ignored.**
 
    > **Confirmed.** Confirmed; an instance of 40.
 
-63. `[~]` **Embedding validation permits extra rows and does not establish row identity/order.**
+63. `[x]` **Embedding validation permits extra rows and does not establish row identity/order.**
 
    > **Confirmed.** Inspected. With fewer than K legal neighbours, placeholder rows can survive into the top-k.
 
@@ -450,7 +450,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed; an instance of 40 -- total length is checked, part order is not.
 
-66. `[~]` **Merged bank metadata checks total length but not whether part order matches embedding-stack order.**
+66. `[x]` **Merged bank metadata checks total length but not whether part order matches embedding-stack order.**
 
    > **Confirmed.** Inspected. The per-sequence cap is applied before download, so a failed or undersized fetch still consumes its slot.
 
@@ -571,3 +571,46 @@ deferred. Unmarked items are not yet triaged.
 The bottom-N external selection issue remains a known growth-stability limitation, not a current fixed-manifest correctness problem, so I would not prioritize it.
 
 This was a static review. All 95 Python files parse successfully, but I could not run the test suite because the available shell has no pytest-capable Python installation.
+
+## Closed 2026-09-04: the provenance family
+
+Items **40, 43, 44, 46, 47, 62, 63 and 66** were one hole seen from eight
+places, exactly as the review said: every cache here is addressed by row
+position and nothing proved two artifacts described the same ordered rows.
+That failure has no loud version -- every array is the right dtype and a
+plausible shape, every metric lands in a believable range, and each image has
+been scored against another image's data.
+
+`src/provenance.py` digests an ordered id sequence into a sidecar beside each
+artifact.  Absent warns, mismatched refuses: everything on disk predates this,
+and refusing it would strand a corpus that took days of GPU time.
+`scripts/backfill_prov.py` stamps what already exists with `basis="observed"`,
+which detects drift from that day forward and vouches for nothing before it --
+and says so, in the sidecar.  It resolved 38 of the 39 artifacts on disk; the
+one it could not is reported rather than guessed.
+
+| item | what closed it |
+|---|---|
+| 40 | the street cache and `targets.parquet` are both verified at dataset construction |
+| 43 | `targets.parquet` has carried an `image_id` column all along and nothing read it -- no sidecar was needed, the evidence was already in the file |
+| 44 | `embed_street` refuses to write the canonical cache when the run differs from it (`--parquet`, `--crops`, `--patch-grid`, `--size`, `--model`), before the encoder loads |
+| 46 | `stack_bank` records row identity; `project_street` carries its source's rows through the projection |
+| 47 | a reused PCA basis is checked against the encoder that produced the cache, not only its width -- several caches here share a width and are different spaces |
+| 62 | one loader reads the extension's release, in all three places an extension is opened |
+| 63 | row identity and order, not just row count |
+| 66 | `stack_bank` stamps release-then-extension and `build_knn` reads it; reversing the halves of a 3,500,000-row bank leaves 3,500,000 rows, so length could never see it |
+
+**Two things were found by doing this rather than by reading.** The first
+resolver stamped `pyr47_fuse_p05` as release rows, because its `_rows.i64.npy`
+holds 0..47645 -- a legal index into a 500,000-row release that in fact indexes
+a KartaView cache, passing every bounds check.  And running the shipping
+retrieval path turned up a live regression: the strong `split_hash` had landed
+without a legacy fallback in `dataset.py`, so every kNN cache on disk was
+refused and the retrieval path could not build at all.  All three sites that
+compare a split digest now go through one `splits.hash_matches`.
+
+**Still open in this file:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49,
+60, 61, 64, 67, 69, 70, 71, 72, 73.  #70-73 are the runner's marker and log
+design, which is the one remaining structural group.  Seven more are listed in
+`docs/STATE.md` as needing a re-baseline decision before they can be touched
+at all.

@@ -122,6 +122,47 @@ def check_stack(path, parts, what=None):
     return check(path, ids, what)
 
 
+ENCODER_FIELDS = ("model", "crops", "size")
+
+
+def carry(src, dst, n, **extra):
+    """Give a row-preserving transform its source's row identity.
+
+    Pooling, PCA projection and the like write one output row per input row in
+    the same order, so the output describes exactly the rows the input did.
+    Copying the digest rather than recomputing it is the point: the transform
+    never sees the ids, and asking it to would mean threading the parquet
+    through every utility that reshapes a matrix (item 46).
+    """
+    rec = read(src)
+    if rec is None:
+        print("warning: {} has no sidecar, so {} cannot inherit its rows"
+              .format(Path(src).name, Path(dst).name), flush=True)
+        return None
+    if rec.get("rows") != n:
+        raise SystemExit(
+            "{} describes {:,} rows but the output has {:,}; this transform "
+            "is supposed to preserve rows one for one"
+            .format(Path(src).name, rec.get("rows", -1), n))
+    out = {k: v for k, v in rec.items()
+           if k not in ("version", "basis", "rows", "rows_digest")}
+    out.update(extra)
+    out["derived_from"] = Path(src).name
+    import safeio
+
+    d = {"version": VERSION, "rows": n, "rows_digest": rec["rows_digest"],
+         "basis": "derived"}
+    d.update(out)
+    safeio.write_text(sidecar(dst), json.dumps(d, indent=1, sort_keys=True))
+    return d
+
+
+def encoder_of(path):
+    """What encoder produced an embedding cache, as far as its sidecar says."""
+    rec = read(path) or {}
+    return {k: rec[k] for k in ENCODER_FIELDS if k in rec}
+
+
 def sidecar(path):
     return Path(str(path) + ".prov.json")
 

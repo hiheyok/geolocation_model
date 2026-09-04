@@ -182,3 +182,47 @@ def test_an_extension_predating_the_release_field_warns(monkeypatch, tmp_path,
     monkeypatch.setattr(config, "bank_meta", lambda s: p)
     prov.bank_ext("bank_ext", "s10")
     assert "predates the release field" in capsys.readouterr().out
+
+
+# --- transforms that preserve rows, and bases that do not preserve space ----
+
+def test_a_projection_inherits_its_sources_rows(tmp_path):
+    """Pooling and PCA write one output row per input row, in order.  Asking
+    each such utility to re-derive the ids would mean threading the parquet
+    through every function that reshapes a matrix (item 46)."""
+    src, dst = tmp_path / "in.f16.npy", tmp_path / "out.f16.npy"
+    ids = np.arange(40)
+    prov.write(src, ids, release="s10", model="dinov2")
+    rec = prov.carry(src, dst, 40, dim=768)
+    assert rec["rows_digest"] == prov.rows_digest(ids)
+    assert rec["basis"] == "derived" and rec["derived_from"] == "in.f16.npy"
+    assert rec["model"] == "dinov2"          # the encoder travels with it
+    assert prov.check(dst, ids) is True
+
+
+def test_a_transform_that_changed_the_row_count_is_refused(tmp_path):
+    src, dst = tmp_path / "in.f16.npy", tmp_path / "out.f16.npy"
+    prov.write(src, np.arange(40))
+    with pytest.raises(SystemExit, match="preserve rows one for one"):
+        prov.carry(src, dst, 39)
+
+
+def test_carrying_from_an_unstamped_source_warns_rather_than_inventing(
+        tmp_path, capsys):
+    src, dst = tmp_path / "in.f16.npy", tmp_path / "out.f16.npy"
+    assert prov.carry(src, dst, 40) is None
+    assert "cannot inherit its rows" in capsys.readouterr().out
+    assert not prov.sidecar(dst).exists()
+
+
+def test_the_encoder_is_readable_from_a_sidecar(tmp_path):
+    """Several caches here share a width and are different encoders, so width
+    cannot be what decides whether a PCA basis applies (item 47)."""
+    p = tmp_path / "a.f16.npy"
+    prov.write(p, np.arange(4), model="dinov2", crops=3, size=224,
+               release="s10")
+    assert prov.encoder_of(p) == {"model": "dinov2", "crops": 3, "size": 224}
+
+
+def test_an_unstamped_cache_reports_no_encoder_rather_than_a_wrong_one(tmp_path):
+    assert prov.encoder_of(tmp_path / "absent.f16.npy") == {}

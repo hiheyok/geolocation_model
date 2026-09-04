@@ -22,6 +22,7 @@ Writes `<out>.f16.npy` plus `<out>_pca.npz` holding the mean and the basis.
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -37,6 +38,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config
+import provenance as prov
 from tile_pool import pca_fit
 
 
@@ -65,10 +67,28 @@ def main():
         a.src, n, d, n, a.dim, X.nbytes / 1e9, n * a.dim * 2 / 1e9), flush=True)
 
     if a.basis:
-        z = np.load(config.STREET_CACHE / a.basis)
+        z = np.load(config.STREET_CACHE / a.basis, allow_pickle=True)
         mu, P = z["mu"], z["P"]
         if P.shape != (d, a.dim):
             sys.exit("basis is {} but this needs {}".format(P.shape, (d, a.dim)))
+        # Shape was the only check, and shape is not the space. Several caches
+        # here share a width and are different encoders: reusing a basis
+        # fitted on one to project another puts the two in coordinate systems
+        # that agree on their dimensions and on nothing else, and every
+        # similarity computed across them is meaningless and finite. Reusing a
+        # basis across *rows* is the intended use and stays allowed; reusing
+        # it across encoders is what this refuses (item 47).
+        want = json.loads(str(z["encoder"])) if "encoder" in z.files else None
+        got = prov.encoder_of(src)
+        if want and got and want != got:
+            sys.exit(
+                "basis {} was fitted on embeddings from {} but {} was built "
+                "by {}. Same width, different space -- the projection would "
+                "succeed and mean nothing.".format(a.basis, want, a.src, got))
+        if not want:
+            print("note: {} predates the encoder stamp, so nothing proves it "
+                  "was fitted in this cache's space".format(a.basis),
+                  flush=True)
         print("reusing basis {}".format(a.basis), flush=True)
     else:
         hi = min(a.fit_from or n, n)
@@ -80,7 +100,8 @@ def main():
         mu, P = pca_fit(F, a.dim, np.random.default_rng(0), fit_rows=len(pick))
         del F
         np.savez(str(out).replace(".f16.npy", "") + "_pca.npz", mu=mu, P=P,
-                 src=a.src, dim=a.dim)
+                 src=a.src, dim=a.dim,
+                 encoder=json.dumps(prov.encoder_of(src), sort_keys=True))
         print("saved basis alongside the output", flush=True)
 
     Y = np.lib.format.open_memmap(out, mode="w+", dtype=np.float16,
@@ -94,6 +115,9 @@ def main():
         print("  {:>9,}/{:,}  {:.0f}s  eta {:.0f}s".format(
             e, n, el, el * (n - e) / max(e, 1)), flush=True)
     Y.flush()
+    # One output row per input row, in order, so the output describes exactly
+    # the rows the input did.
+    prov.carry(src, out, n, projection=a.basis or "fitted here", dim=a.dim)
 
     # the projection must be reproducible from the saved basis, not just from
     # this process; recompute a handful of rows the long way round
