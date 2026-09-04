@@ -119,6 +119,40 @@ So the rule is not "a uniform error preserves paired directions" — it is **ask
 whether the error is independent of the treatment first**, and re-measure before
 quoting anything when it touches the same quantity the experiment manipulates.
 
+## Corpus dependency, measured directly
+
+| arm | retrieval **on** | retrieval **off** | it loses |
+|---|---|---|---|
+| `d768-b350-e6` (p=0) | 75.6% | **2.7%** | **-72.9 pp** |
+| `d768-b350-e6-drop70` | 75.2% | **10.7%** | **-64.5 pp** |
+| `d768-b350-e6-drop90` | 69.9% | **19.3%** | **-50.6 pp** |
+
+Medians without retrieval: 888.9, 340.7, 177.8 km. Every pairwise contrast
+separated, and the ordering is monotone in p.
+
+**Dropout buys standalone capability.** The three arms are within 6 pp of each
+other with the corpus and differ by 7x without it, which is the dependency the
+`--retr-drop` experiment was about, measured directly instead of inferred from
+a domain gap.
+
+This was a *prediction*, not a post-hoc reading: `scripts/cond_probe.py` put the
+prior's share of the logit spread at 42% for p=0 against 28% for drop70, and
+`scripts/diag_beam.py` showed dropout trading top-1 for in-beam recall. Three
+independent routes, one mechanism.
+
+**The first column is the uncomfortable one.** With retrieval removed the
+shipping arm scores **2.7%** and a median of 889 km. Even the most regularised
+arm reaches only 19.3%. So the 75.6% headline is overwhelmingly corpus
+coverage, and the visual-plus-map policy is weak standing alone -- consistent
+with [[bank-beats-training-data]] and [[data-is-the-binding-constraint]], but
+far starker than either records.
+
+**How to apply:** report `--retr-off` alongside every architecture arm. An
+arm that improves the headline while losing standalone capability has bought
+coverage, not geolocation, and only this column can tell the difference.
+Verified before believing: `retr_prior` returns None for `nbrs=None`, so the
+prior is genuinely absent rather than contributing a degenerate term.
+
 ## Other results
 
 * **Multi-photograph query** — a second angle is +1.2 pp [+0.12, +2.32] and
