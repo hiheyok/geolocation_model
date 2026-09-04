@@ -63,8 +63,18 @@ class TokenSource:
         # fallback, so an incomplete cache degrades to slower and correct.
         if done_p.exists():
             done = np.load(done_p)
-            if len(done) >= rows.max(initial=-1) + 1:
-                ok = done[rows] == 1
+            # Fail closed. The first version skipped the whole check when the
+            # mask was too short -- exactly the case where it is least
+            # trustworthy -- so a truncated mask let unwritten zero rows back
+            # into inference under a guard that read as protective.
+            need = int(rows.max(initial=-1)) + 1
+            if len(done) < need:
+                raise SystemExit(
+                    "map cache mask has {:,} entries but the index addresses "
+                    "row {:,}; it belongs to a different build. Delete it and "
+                    "re-run fetch_tiles.".format(len(done), need - 1))
+            ok = done[rows] == 1
+            if True:
                 if not ok.all():
                     print("map cache: {:,} of {:,} indexed tiles were never "
                           "fetched; they will be fetched live"

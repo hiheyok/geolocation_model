@@ -75,11 +75,10 @@ def _load_done(path, n):
     # A mask of the wrong length, or holding anything but 0/1, is not a resume
     # point -- it is another run's file under this one's name, and trusting it
     # blesses rows that were never written.
-    if d.shape[0] != n:
+    if d.shape != (n, 2):
         raise SystemExit(
-            "resume mask has {:,} rows but this cache wants {:,}; it belongs "
-            "to a different build. Delete it to start fresh."
-            .format(d.shape[0], n))
+            "resume mask is {} but this cache wants {}; it belongs to a "
+            "different build. Delete it to start fresh.".format(d.shape, (n, 2)))
     if not np.isin(d, (0, 1)).all():
         raise SystemExit(
             "resume mask holds values outside {0, 1}; it is not a completion "

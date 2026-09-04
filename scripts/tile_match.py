@@ -94,11 +94,14 @@ def topk_stats(S, lat, lon, qi, bi, same):
     """(nq, nbank) similarity -> per-query top-1 error and any-of-K hit."""
     S = S.copy()
     S[same] = -2.0
-    # min(K, n) not n-1: the -1 assumed the query is inside the bank, which
-    # is only true when the two sets are the same. Here they are disjoint, so
-    # it silently dropped one legal neighbour and gave k=0 on a one-row bank.
-    k = min(K, S.shape[1])
-    j = np.argpartition(-S, k, axis=1)[:, :k]
+    # min(K, n), not n-1: the -1 assumed the query sits inside the bank,
+    # which is only true when the two sets are the same. These are
+    # disjoint, so it dropped one legal neighbour and gave k=0 on a
+    # one-row bank. argpartition takes an INDEX though, so its kth is
+    # k-1 -- passing k is out of bounds once K reaches the bank size,
+    # which is a crash the first version of this fix introduced.
+    k = max(1, min(K, S.shape[1]))
+    j = np.argpartition(-S, k - 1, axis=1)[:, :k]
     o = np.argsort(-np.take_along_axis(S, j, 1), axis=1)
     got = np.take_along_axis(j, o, 1)
     d1 = great_circle(lat[qi], lon[qi], lat[bi[got[:, 0]]], lon[bi[got[:, 0]]])

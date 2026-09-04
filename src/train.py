@@ -401,6 +401,14 @@ def main():
         tr = Subset(tr, list(range(a.overfit)))
         va = tr
         va_ds = None
+        # Without a validation set the hit and km criteria stay NaN, so the
+        # run trains and then exits having written nothing. Overfitting is a
+        # debugging mode; loss is the only criterion available to it.
+        if a.select != "loss":
+            print("--overfit disables validation, so --select {} can never "
+                  "produce a finite criterion; using --select loss"
+                  .format(a.select), flush=True)
+            a.select = "loss"
     print("train {:,} images   val {:,} images   grid g={} steps={}"
           .format(len(tr), len(va), tm.G, steps))
 

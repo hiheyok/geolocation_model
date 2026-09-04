@@ -119,10 +119,16 @@ def pca_fit(X, d, rng, fit_rows=40000):
 
 def score(Eq, Eb, lat, lon, qi, bi, same):
     """Per-query top-1 error and any-of-K hit, so arms can be paired later."""
-    k = min(K, Eb.shape[0] - 1)
+    # min(K, n), not n-1: the -1 assumed the query sits inside the bank,
+    # which is only true when the two sets are the same. These are
+    # disjoint, so it dropped one legal neighbour and gave k=0 on a
+    # one-row bank. argpartition takes an INDEX though, so its kth is
+    # k-1 -- passing k is out of bounds once K reaches the bank size,
+    # which is a crash the first version of this fix introduced.
+    k = max(1, min(K, Eb.shape[0]))
     Sm = l2(Eq) @ l2(Eb).T
     Sm[same] = -2.0
-    j = np.argpartition(-Sm, k, axis=1)[:, :k]
+    j = np.argpartition(-Sm, k - 1, axis=1)[:, :k]
     o = np.argsort(-np.take_along_axis(Sm, j, 1), axis=1)
     got = np.take_along_axis(j, o, 1)
     d1 = great_circle(lat[qi], lon[qi], lat[bi[got[:, 0]]], lon[bi[got[:, 0]]])
