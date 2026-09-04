@@ -69,12 +69,17 @@ def provenance(tag, split, dev="cpu"):
     return (ck.get("release"), mode, ck.get("split_hash"))
 
 
-def errors_for(tag, split, n, beam_k, score_steps, dev, source):
+def errors_for(tag, split, n, beam_k, score_steps, dev, source,
+               retr_off=False):
     """Per-image great-circle error, cached by (tag+checkpoint, split, n, k, depth)."""
     CACHE.mkdir(parents=True, exist_ok=True)
     # "r" marks the seeded random sample; the old caches were the first n rows
-    key = "{}_{}_{}_{}r_k{}_d{}.npy".format(
-        tag, ckpt_stamp(tag), split, n, beam_k, score_steps)
+    # `_noretr` in the key, not alongside it: a retrieval-off run and a normal
+    # one are different measurements of the same checkpoint, and a key that
+    # cannot tell them apart would serve one as the other.
+    key = "{}_{}_{}_{}r_k{}_d{}{}.npy".format(
+        tag, ckpt_stamp(tag), split, n, beam_k, score_steps,
+        "_noretr" if retr_off else "")
     p = CACHE / key
     if p.exists():
         return np.load(p)
@@ -83,10 +88,11 @@ def errors_for(tag, split, n, beam_k, score_steps, dev, source):
     # after the checkpoint now on disk.  That is the exact condition the stamp
     # enforces going forward, so this migrates the honest files and recomputes
     # the ones that cannot be shown to match -- rather than trusting the name.
-    legacy = CACHE / "{}_{}_{}r_k{}_d{}.npy".format(
-        tag, split, n, beam_k, score_steps)
+    legacy = (CACHE / "{}_{}_{}r_k{}_d{}.npy".format(
+        tag, split, n, beam_k, score_steps)) if not retr_off else None
     ckp = config.CHECKPOINTS / (tag + ".pt")
-    if legacy.exists() and legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
+    if legacy is not None and legacy.exists() and \
+            legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
         e = np.load(legacy)
         np.save(p, e)
         return e
@@ -103,7 +109,7 @@ def errors_for(tag, split, n, beam_k, score_steps, dev, source):
                         knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
     m = evaluate(model, ds, source, dev, n, beam_k=beam_k,
                  top_m=max(4, beam_k), greedy=(beam_k == 1),
-                 score_steps=score_steps, street_gpu=tbl)
+                 score_steps=score_steps, street_gpu=tbl, retr_off=retr_off)
     np.save(p, m["err"])
     del model, tbl
     torch.cuda.empty_cache()
@@ -143,6 +149,9 @@ def main():
     ap.add_argument("--score-steps", type=int, default=3)
     ap.add_argument("--reps", type=int, default=3000)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--retr-off", action="store_true",
+                    help="score with the retrieval prior removed at inference, "
+                         "which measures corpus dependency directly")
     a = ap.parse_args()
 
     tags = [t.strip() for t in a.tags.split(",") if t.strip()]
@@ -174,7 +183,7 @@ def main():
         if key not in src_for_tag:
             src_for_tag[key] = source_for(ckt)
         errs[t] = errors_for(t, a.split, a.n, a.beam, a.score_steps, dev,
-                             src_for_tag[key])
+                             src_for_tag[key], a.retr_off)
         print("{:<24} n={:,}  median {:7.1f} km  mean {:8.1f}  <25km {:5.1%}"
               .format(t, len(errs[t]), float(np.median(errs[t])),
                       float(errs[t].mean()), float((errs[t] < 25).mean())),

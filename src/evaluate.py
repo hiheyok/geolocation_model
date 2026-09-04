@@ -156,7 +156,7 @@ def check_split(ck, mode, split, allow_dirty=False):
 
 def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
              greedy=False, batch=32, sink_prune=1.0, score_steps=None,
-             street_gpu=None, sample_seed=1234):
+             street_gpu=None, sample_seed=1234, retr_off=False):
     """n < len(ds) draws a *seeded random* subset, not the first n rows.
 
     Split order is the DuckDB join order over the shards, so the head of the
@@ -176,7 +176,11 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
         street = torch.from_numpy(
             np.asarray(ds.street[ds.rows[sel]], dtype=np.float32)).to(dev)
         nbrs = None
-        if getattr(ds, "knn_k", 0):
+        # retr_off measures the dependency directly instead of inferring it
+        # from a domain gap: the same trained model, scored with the retrieval
+        # prior removed at inference. An arm that barely moves was not leaning
+        # on the corpus; an arm that collapses was.
+        if getattr(ds, "knn_k", 0) and not retr_off:
             r = ds.rows[sel]
             nbrs = [torch.from_numpy(ds.all_x16[ds.knn_idx[r]].astype(np.int64)).to(dev),
                     torch.from_numpy(ds.all_y16[ds.knn_idx[r]].astype(np.int64)).to(dev),
