@@ -67,6 +67,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import maskio
 from embed_street import slurp
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
@@ -169,7 +170,12 @@ def main():
             tmp.rename(emb_p)
         E = np.lib.format.open_memmap(emb_p, mode="r+")
         done = np.zeros(n, np.uint8)
-        done[idx] = np.load(done_p)[:len(old)]
+        # Validated, not trusted. This was the one resume path with no shape
+        # or value check on its mask, so a 2 -- from a torn write, or a writer
+        # that once used another convention -- counted as complete and the row
+        # under it stayed zero-filled. fuse_head then casts the mask to bool
+        # and agrees with it.
+        done[idx] = maskio.load_mask(done_p, len(old), stem)[:len(old)]
     else:
         E = np.lib.format.open_memmap(emb_p, mode="w+", dtype=np.float16,
                                       shape=(n, n_tile, 2 * D_ENC))
@@ -177,11 +183,24 @@ def main():
     np.save(rows_p, sel)
     np.save(done_p, done)
 
-    todo = np.flatnonzero(done == 0)
+    todo = np.flatnonzero(done != 1)
     print("release {}  grid {}x{}  {:,} images  {:,} to embed  {:.2f} GB".format(
         config.RELEASE, gc, gr, n, len(todo), E.nbytes / 1e9), flush=True)
     if len(todo) == 0:
-        print("nothing to do", flush=True)
+        # Still verify and still republish the metadata. Returning here meant
+        # a resumed-but-already-complete cache skipped both, so a build whose
+        # metadata was never written (or was written by an older layout) could
+        # report success forever without either being produced.
+        if not maskio.is_complete(done, n):
+            raise SystemExit(
+                "{:,} of {:,} rows are unfilled but there is nothing queued to "
+                "fill them -- the mask and the selection disagree. Delete {} "
+                "and rebuild.".format(n - maskio.complete(done), n, done_p.name))
+        np.savez(meta_p, release=config.RELEASE, grid=np.array([gc, gr]),
+                 tile_px=S, encoders=np.array([DINO, SIGLIP]), seed=a.seed,
+                 n=n, layout="(n, n_tiles, dino768|siglip768)")
+        print("nothing to do; {:,} rows verified complete, metadata rewritten"
+              .format(n), flush=True)
         return
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -291,11 +310,13 @@ def main():
     # fixed; this one still returned success after unreadable images, so a
     # marker-gated runner wrote its done-marker over a cache with zero-filled
     # rows and every later stage read them as embeddings.
-    if state["bad"] or int(done.sum()) < n:
+    # `done.sum() < n` is not a completion test: a mask holding one 2 and one
+    # 0 sums to n while a row is still blank. Count the ones.
+    if state["bad"] or not maskio.is_complete(done, n):
         raise SystemExit(
             "{:,} unreadable and {:,} of {:,} rows unfilled -- this cache is "
             "incomplete. Re-run to fill the gaps; do not mark it done."
-            .format(state["bad"], n - int(done.sum()), n))
+            .format(state["bad"], n - maskio.complete(done), n))
 
     # Windows does not OOM when VRAM runs out -- WDDM pages GPU allocations
     # into system RAM and the job simply gets slower, which is how a 2x

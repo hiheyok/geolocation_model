@@ -19,6 +19,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import maskio
 import tile_math as tm
 import tiles as T
 
@@ -32,16 +33,10 @@ def _load_mask(path, n):
     by hand, and values above one corrupt the completed count that decides
     whether the build is finished.
     """
-    d = np.load(path)
-    if d.shape != (n,):
-        raise SystemExit(
-            "tile cache mask is {} but this build wants {}; it belongs to a "
-            "different cache. Delete it to start fresh.".format(d.shape, (n,)))
-    if not np.isin(d, (0, 1)).all():
-        raise SystemExit(
-            "tile cache mask holds values outside {0, 1}; it is not a "
-            "completion mask. Delete it to start fresh.")
-    return d.astype(np.uint8)
+    # One implementation, in src/maskio.py. Four producers grew four copies of
+    # this check and three of them were wrong at some point; the copies were
+    # the reason nobody noticed when one drifted.
+    return maskio.load_mask(path, n, "tile cache")
 
 
 def needed_keys(grid, exhaustive_z8):
@@ -167,20 +162,45 @@ def main():
         src = Path(a.seed_from)
         stok_p, sidx_p, sdone_p = config.map_files(src)
         sidx = pq.read_table(sidx_p)
-        sdone = np.load(sdone_p)
         stok = np.load(stok_p, mmap_mode="r")
         if stok.shape[-1] != width:
             sys.exit("--seed-from cache is {}-d, this build is {}-d; a token "
                      "grid is only reusable at the same --sub"
                      .format(stok.shape[-1], width))
+        # The destination mask goes through `_load_mask`; the SOURCE used to go
+        # through nothing but that width check. Everything it is trusted about
+        # is load-bearing, and each failure is silent rather than loud:
+        #
+        #   * `if sdone[sr]` accepts any nonzero value, so a 2 or a 255 blesses
+        #     a zero-filled source row -- and blesses it as a 1 here, which
+        #     launders it permanently into a cache that then looks clean;
+        #   * a negative `row` indexes from the END in numpy, so it passes any
+        #     `max()` bound check and copies some other tile's perfectly valid
+        #     tensor;
+        #   * a row past the token array is the only one that would have
+        #     raised, and only sometimes.
+        srow = np.asarray(sidx["row"]).astype(np.int64)
+        sdone = maskio.load_mask(sdone_p, len(srow), "--seed-from")
+        if len(srow) and (srow.min() < 0 or srow.max() >= len(stok)):
+            sys.exit("--seed-from index addresses rows {}..{} but its token "
+                     "array holds {:,}; a negative row wraps from the end in "
+                     "numpy and would copy another tile's tensor."
+                     .format(int(srow.min()), int(srow.max()), len(stok)))
+        if len(np.unique(srow)) != len(srow):
+            sys.exit("--seed-from index maps several addresses to one token "
+                     "row; the cache it describes cannot be read back "
+                     "unambiguously.")
         skey = {}
         for z, x, y, r in zip(np.asarray(sidx["z"]), np.asarray(sidx["x"]),
-                              np.asarray(sidx["y"]), np.asarray(sidx["row"])):
+                              np.asarray(sidx["y"]), srow):
             skey[(int(z), int(x), int(y))] = int(r)
+        if len(skey) != len(srow):
+            sys.exit("--seed-from index holds duplicate tile addresses; which "
+                     "row an address means is then decided by iteration order.")
         moved = 0
-        for row in np.flatnonzero(done == 0):
+        for row in np.flatnonzero(done != 1):
             sr = skey.get(keys[row])
-            if sr is not None and sdone[sr]:
+            if sr is not None and sdone[sr] == 1:
                 tok[row] = stok[sr]
                 done[row] = 1
                 moved += 1

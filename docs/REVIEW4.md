@@ -19,7 +19,7 @@ below. Findings are ordered by impact, not by file.
 
 > **Triage, 2026-09-04 13:45.** Read this before working the list.
 >
-> **3 fixed so far: #4, #5, #20** (`[x]` below). It guards the KartaView benchmark, which is
+> **5 fixed so far: #4, #5, #11, #12, #20** (`[x]` below). It guards the KartaView benchmark, which is
 > the selection benchmark and which `seqfix3` is about to measure against, so
 > it could not wait.
 >
@@ -289,7 +289,7 @@ street file, and k-NN file unchanged and require a cache miss.
 
 ## High severity
 
-### 11. `tile_cache` can certify an incomplete cache when its resume mask is non-binary
+### 11. `[x]` `tile_cache` can certify an incomplete cache when its resume mask is non-binary
 
 The other completion-mask producers validate both shape and the exact value set
 `{0, 1}`, but [`tile_cache.py:152-180`](../scripts/tile_cache.py#L152) loads its
@@ -310,7 +310,7 @@ mask to `bool`, so `2` explicitly certifies a possibly zero-filled row.
 final verification and rewrite metadata. A regression test should use a mask
 with one `2` and one `0` and require the build and fusion load to refuse it.
 
-### 12. `fetch_tiles --seed-from` validates the destination mask but trusts the source cache
+### 12. `[x]` `fetch_tiles --seed-from` validates the destination mask but trusts the source cache
 
 The normal resume path goes through `_load_mask`, which checks shape and binary
 values. The seed path at [`fetch_tiles.py:168-185`](../scripts/fetch_tiles.py#L168)

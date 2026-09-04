@@ -93,6 +93,89 @@ def test_a_one_sided_digest_would_have_certified_a_mismatched_join(tmp_path):
     assert prov.rows_digest(a_ids) == ra["rows_digest"]
 
 
+# ------------------------- 11 & 12. one completion-mask validator, shared --
+
+def test_a_non_binary_mask_is_refused(tmp_path):
+    """`!= 0` is the natural spelling and it is the bug: a 2 or a 255 from a
+    torn write certifies a zero-filled row as complete."""
+    import maskio
+
+    p = tmp_path / "done.u8.npy"
+    np.save(p, np.array([1, 1, 2, 1], np.uint8))
+    with pytest.raises(SystemExit) as e:
+        maskio.load_mask(p, 4, "test")
+    assert "not a completion mask" in str(e.value)
+
+
+def test_a_mask_of_the_wrong_length_is_refused(tmp_path):
+    import maskio
+
+    p = tmp_path / "done.u8.npy"
+    np.save(p, np.ones(3, np.uint8))
+    with pytest.raises(SystemExit):
+        maskio.load_mask(p, 4, "test")
+
+
+def test_sum_is_not_a_completion_test():
+    """A mask with one 2 and one 0 sums to n while a row is still blank --
+    which is how an incomplete cache passed its own final check."""
+    import maskio
+
+    d = np.array([1, 1, 2, 0], np.uint8)
+    assert int(d.sum()) >= len(d)            # the old test would pass
+    assert maskio.complete(d) == 2           # the real count
+    assert maskio.is_complete(d, len(d)) is False
+
+
+def test_a_fully_written_mask_is_complete():
+    import maskio
+
+    d = np.ones(6, np.uint8)
+    assert maskio.is_complete(d, 6) is True
+
+
+@pytest.mark.parametrize("name,needle", [
+    ("tile_cache.py", "maskio.load_mask(done_p"),
+    ("fetch_tiles.py", 'maskio.load_mask(sdone_p'),
+    ("fuse_head.py", "maskio.check_mask(d"),
+])
+def test_every_mask_consumer_uses_the_shared_validator(name, needle):
+    """Four producers grew four copies of this check and three were wrong at
+    some point; the copies are why nobody noticed when one drifted."""
+    assert needle in _src(name)
+
+
+def test_no_consumer_still_reads_a_mask_as_truthy():
+    for name in ("tile_cache.py", "fetch_tiles.py", "fuse_head.py"):
+        s = _src(name)
+        assert "d.astype(bool)" not in s, name
+        assert "if sdone[sr]:" not in s, name
+
+
+def test_seed_from_refuses_a_negative_source_row():
+    """A negative row indexes from the END in numpy, so it passes any max()
+    bound check and copies some other tile's perfectly valid tensor."""
+    s = _src("fetch_tiles.py")
+    assert "srow.min() < 0" in s
+    assert "wraps from the end" in s
+
+
+def test_seed_from_refuses_duplicate_rows_or_addresses():
+    s = _src("fetch_tiles.py")
+    assert "len(np.unique(srow)) != len(srow)" in s
+    assert "duplicate tile addresses" in s
+
+
+def test_tile_cache_no_work_branch_still_verifies():
+    """Returning early meant a resumed-but-complete cache skipped both the
+    verification and the metadata write."""
+    s = _src("tile_cache.py")
+    i = s.index("if len(todo) == 0:")
+    j = s.index("nothing to do;")
+    assert "maskio.is_complete(done, n)" in s[i:j]
+    assert "np.savez(meta_p" in s[i:j]
+
+
 # ----------------------------- 20. the external cohort is frozen, not ranked --
 
 def test_taking_the_n_smallest_hashes_is_not_append_stable():

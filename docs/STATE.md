@@ -213,6 +213,18 @@ Seven items change what a trained arm *is*. #29 is closed (§3); #24 joined.
 * **#31** sink coefficient unconstrained (dormant, all `sink_k=1`).
 * **#32** memory dropout lacks inverted-dropout scaling.
 
+**A checkpoint cannot say which bank it trained against.** `clean2-drop70-e2`,
+`wd29-fix-e6` and `d768-b350-e6-drop70` all record
+`knn_file=knn_pca768_bank70_sequence_k32_bank_ext70.npz`. That file was
+rebuilt in place at ~10:40 and ~12:00 today, so the same name means the leaky
+cache for the arms trained before and the clean one for those after. The only
+evidence separating them is the checkpoint mtime against the rebuild time,
+which is exactly the "identifier rather than content" failure in §6. The fix is
+for `train.py` to stamp the *contents* of its street and k-NN inputs into the
+checkpoint (REVIEW4 #6's argument, applied one layer up). It touches
+`train.py`, so it waits for the chain — but until it lands, the leaky/clean
+provenance of every arm on record rests on file timestamps.
+
 Added by REVIEW3 (§4):
 
 * **REVIEW3 #3 — the PCA bases on disk are transductive.** 20.0% of the
