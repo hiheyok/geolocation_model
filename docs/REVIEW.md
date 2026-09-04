@@ -337,7 +337,23 @@ deferred. Unmarked items are not yet triaged.
 58. `[~]` **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
     It unnecessarily drops one valid neighbor and breaks on a one-row bank.
 
-   > **Confirmed.** Confirmed, and this one has consequences. `best` comes from `set_sim()`, which never receives `same`; the chamfer and maxmax arms it is compared against go through `topk_stats`, which does `S[same] = -2.0`. So the oracle may count same-sequence near-duplicates as hits while its comparison arms cannot, and the headroom is inflated **relative to the methods**. That headroom was the evidence motivating the fusion work -- which then turned out to be actively harmful in every configuration tried. Worth re-measuring before any of it is cited again.
+   > **Fixed, and then measured: inert here.** The defect is real -- `best`
+   > comes from `set_sim()`, which never received the same-sequence mask that
+   > `topk_stats` applies to the chamfer and max-max arms it is compared
+   > against. Masking now happens before the reduction, which is idempotent for
+   > the other two arms.
+   >
+   > **But it changes nothing in this configuration, and my first reading of it
+   > was wrong on two counts.** Re-running with and without the mask gives
+   > identical oracle rows (crop3 10.1%, tile6 12.4%): the query and bank sets
+   > are a random draw of 120k from 500k images, so there are only **34
+   > same-sequence pairs in the entire 3,000 x 117,000 matrix** and 1.1% of
+   > queries have any. And the headroom actually cited as motivating the fusion
+   > work is the **union** statistic, +5.03 pp [+4.27, +5.83] here against
+   > +5.00 pp on record -- computed from the matcher arms, which were always
+   > masked. I claimed in a commit message that this item inflated that
+   > evidence. It does not. The fix stands as a correctness guard for
+   > configurations where the sets do overlap.
 
 59. `[~]` **Tile-match oracle statistics are computed before same-sequence exclusion.**
     The reported oracle/headroom can include forbidden near-duplicate matches—the evidence used to motivate fusion is therefore inflated.

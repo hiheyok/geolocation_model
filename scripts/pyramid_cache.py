@@ -71,12 +71,29 @@ def _load_done(path, n):
         return np.zeros((n, 2), np.uint8)
     d = np.load(path)
     if d.ndim == 1:
-        return np.repeat(d.reshape(-1, 1), 2, axis=1).astype(np.uint8)
+        d = np.repeat(d.reshape(-1, 1), 2, axis=1)
+    # A mask of the wrong length, or holding anything but 0/1, is not a resume
+    # point -- it is another run's file under this one's name, and trusting it
+    # blesses rows that were never written.
+    if d.shape[0] != n:
+        raise SystemExit(
+            "resume mask has {:,} rows but this cache wants {:,}; it belongs "
+            "to a different build. Delete it to start fresh."
+            .format(d.shape[0], n))
+    if not np.isin(d, (0, 1)).all():
+        raise SystemExit(
+            "resume mask holds values outside {0, 1}; it is not a completion "
+            "mask. Delete it to start fresh.")
     return d.astype(np.uint8)
 
 
-def _mark(done, loaded, ei, path):
-    """Persist progress for one encoder.
+def _mark(done, loaded, ei, path, mm=None):
+    """Persist progress for one encoder, after its data is on disk.
+
+    The ordering matters and used to be backwards: the mask was written
+    durably through tmp+replace while the token memmap was never flushed, so a
+    crash could leave rows marked complete whose tokens never reached disk --
+    and an unwritten row is the zero fill, which reads as a valid embedding.
 
     The mask used to be written once, after *both* passes. Fourteen attempts
     were logged and one reached 14,000 images; every restart resumed from zero
@@ -85,6 +102,8 @@ def _mark(done, loaded, ei, path):
     """
     if not loaded:
         return
+    if mm is not None:
+        mm.flush()
     done[np.array(sorted(loaded), np.int64), ei] = 1
     loaded.clear()
     tmp = path.with_suffix(".tmp.npy")
@@ -242,7 +261,7 @@ def main():
                                   (len(todo) - seen) / max(seen / el, 1e-9) / 60),
                           flush=True)
             flush()
-            _mark(done, loaded, ei, donep)
+            _mark(done, loaded, ei, donep, X)
         del net
         torch.cuda.empty_cache()
         print("  {} done in {:.0f} min".format(mname, (time.time() - t0) / 60),
@@ -277,6 +296,14 @@ def main():
     print("\nwrote {} and {}_meta.npz  ({:,} images)".format(
         out.name, a.out, int(done.sum())))
     print("levels per token:", np.bincount(level_index()))
+
+    short = n - int(done.all(1).sum())
+    if short:
+        # The stage runner keys its markers on the exit code, so exiting 0
+        # with rows outstanding marked a partial cache finished and it was
+        # never retried. Unwritten rows are zero embeddings that read as valid.
+        sys.exit("\nINCOMPLETE: {:,} of {:,} rows are missing an "
+                 "encoder pass. Re-run to resume.".format(short, n))
 
 
 if __name__ == "__main__":
