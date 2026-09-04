@@ -153,6 +153,10 @@ def main():
     save = Path(a.save_dir) if a.save_dir else None
     if save:
         save.mkdir(parents=True, exist_ok=True)
+        # The flag promised a small image cache and only ever made the folder.
+        # Saying so is better than a directory that fills with nothing.
+        print("note: --save-dir writes metadata and URLs only; image bytes "
+              "are not downloaded by this script", flush=True)
 
     rows, seen = [], set()
     t0 = time.time()

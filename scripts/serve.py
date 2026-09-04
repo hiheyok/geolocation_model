@@ -58,6 +58,18 @@ def load_everything(tag, dev, bank_gpu):
 
     # the bank is whatever this checkpoint's kNN cache was built from: the
     # split's train side, plus a bank extension if it had one
+    if not ck.get("knn_file"):
+        # A bare ck["knn_file"] made a non-retrieval checkpoint fail with an
+        # incidental KeyError three frames deep. Say what is wrong instead.
+        raise SystemExit(
+            "this checkpoint records no knn_file, so it was trained without "
+            "retrieval; serve.py needs a retrieval arm. Train with --retr or "
+            "point --tag at one that has it.")
+    # Every cache here is addressed by row order, so serving a checkpoint
+    # from another release pairs each image with a different image's
+    # embedding. The evaluator has always checked this; the server did not.
+    from evaluate import check_split
+    check_split(ck, ck.get("split_mode", sp.PRIMARY), "test")
     knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
     if "bank_rows" in knn:
