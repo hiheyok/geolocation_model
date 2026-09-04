@@ -30,7 +30,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
-from baselines import baseline_knn, print_table, report
+from baselines import baseline_knn, print_table
 from dataset import GeoStepDataset
 from probe_street import fit_probe, pca_to
 

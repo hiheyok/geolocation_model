@@ -1,0 +1,9 @@
+{
+ "authority": "dataset.parquet",
+ "basis": "observed",
+ "release": "s10",
+ "row_space": "the release",
+ "rows": 500000,
+ "rows_digest": "437549dc021b",
+ "version": 1
+}

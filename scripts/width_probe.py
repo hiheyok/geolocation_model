@@ -42,7 +42,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import splits as sp
-from tile_pool import pca_fit, score, paired, l2
+from tile_pool import pca_fit, score, paired
 
 D_ENC = 768
 
@@ -83,7 +83,10 @@ def main():
 
     arms = [("1536 as shipped", V)]
     for d in [int(w) for w in a.widths.split(",") if w.strip()]:
-        mu, P = pca_fit(V, d, np.random.default_rng(0))
+        # Fit on the bank only. Including the held-out queries lets the
+        # basis be chosen with them in hand, which is the same transductive
+        # leak as fuse_head's combined arm.
+        mu, P = pca_fit(V[b], d, np.random.default_rng(0))
         arms.append(("PCA {}".format(d), (V - mu) @ P))
     # No projection at all -- just one encoder's block. The pooled layout is
     # [DINOv2 768 | SigLIP 768], see pool_street.py.

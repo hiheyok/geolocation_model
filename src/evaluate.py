@@ -13,14 +13,20 @@ import config
 import splits as sp
 import tile_math as tm
 from baselines import great_circle_km, print_table, report
-from beam import TokenSource, source_for, search
+from beam import source_for, search
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent
 
 
-def load_model(tag, dev):
-    ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location=dev,
-                    weights_only=False)
+def build_from_ck(ck, dev="cpu"):
+    """The one place a checkpoint becomes a model.
+
+    Anything that reconstructs the architecture by hand takes the defaults for
+    every field it forgets, and some of those are invisible: `pos="both"` adds
+    rotary positions, which have no parameters, so a strict load_state_dict
+    succeeds and the caller measures a different network in silence. Callers
+    that only have a file path should read it and come through here.
+    """
     # Infer the street width from the checkpoint so older files stay loadable.
     d_street = ck["model"]["street.proj.weight"].shape[1]
     m = GeoAgent(d_street=d_street, n_actions=tm.actions(), n_steps=tm.STEPS + 1,
@@ -45,6 +51,44 @@ def load_model(tag, dev):
                  d_geo=ck.get("d_geo", 128)).to(dev)
     m.load_state_dict(ck["model"])
     m.eval()
+    return m, d_street
+
+
+def check_release(ck, what="this checkpoint"):
+    """Every cache here is addressed by row order in one release.
+
+    `check_split` enforces this, but the external evaluators -- eval_highres,
+    multiquery -- never call it: they score against a foreign image set, so
+    there is no split to check. They do still index s10 row-addressed
+    artifacts (the bank, the kNN cache, the PCA basis), and they *force*
+    OSV_RELEASE=s10 rather than reading it, so an s01 arm ran against s10 rows
+    and produced entirely plausible numbers. Checking here covers every
+    consumer, since nothing loads a checkpoint another way.
+
+    Deliberately asymmetric. An explicit disagreement is refused; a checkpoint
+    that predates the field only warns, because 44 of the 122 on disk have no
+    `release` and inventing one for them would refuse arms on a guess.
+    """
+    rel = ck.get("release")
+    if rel is None:
+        print("warning: {} predates the release stamp, so nothing proves it "
+              "was trained on {!r}; its row-addressed caches may belong to "
+              "another release".format(what, config.RELEASE), flush=True)
+        return
+    if rel != config.RELEASE:
+        raise SystemExit(
+            "release mismatch: {} was trained on {!r}, OSV_RELEASE is {!r}. "
+            "The bank, kNN cache and PCA basis are all indexed by row order "
+            "in one release, so this would pair each image with another "
+            "image's embedding rather than failing. Re-run with "
+            "OSV_RELEASE={}.".format(what, rel, config.RELEASE, rel))
+
+
+def load_model(tag, dev):
+    ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location=dev,
+                    weights_only=False)
+    check_release(ck, tag)
+    m, d_street = build_from_ck(ck, dev)
     return m, ck, d_street
 
 
@@ -62,9 +106,28 @@ def street_file_for(ck, dim, override=None):
     first.
     """
     if override:
+        # The recorded name is checked for existence and width below; an
+        # override used to skip both, so --street-file pointing at a stale or
+        # wrong-width cache was accepted in silence.
+        if not (config.STREET_CACHE / override).exists():
+            raise SystemExit(
+                "--street-file {} is not in {}".format(
+                    override, config.STREET_CACHE))
+        got = np.load(config.STREET_CACHE / override, mmap_mode="r").shape[1]
+        if got != dim:
+            raise SystemExit(
+                "--street-file {} is {}-d but the model wants {}-d".format(
+                    override, got, dim))
         return override
     named = ck.get("street_file")
-    if named and (config.STREET_CACHE / named).exists():
+    if named and not (config.STREET_CACHE / named).exists():
+        # Falling through to the width scan here picks whichever same-width
+        # cache sorts first -- a different bank under the right arm's name,
+        # which is the exact ambiguity this docstring warns about.
+        raise SystemExit(
+            "checkpoint names street file {} but it is not in {}"
+            .format(named, config.STREET_CACHE))
+    if named:
         got = np.load(config.STREET_CACHE / named, mmap_mode="r").shape[1]
         if got != dim:
             raise SystemExit(
@@ -105,6 +168,17 @@ def check_split(ck, mode, split, allow_dirty=False):
     tbl = pq.read_table(config.DATASET_PARQUET)
     live_lab, live = sp.read(tbl, mode)
     was, want = ck.get("split_mode"), ck.get("split_hash")
+    # A checkpoint written before 2026-09-03 carries the weak digest, which
+    # cannot tell a train/test swap from the real assignment. Recognise it so
+    # 122 existing arms keep loading, but say what it does and does not prove.
+    if want is not None and want != live and was == mode:
+        if sp.hash_matches(mode, live_lab, want) == "legacy":
+            print("note: {} carries the pre-2026-09-03 split digest, which "
+                  "hashed only each label's first character and so cannot "
+                  "distinguish train from test. The split matches as far as "
+                  "that digest can tell.".format(ck.get("tag", "this checkpoint")),
+                  flush=True)
+            want = live
     trained_on = was or sp.PRIMARY
 
     if was is not None and was == mode and want != live:
@@ -116,9 +190,39 @@ def check_split(ck, mode, split, allow_dirty=False):
     stamp = "" if was is not None else "  (checkpoint predates the split stamp)"
     if trained_on == mode:
         print("split      {} {}  eval on {!r}{}".format(mode, live, split, stamp))
-        return
+        # Return the CANONICAL hash, not the one the checkpoint carries. An
+        # arm trained before 2026-09-03 stores the weak digest and one trained
+        # after stores the strong one, and bootstrap pairs arms by comparing
+        # these strings: without this, the first arm trained after the fix
+        # could not be compared against any of the 122 before it, and the
+        # whole parity table would have to be rebuilt to say anything at all.
+        # `want` has already been resolved to `live` above when the legacy
+        # digest matched, with the caveat printed.
+        return want if want is not None else live
 
-    train_lab, _ = sp.read(tbl, trained_on)
+    train_lab, train_live = sp.read(tbl, trained_on)
+    # The hash check above only fires when the checkpoint was trained on the
+    # mode being evaluated. On the transfer path it is skipped entirely -- and
+    # this branch then reads the *training* mode's labels off the current
+    # dataset.parquet to measure contamination. If those labels have moved
+    # since training, the contamination figure describes a split the model was
+    # never trained on, and the refusal below is decided on the wrong numbers.
+    want_tr = ck.get("split_hash") if ck.get("split_mode") == trained_on else None
+    if want_tr is not None and want_tr != train_live:
+        if sp.hash_matches(trained_on, train_lab, want_tr) == "legacy":
+            print("note: {} carries the pre-2026-09-03 split digest for {!r}, "
+                  "which cannot distinguish train from test. The contamination "
+                  "figure below is only as trustworthy as that digest."
+                  .format(ck.get("tag", "this checkpoint"), trained_on),
+                  flush=True)
+        else:
+            raise SystemExit(
+                "split hash mismatch on the TRAINING mode {!r}: checkpoint {}, "
+                "data on disk {}. The transfer test measures contamination by "
+                "reading that split off dataset.parquet, so with the labels "
+                "moved it would describe a split this model never saw. "
+                "Re-run scripts/resplit.py or retrain."
+                .format(trained_on, want_tr, train_live))
     ev = live_lab == split
     dirty = float((train_lab[ev] == "train").mean())
     print("split      evaluating {!r} a model trained on {!r} -- transfer test"
@@ -136,7 +240,7 @@ def check_split(ck, mode, split, allow_dirty=False):
 
 def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
              greedy=False, batch=32, sink_prune=1.0, score_steps=None,
-             street_gpu=None, sample_seed=1234):
+             street_gpu=None, sample_seed=1234, retr_off=False):
     """n < len(ds) draws a *seeded random* subset, not the first n rows.
 
     Split order is the DuckDB join order over the shards, so the head of the
@@ -156,7 +260,11 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
         street = torch.from_numpy(
             np.asarray(ds.street[ds.rows[sel]], dtype=np.float32)).to(dev)
         nbrs = None
-        if getattr(ds, "knn_k", 0):
+        # retr_off measures the dependency directly instead of inferring it
+        # from a domain gap: the same trained model, scored with the retrieval
+        # prior removed at inference. An arm that barely moves was not leaning
+        # on the corpus; an arm that collapses was.
+        if getattr(ds, "knn_k", 0) and not retr_off:
             r = ds.rows[sel]
             nbrs = [torch.from_numpy(ds.all_x16[ds.knn_idx[r]].astype(np.int64)).to(dev),
                     torch.from_numpy(ds.all_y16[ds.knn_idx[r]].astype(np.int64)).to(dev),

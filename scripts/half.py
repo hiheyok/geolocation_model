@@ -38,7 +38,7 @@ if not os.environ.get("OSV_RELEASE"):   # config reads this at import time
 import config
 import overnight as O
 from overnight import Stage, load_state, log, run_stage
-from marathon import ARCH, boot, tiles_up
+from marathon import ARCH, tiles_up
 
 SRC = "pool_bal_bank55.f16.npy"        # 2.75M x 1536
 DST = "pca768_bank55.f16.npy"          # 2.75M x 768

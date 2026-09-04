@@ -34,6 +34,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import safeio
+
 # OCR confuses 0/o, 1/l/I, 5/S and 8/B in the small fixed-width fonts overlays use
 FIX = str.maketrans({"o": "0", "O": "0", "l": "1", "I": "1", "S": "5", "B": "8"})
 PAT = re.compile(r"([NSEW])\s*([0-9oOlIB]{1,3})[.,\s]{1,3}([0-9oOlIB]{3,8})", re.I)
@@ -97,11 +99,13 @@ def main():
 
     reader = easyocr.Reader(["en"], gpu=True, verbose=False)
     leaks, parsed, dists, t0 = [], 0, [], time.time()
+    examined = 0
     for n, r in enumerate(recs):
         try:
             im = Image.open(root / "img" / r["file"]).convert("RGB")
         except Exception:
             continue
+        examined += 1
         w, h = im.size
         s = a.ocr_side / max(w, h)
         if s < 1.0:
@@ -121,8 +125,16 @@ def main():
                   .format(n + 1, len(recs), el, 1000 * el / (n + 1), parsed,
                           len(leaks)), flush=True)
 
-    n = len(recs)
-    print("\n{:,} screened in {:.0f}s".format(n, time.time() - t0))
+    # `examined`, not len(recs): an image that would not open was skipped
+    # without being counted, so reporting the manifest size claimed
+    # coverage the run never had.
+    n = examined
+    skipped = len(recs) - examined
+    print("")
+    print("{:,} screened in {:.0f}s{}".format(
+        n, time.time() - t0,
+        "  ({:,} unreadable, not screened)".format(skipped)
+        if skipped else ""))
     print("  frames with a parseable lat AND lon   {:5.2f}%  ({})".format(
         100 * parsed / max(n, 1), parsed))
     print("  of those, landing within {:.0f} km      {:5.2f}% of all  ({})".format(
@@ -137,11 +149,36 @@ def main():
         for e in leaks[:5]:
             print("    {}  {:.2f} km   {}".format(e["id"], e["km"], e["text"][:80]))
     if a.write_blocklist:
+        # `screened` must be the number actually examined, not the size of
+        # the manifest: unreadable images were skipped while the denominator
+        # stayed, so the coverage figure overstated itself.
         p = root / "leak_blocklist.json"
-        p.write_text(json.dumps({"screened": n, "match_km": a.match_km,
-                                 "ids": [e["id"] for e in leaks],
-                                 "detail": leaks}, indent=1), encoding="utf-8")
-        print("\nblocklist -> {}  ({} ids)".format(p, len(leaks)))
+        # Merge, never replace: a sampled run covers part of the manifest,
+        # and overwriting drops every exclusion an earlier run found.
+        prev = {}
+        if p.exists():
+            try:
+                prev = json.loads(p.read_text(encoding="utf-8"))
+            except ValueError:
+                prev = {}
+        merged_by_id = {d["id"]: d for d in prev.get("detail", [])}
+        for e in leaks:
+            merged_by_id[e["id"]] = e
+        merged = sorted(merged_by_id.values(), key=lambda d: d["id"])
+        safeio.write_text(p, json.dumps(
+            # Union of ids, not a running sum: the default sample is
+            # seeded, so re-running screens the same images and a sum reports
+            # coverage above the corpus size.
+            {"screened": len(set(prev.get("screened_ids", []))
+                             | set(str(r["id"]) for r in recs[:len(recs)])),
+             "screened_ids": sorted(set(prev.get("screened_ids", []))
+                                    | set(str(r["id"]) for r in recs)),
+             "match_km": a.match_km,
+             "ids": [d["id"] for d in merged],
+             "detail": merged}, indent=1))
+        print("")
+        print("blocklist -> {}  ({} ids, {} new this run)"
+              .format(p, len(merged), len(leaks)))
     elif leaks:
         print("\nrerun with --write-blocklist to record the ids to exclude")
 

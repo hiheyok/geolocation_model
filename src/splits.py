@@ -98,18 +98,69 @@ def assign(mode, lat, lon, seq, country, seed=None, fractions=None):
     return label[inv]
 
 
-def split_hash(mode, labels):
-    """Short digest of an assignment, in row order.
-
-    Row order is what aligns the embedding memmaps, so the hash pins the
-    benchmark and the alignment together.
-    """
+def _digest(mode, labels, first_char_only):
     h = hashlib.sha256()
     h.update(mode.encode())
     h.update(repr(tuple(config.SPLIT_FRACTIONS)).encode())
     h.update(str(config.SPLIT_SEED).encode())
-    h.update("".join(str(x)[0] for x in labels).encode())
+    if first_char_only:
+        h.update("".join(str(x)[0] for x in labels).encode())
+    else:
+        h.update("\x00".join(str(x) for x in labels).encode())
     return h.hexdigest()[:12]
+
+
+def split_hash_legacy(mode, labels):
+    """The pre-2026-09-03 digest, kept only to recognise older checkpoints.
+
+    It hashed `str(x)[0]`, so "train" and "test" both became "t" and the digest
+    recorded little more than where the val rows were. Measured on the live
+    s10 sequence split: swapping *every* train row with *every* test row -- an
+    entirely different benchmark -- leaves the digest unchanged at 59e4b597281a,
+    and so does moving a single row from train to test. Only val moves show up.
+    """
+    return _digest(mode, labels, True)
+
+
+def split_hash(mode, labels):
+    """Short digest of an assignment, in row order.
+
+    Row order is what aligns the embedding memmaps, so the hash pins the
+    benchmark and the alignment together -- which is the whole point, and which
+    the previous version did not do: it hashed only the first character of each
+    label, making train and test indistinguishable.
+
+    Every guarantee built on this digest was correspondingly weaker than it
+    read, including the bootstrap's "these arms were measured over the same
+    rows" check. Checkpoints written before the fix carry the old value; see
+    `split_hash_legacy` and the fallback in evaluate.check_split.
+    """
+    return _digest(mode, labels, False)
+
+
+def hash_matches(mode, labels, want):
+    """How a recorded digest relates to these labels: "exact", "legacy", None.
+
+    Three artifact families store a split digest -- checkpoints, kNN caches and
+    bootstrap provenance -- and all three were written before 2026-09-03, when
+    the digest hashed only each label's first character and so could not tell
+    train from test. Each of them needs the same three-way answer, and getting
+    it separately in three places is how the kNN cache ended up refusing the
+    entire shipping retrieval path while `check_split` accepted the very same
+    checkpoints.
+
+    "legacy" is a real answer, not a pass: it means the assignment agrees as
+    far as a digest that cannot see a train/test swap can tell. Callers say so
+    out loud rather than treating it as "exact".
+    """
+    if want is None:
+        return None
+    want = str(want)
+    if want == split_hash(mode, labels):
+        return "exact"
+    if want == split_hash_legacy(mode, labels):
+        return "legacy"
+    return None
 
 
 def read(table, mode):

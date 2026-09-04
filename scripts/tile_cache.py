@@ -102,7 +102,7 @@ def main():
     ap.add_argument("--batch", type=int, default=32,
                     help="images per forward pass; tiles per forward is this "
                          "times the grid size. Measured flat from 8 to 64 on a "
-                         "3070 -- 18.1-18.5 ms an image, the forward being 96% "
+                         "3070 -- 18.1-18.5 ms an image, the forward being 96%% "
                          "of the pipeline -- and 2x worse at 96. Spare VRAM is "
                          "idle capacity here, not headroom: the card is compute "
                          "saturated at batch 8 and a bigger batch buys nothing.")
@@ -120,12 +120,26 @@ def main():
     from timm.data import resolve_model_data_config
 
     gc, gr = (int(v) for v in a.grid.lower().split("x"))
+    # 3x2 and 2x3 both hold six tiles, so a cache built as one can be reused
+    # as the other and every count-based check passes. The geometry has to be
+    # compared, not the product.
+    _want_grid = (gc, gr)
     n_tile = gc * gr
     stem = a.out or "tile{}".format(n_tile)
     emb_p = config.STREET_CACHE / (stem + ".f16.npy")
     rows_p = config.STREET_CACHE / (stem + "_rows.i64.npy")
     done_p = config.STREET_CACHE / (stem + "_done.u8.npy")
     meta_p = config.STREET_CACHE / (stem + "_meta.npz")
+    if meta_p.exists():
+        _m = np.load(meta_p, allow_pickle=True)
+        _had = tuple(int(v) for v in _m["grid"]) if "grid" in _m.files else None
+        if _had is not None and _had != _want_grid:
+            raise SystemExit(
+                "cache {} was built at grid {}x{} and this run wants {}x{}; "
+                "both hold {} tiles, so nothing downstream would notice. "
+                "Delete it or use --out.".format(
+                    stem, _had[0], _had[1], _want_grid[0], _want_grid[1],
+                    _had[0] * _had[1]))
 
     zn = np.asarray(pq.read_table(config.DATASET_PARQUET,
                                   columns=["zip_name"])["zip_name"]).astype("U40")
@@ -272,6 +286,16 @@ def main():
         flush=True)
     print("cache      {}  {:,} of {:,} rows filled".format(
         emb_p.name, int(done.sum()), n), flush=True)
+
+    # Exit non-zero on an incomplete build. fetch_tiles and pyramid_cache were
+    # fixed; this one still returned success after unreadable images, so a
+    # marker-gated runner wrote its done-marker over a cache with zero-filled
+    # rows and every later stage read them as embeddings.
+    if state["bad"] or int(done.sum()) < n:
+        raise SystemExit(
+            "{:,} unreadable and {:,} of {:,} rows unfilled -- this cache is "
+            "incomplete. Re-run to fill the gaps; do not mark it done."
+            .format(state["bad"], n - int(done.sum()), n))
 
     # Windows does not OOM when VRAM runs out -- WDDM pages GPU allocations
     # into system RAM and the job simply gets slower, which is how a 2x

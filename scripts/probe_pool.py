@@ -18,17 +18,20 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
-from model import GeoAgent
+from evaluate import build_from_ck
 
 ck_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("checkpoints/c3mt1.pt")
-ck = torch.load(ck_path, map_location="cpu")
-sd = ck["model"]
-d_street = sd["street.proj.weight"].shape[1]
-map_layers = len({k.split(".")[2] for k in sd if k.startswith("map_tf.blocks.")})
-model = GeoAgent(d_street=d_street, map_layers=map_layers)
-model.load_state_dict(sd)
-model.eval()
-print("{}  d_street={}  map_layers={}".format(ck_path.name, d_street, map_layers))
+ck = torch.load(ck_path, map_location="cpu", weights_only=False)
+# This used to rebuild the architecture here, inferring d_street and
+# map_layers from the weights and defaulting everything else. `pos` was the
+# dangerous one: pos="both" adds rotary positions, which carry no parameters,
+# so the strict load succeeded and this probe measured a model with the
+# rotary half missing -- while probing exactly the spatial structure rotary
+# supplies. build_from_ck reads every field the checkpoint records.
+model, d_street = build_from_ck(ck)
+print("{}  d_street={}  pool={}  pos={}  map_layers={}".format(
+    ck_path.name, d_street, ck.get("pool", "mean"), ck.get("pos", "learned"),
+    ck.get("map_layers", 0)))
 
 tokens = np.load(config.map_files()[0], mmap_mode="r")
 rng = np.random.default_rng(0)

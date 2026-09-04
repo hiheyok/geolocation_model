@@ -36,6 +36,9 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import runlog
+import safeio
+
 PY = sys.executable
 RUNS = ROOT / "runs"
 LOGS = RUNS / "logs"
@@ -83,7 +86,7 @@ def load_state():
 
 
 def save_state(st):
-    STATE.write_text(json.dumps(st, indent=2), encoding="utf-8")
+    safeio.write_text(STATE, json.dumps(st, indent=2))
 
 
 # ------------------------------------------------------ system utilisation --
@@ -106,7 +109,7 @@ class Sampler(threading.Thread):
         self.stop_flag = threading.Event()
         self.rows = []
         if not UTIL.exists():
-            UTIL.write_text("t,stage,gpu_util,gpu_mem_mb,gpu_shared_mb,gpu_w,"
+            safeio.write_text(UTIL, "t,stage,gpu_util,gpu_mem_mb,gpu_shared_mb,gpu_w,"
                             "gpu_c,cpu_pct,ram_used_gb\n", encoding="utf-8")
 
     def _nvidia(self):
@@ -185,11 +188,36 @@ class Stage:
     def marker(self):
         return MARKS / (self.name + ".done")
 
+    def identity(self):
+        return runlog.marker_identity(self.name, self.argv, self.release)
+
     def satisfied(self):
-        if self.marker().exists():
+        """A marker counts only if it marked *this* stage.
+
+        The marker used to be a filename and nothing else, so re-pointing a
+        stage at a different bank, width or epoch count reused the finished
+        marker and skipped the work -- and the run reported success. Renaming
+        is a separate problem, handled by `legacy_check`; this is the case
+        where the name stayed and the command moved.
+        """
+        m = self.marker()
+        if m.exists():
+            same = runlog.marker_matches(
+                m.read_text(encoding="utf-8", errors="replace"),
+                self.identity())
+            if same is False:
+                log("stale  {}  (marker records different arguments; "
+                    "re-running)".format(self.name))
+                return False
+            if same is None:
+                # Every marker written before today is a bare duration. Trust
+                # it -- refusing them would re-run a finished queue -- but say
+                # that it proves the stage ran, not that it ran like this.
+                log("note   {}  (marker predates the argument stamp)"
+                    .format(self.name))
             return True
         if self.check is not None and self.check():
-            self.marker().write_text("satisfied by check\n", encoding="utf-8")
+            self.marker().write_text(self.identity(), encoding="utf-8")
             return True
         return False
 
@@ -216,7 +244,11 @@ def run_stage(st, state, deadline):
     if st.satisfied():
         log("skip   {}  (already done)".format(st.name))
         return True
-    if st.needs is not None and not Path(st.needs).exists():
+    # Existence only: a metadata file from an interrupted cache launches
+    # downstream work that then reads zero rows. Size is a weak proxy but it
+    # catches the truncated-to-nothing case, which is the common one.
+    if st.needs is not None and (not Path(st.needs).exists()
+                                 or Path(st.needs).stat().st_size == 0):
         # Retrying a missing input burns the whole retry budget in seconds and
         # buries the real cause -- usually that the stage which builds it was
         # dropped for time.
@@ -236,8 +268,26 @@ def run_stage(st, state, deadline):
         env["OSV_RELEASE"] = st.release
     env["PYTHONUNBUFFERED"] = "1"
     logf = LOGS / (st.name + ".log")
+    # Archive whatever a previous run left, so this file holds one run's
+    # attempts and nothing else. The append-only version is what killed
+    # fuse-attn-pyr47 at epoch 11 of 12: a wait loop grepped for FAIL and
+    # matched a failure from the day before. Retries within this run still
+    # append, which is what the attempt headers are for.
+    if logf.exists() and logf.stat().st_size:
+        prev = LOGS / (st.name + ".prev.log")
+        try:
+            os.replace(logf, prev)
+        except OSError:
+            pass
 
     for attempt in range(1, st.retries + 2):
+        # Re-check inside the loop: a first attempt that runs long can carry a
+        # retry past the deadline that was only tested before the first try.
+        if now() + st.est > deadline:
+            log("drop   {}  (retry would pass the deadline)".format(st.name))
+            state["failed"][st.name] = "dropped: retry out of time"
+            save_state(state)
+            return False
         if SAMPLER:
             SAMPLER.stage = st.name
         t0 = now()
@@ -253,8 +303,12 @@ def run_stage(st, state, deadline):
         if SAMPLER:
             SAMPLER.stage = "idle"
         if rc == 0:
-            st.marker().write_text("{:.0f}s\n".format(el), encoding="utf-8")
+            st.marker().write_text(st.identity(), encoding="utf-8")
             state["done"][st.name] = {"secs": el, "at": hhmm(now())}
+            # A retry that succeeds must clear the earlier failure, or the
+            # summary reports the stage as both done and failed and the
+            # failure count never falls.
+            state["failed"].pop(st.name, None)
             save_state(state)
             log("ok     {}  {:.1f} min   {}".format(
                 st.name, el / 60, SAMPLER.summary(st.name) if SAMPLER else ""))
@@ -434,9 +488,14 @@ def main():
     ep_secs = 0.0
     try:
         import re
+        # The last attempt only. `findall(...)[0]` over the whole file is the
+        # first epoch of the *earliest* attempt, so after a retry the entire
+        # grid was sized from the timing of the run that failed.
         m = re.findall(r"^ep\s+\d+\s+([\d.]+)s",
-                       (LOGS / "calib.log").read_text(encoding="utf-8",
-                                                      errors="replace"), re.M)
+                       runlog.last_attempt(
+                           (LOGS / "calib.log").read_text(encoding="utf-8",
+                                                          errors="replace")),
+                       re.M)
         ep_secs = float(m[0]) if m else 0.0
     except Exception:
         pass

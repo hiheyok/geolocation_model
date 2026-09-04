@@ -32,6 +32,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 
 EMB = config.STREET_CACHE / "embeddings.f16.npy"
 EMB_IDS = config.STREET_CACHE / "image_ids.i64.npy"
@@ -124,6 +125,24 @@ def main():
     ap.set_defaults(preload=True)
     a = ap.parse_args()
 
+    # The default output is the release's canonical embedding cache, which is
+    # what every arm on record was trained against. A run that embeds a
+    # different image list, a different encoder or a different geometry is not
+    # that cache, and without --out it overwrote it in place -- leaving a file
+    # of the right name, the right length and the wrong contents.
+    custom = [f for f, v in (("--parquet", a.parquet),
+                             ("--crops > 1", a.crops > 1),
+                             ("--patch-grid", a.patch_grid),
+                             ("--size != 224", a.size != 224),
+                             ("--model", a.model != ap.get_default("model")))
+              if v]
+    if not a.out and custom:
+        raise SystemExit(
+            "this run differs from the canonical cache ({}) but has no --out, "
+            "so it would overwrite {} -- the file every checkpoint on record "
+            "was trained against. Name it: --out <stem>."
+            .format(", ".join(custom), EMB.name))
+
     ds = pq.read_table(config.PROCESSED / a.parquet if a.parquet
                        else config.DATASET_PARQUET)
     image_ids = np.asarray(ds["image_id"])
@@ -174,6 +193,14 @@ def main():
     # a bank extension is not the release: do not overwrite its id map
     if not a.parquet:
         np.save(EMB_IDS, image_ids)
+    # Record the rows this file describes, beside the file. `image_ids.i64.npy`
+    # has existed for a while and nothing ever read it -- and it is a single
+    # global path, so it says nothing about which of the many caches in this
+    # directory it belongs to.
+    prov.write(out_path, image_ids, release=config.RELEASE,
+               row_space=("the release" if not a.parquet
+                          else "the rows of " + Path(a.parquet).name),
+               model=a.model, crops=a.crops, size=a.size)
     if a.crops > 1:
         print("crops      {} horizontal -> embedding dim {}"
               .format(a.crops, dim * a.crops), flush=True)
@@ -230,6 +257,20 @@ def main():
     el = time.time() - t0
     print("\nembedded {:,} in {:.1f} min ({:.0f} img/s)".format(n, el / 60, n / el))
     print("wrote {}  {:.0f} MB".format(out_path.name, emb.nbytes / 1e6))
+    # The first 512 rows only prove the run started. An interruption
+    # anywhere later leaves a full-shaped memmap whose tail is the zero fill,
+    # which is exactly what this check exists to catch, so it has to look at
+    # every row. A norm scan over the whole file is seconds.
+    dead = 0
+    for lo in range(0, len(emb), 200_000):
+        blk = np.asarray(emb[lo:lo + 200_000], dtype=np.float32)
+        dead += int((np.linalg.norm(blk, axis=1) == 0).sum())
+    if dead:
+        raise SystemExit(
+            "{:,} of {:,} embedding rows are all zero, so this file is "
+            "incomplete -- most likely an interrupted run. Re-run; a "
+            "zero row is a legal-looking embedding and nothing downstream "
+            "would notice.".format(dead, len(emb)))
     sample = np.asarray(emb[:512], dtype=np.float32)
     flat = sample.reshape(len(sample), -1)
     print("sanity: mean L2 {:.3f}   zero rows in first 512: {}".format(

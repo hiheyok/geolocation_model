@@ -55,6 +55,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -68,6 +69,46 @@ SEARCH = "https://graph.mapillary.com/images"
 BBOX_MAX = 0.01                      # degrees; the endpoint's hard cap
 FIELDS = ("id,computed_geometry,geometry,compass_angle,computed_compass_angle,"
           "captured_at,is_pano,quality_score,thumb_2048_url,thumb_1024_url")
+
+
+def fetch_images(rows, save, workers):
+    """Download the harvested thumbnails, which is what the flag promised.
+
+    Two rounds of review recorded this as a no-op: the first made the flag
+    announce that it only created a directory, which is honest and still
+    useless. The manifest already carries a signed thumb URL per row, so the
+    work is a fetch, not a re-query.
+
+    Resumable by construction -- an id already on disk is skipped -- and a
+    failure is counted rather than raised, because losing one thumbnail should
+    not discard a harvest that took minutes of API quota.
+    """
+    todo = [(r["id"], r.get("url")) for r in rows]
+    have = {p.stem for p in save.glob("*.jpg")}
+    todo = [(i, u) for i, u in todo if i not in have]
+    if not todo:
+        return len(have), 0
+    ok = miss = 0
+
+    def one(iu):
+        i, u = iu
+        if not u:
+            return False
+        tmp = save / (i + ".part")
+        try:
+            with urllib.request.urlopen(u, timeout=60) as r:
+                tmp.write_bytes(r.read())
+            os.replace(tmp, save / (i + ".jpg"))
+            return True
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            return False
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for good in pool.map(one, todo):
+            ok += bool(good)
+            miss += not good
+    return ok + len(have), miss
 
 
 def get_json(url, token, tries=3):
@@ -119,6 +160,8 @@ def main():
                     help="panoramas are equirectangular and would need a "
                          "different crop scheme, so they are dropped by default")
     ap.add_argument("--out", default=str(ROOT / "data" / "mapillary"))
+    ap.add_argument("--workers", type=int, default=8,
+                    help="parallel thumbnail downloads for --save-dir")
     ap.add_argument("--save-dir", default=None,
                     help="also write the JPEGs here; omit to keep metadata only")
     ap.add_argument("--seed", type=int, default=0)
@@ -192,6 +235,14 @@ def main():
             print("  {}/{} seeds   {:,} images   {:.0f}s".format(
                 n + 1, len(pick), len(rows), time.time() - t0), flush=True)
 
+    # The cap was tested once per seed and each seed appends up to --per-seed
+    # rows, so the total overshot by up to per_seed - 1 (item 69). Trim, and
+    # say so rather than quietly returning a different number than asked for.
+    if len(rows) > a.max_images:
+        print("trimming {:,} -> {:,}: the last seed's batch crossed "
+              "--max-images".format(len(rows), a.max_images), flush=True)
+        rows = rows[:a.max_images]
+
     man = out / "manifest.jsonl"
     with open(man, "w", encoding="utf-8") as fh:
         for r in rows:
@@ -202,6 +253,10 @@ def main():
     for k, v in got.most_common(12):
         print("   {:<4} {:>5}  (OSV-5M had {:,})".format(k, v, counts[k]))
     print("manifest {}".format(man))
+    if save:
+        ok, miss = fetch_images(rows, save, a.workers)
+        print("images   {:,} in {}  ({:,} had no thumb URL or failed)"
+              .format(ok, save, miss))
     print("\nNext: screen for burned-in coordinates before use --")
     print("  the regex in scripts/ocr_probe.py, over the 2048px versions.")
 

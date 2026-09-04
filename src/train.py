@@ -20,22 +20,86 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import splits as sp
 import tile_math as tm
+import safeio
 from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent, param_report
 
 
-def param_groups(model, wd):
-    """No decay on norms, biases or embeddings."""
+def _map_sub(width):
+    """Sub-patch factor from a token width, refusing anything illegal.
+
+    A rounded square root accepts any width at all: 13 tokens becomes sub=1
+    and 47 becomes sub=2, both silently, and the checkpoint then describes a
+    map representation the cache does not hold.
+    """
+    sub = int(round((width / 12) ** 0.5))
+    if sub < 1 or 12 * sub * sub != width:
+        raise SystemExit(
+            "map token width {} is not 12 * sub^2 for any integer sub; the "
+            "cache and the model disagree about the map representation."
+            .format(width))
+    return sub
+
+
+def param_groups_legacy(model, wd):
+    """The pre-2026-09-04 rule, kept so the change can be measured.
+
+    Not a fallback and not reachable by default: the only caller is
+    `--wd-legacy`, which exists because the 122 checkpoints on file were
+    trained unseeded, so scoring a new seeded arm against one of them would
+    confound the seed with the treatment. Both sides of the comparison have to
+    be run fresh under one seed, and that needs the old behaviour to still be
+    expressible.
+    """
     decay, no_decay = [], []
     for name, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        # "geo" is a sparsely refreshed embedding table: decoupled decay runs
-        # on every step regardless of gradient, so leaving it here would shrink
-        # rows in proportion to how rarely their parent tile is sampled -- an
-        # occupancy bias arriving through a hyperparameter, not the mechanism.
         rare = p.ndim <= 1 or "pos" in name or "step" in name or "geo." in name
         (no_decay if rare else decay).append(p)
+    return [{"params": decay, "weight_decay": wd},
+            {"params": no_decay, "weight_decay": 0.0}]
+
+
+def param_groups(model, wd):
+    """No decay on norms, biases or embeddings.
+
+    Classified by what a tensor *is*, not by what its name contains. The rule
+    used to be `"pos" in name or "step" in name or "geo." in name`, and the
+    substring did not mean what it read as: it caught `retr.q_pos.weight` and
+    `retr.k_pos.weight`, which are `nn.Linear` projections -- the **learned
+    retrieval keys**, 196,608 parameters and 3.7% of the shipping arm, worth
+    +4.1 pp on record. So the branch `--retr-drop` exists to regularise was
+    the one branch training with no weight decay at all, unintentionally, and
+    nothing about the run said so.
+
+    The type test reproduces every exemption that was intended and no others.
+    Enumerated on the shipping arm: `nn.Embedding` catches `map.pos` (65,536)
+    and `state.step` (640), and `p.ndim <= 1` catches the 46 norms and biases
+    plus the `retr.w_pos` scalar. That is every exemption the old rule made on
+    this arm except the two retrieval projections.
+
+    Two arms change, not one. The old "geo." clause also caught `geo.q_geo`, a
+    dense `nn.Linear` evaluated on every step, which the sparse-table reason
+    below does not cover -- so it now decays too. That is 8,192 parameters on
+    the geo arms only; `GeoMem.emb` itself is an `nn.Embedding` and stays
+    exempt through the type test, so the clause is narrowed to what its own
+    justification supports rather than dropped.
+
+    The sparse-table reason still holds and is why `nn.Embedding` is exempt at
+    all: decoupled decay runs on every step regardless of gradient, so
+    decaying a table shrinks each row in proportion to how rarely its parent
+    tile is sampled -- an occupancy bias arriving through a hyperparameter
+    rather than through the mechanism.
+    """
+    sparse = {id(q) for mod in model.modules()
+              if isinstance(mod, torch.nn.Embedding)
+              for q in mod.parameters(recurse=False)}
+    decay, no_decay = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        (no_decay if p.ndim <= 1 or id(p) in sparse else decay).append(p)
     return [{"params": decay, "weight_decay": wd},
             {"params": no_decay, "weight_decay": 0.0}]
 
@@ -164,6 +228,45 @@ def fmt(tag, m, steps):
             .format(tag, m["loss"], m["click"], m["uv_mae"], sk, acc))
 
 
+def check_args(a):
+    """Reject combinations that silently do the wrong thing.
+
+    Each of these has produced, or would produce, a run that completes and
+    reports a plausible number: --retr with k=0 trains the retrieval branch
+    against nothing, a retr-drop of 1.0 leaves the prior with one rescued
+    neighbour on every row, and --soft with --neg builds a 256-wide target
+    against 257 logits.
+    """
+    bad = []
+    if a.retr and a.retr_k <= 0:
+        bad.append("--retr with --retr-k {}: the prior would see no "
+                   "neighbours".format(a.retr_k))
+    if not 0.0 <= a.retr_drop < 1.0:
+        bad.append("--retr-drop {} is outside [0, 1)".format(a.retr_drop))
+    if a.retr_drop > 0 and not a.retr:
+        bad.append("--retr-drop without --retr has nothing to drop")
+    if a.sink_k < 1:
+        bad.append("--sink-k {} must be at least 1".format(a.sink_k))
+    if a.sink_k > 1 and a.neg <= 0:
+        bad.append("--sink-k {} without --neg: there is no sink to give keys "
+                   "to".format(a.sink_k))
+    # --soft is a comma-separated string of per-step temperatures, so its
+    # default "0" is truthy. Testing it directly rejected every --neg run,
+    # which is all of them.
+    try:
+        soft_on = any(float(v) > 0 for v in str(a.soft).split(","))
+    except ValueError:
+        bad.append("--soft {} is not a number or comma-separated list"
+                   .format(a.soft))
+        soft_on = False
+    if soft_on and a.neg > 0:
+        bad.append("--soft with --neg: soft targets are g*g wide and the "
+                   "logits are g*g+1 with a sink")
+    if bad:
+        sep = chr(10) + "  "
+        raise SystemExit("incompatible arguments:" + sep + sep.join(bad))
+
+
 def build_parser():
     """Every knob, so main() below reads as what a run actually does."""
     ap = argparse.ArgumentParser()
@@ -178,6 +281,16 @@ def build_parser():
     ap.add_argument("--limit", type=int, default=0,
                     help="train on a random N-image subset; for learning curves. "
                          "Scale --epochs inversely to hold optimizer steps fixed.")
+    ap.add_argument("--wd-legacy", action="store_true",
+                    help="restore the pre-2026-09-04 substring rule for "
+                         "weight-decay grouping, which exempted the learned "
+                         "retrieval keys. Only for measuring the change; the "
+                         "122 checkpoints on file were trained this way.")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="seeds weight init, loader shuffling and dropout. "
+                         "Without it two identical commands differed in "
+                         "initialisation, batch order and dropout masks, and "
+                         "the checkpoint recorded nothing to explain why.")
     ap.add_argument("--overfit", type=int, default=0,
                     help="train and eval on the same N images; loss must reach ~0")
     ap.add_argument("--tag", default="g16")
@@ -290,17 +403,29 @@ def build_parser():
 
 def main():
     a = build_parser().parse_args()
+    check_args(a)
 
     if a.init:
         # a warm restart at full LR would undo two epochs before recovering
-        if "--lr" not in sys.argv:
+        # `--lr 3e-4` and `--lr=3e-4` are both valid and only the first was
+        # recognised, so the equals form was silently overwritten by the warm
+        # restart defaults.
+        def _given(flag):
+            return any(x == flag or x.startswith(flag + "=") for x in sys.argv)
+
+        if not _given("--lr"):
             a.lr = 1e-4
-        if "--warmup" not in sys.argv:
+        if not _given("--warmup"):
             a.warmup = 100
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     steps = tm.STEPS
     soft = [float(v) for v in str(a.soft).split(",")]
+    if any(v < 0 for v in soft):
+        raise SystemExit(
+            "--soft {!r} has a negative temperature. Soft labels are gated on "
+            "`> 0`, so a negative value silently trains hard cross-entropy "
+            "under a name that says otherwise.".format(a.soft))
     soft = soft * steps if len(soft) == 1 else soft
     if len(soft) != steps:
         raise SystemExit("--soft needs 1 or {} values".format(steps))
@@ -319,6 +444,14 @@ def main():
                         neg_random=False, neg_seed=11)
     # capture before any Subset wrapping -- the stamp belongs to the benchmark,
     # not to whatever slice of it this run happened to use
+    # Seed before anything samples: weight init, the shuffling loader and
+    # dropout all draw from these. Sink negatives were already deterministic
+    # (neg_random=False, neg_seed=11), so they are not part of this.
+    torch.manual_seed(a.seed)
+    np.random.seed(a.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(a.seed)
+
     split_mode, split_hash = tr.split_mode, tr.split_hash
     if a.limit and a.limit < len(tr):
         keep = np.random.default_rng(config.SPLIT_SEED).choice(
@@ -331,9 +464,22 @@ def main():
         pick = np.linspace(0, len(va) - 1, a.val_n).astype(np.int64)
         va = Subset(va, np.unique(pick).tolist())
     if a.overfit:
+        if a.overfit > len(tr):
+            raise SystemExit(
+                "--overfit {} exceeds the {} training rows available (after "
+                "--limit), so the subset would index past the end."
+                .format(a.overfit, len(tr)))
         tr = Subset(tr, list(range(a.overfit)))
         va = tr
         va_ds = None
+        # Without a validation set the hit and km criteria stay NaN, so the
+        # run trains and then exits having written nothing. Overfitting is a
+        # debugging mode; loss is the only criterion available to it.
+        if a.select != "loss":
+            print("--overfit disables validation, so --select {} can never "
+                  "produce a finite criterion; using --select loss"
+                  .format(a.select), flush=True)
+            a.select = "loss"
     print("train {:,} images   val {:,} images   grid g={} steps={}"
           .format(len(tr), len(va), tm.G, steps))
 
@@ -399,7 +545,10 @@ def main():
         # this architecture is a strict superset of that one and the older
         # checkpoint transfers without loss. Anything else is a real mismatch.
         additive = {"street.gate", "geo.emb.weight", "geo.gate",
-                    "geo.q_geo.weight", "geo.q_geo.bias"}
+                    "geo.q_geo.weight", "geo.q_geo.bias",
+                    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is
+                    # exactly this architecture with the extras switched off
+                    "sink_ext", "sink_ext_b", "sink_ext_g"}
         missing = [k for k in missing if k not in additive]
         if missing or unexpected:
             raise SystemExit(
@@ -414,7 +563,16 @@ def main():
     rep, total = param_report(model)
     print("\n" + rep + "\n")
 
-    opt = torch.optim.AdamW(param_groups(model, a.wd), lr=a.lr, betas=(0.9, 0.95))
+    # Named, and printed, because the grouping decides what 3.7% of this model
+    # is regularised as -- and for six months nothing said which rule was in
+    # force or that it had put the learned retrieval keys in the wrong group.
+    pg = param_groups_legacy if a.wd_legacy else param_groups
+    groups = pg(model, a.wd)
+    print("weight dec {}  {:,} decayed, {:,} exempt".format(
+        "LEGACY substring rule" if a.wd_legacy else "by module type",
+        sum(q.numel() for q in groups[0]["params"]),
+        sum(q.numel() for q in groups[1]["params"])), flush=True)
+    opt = torch.optim.AdamW(groups, lr=a.lr, betas=(0.9, 0.95))
     total_steps = max(1, a.epochs * math.ceil(len(tr) / a.batch))
     warm = min(a.warmup, max(1, total_steps // 10))
 
@@ -462,31 +620,43 @@ def main():
                 "loss": mva["loss"]}[a.select]
         if crit == crit and crit < best:
             best = crit
-            torch.save({"model": model.state_dict(), "g": tm.G, "steps": steps,
-                        "map_layers": a.map_layers, "street_file": a.street_file,
-                        "pool": a.pool, "pool_q": a.pool_q, "pos": a.pos,
-                        "soft": a.soft, "neg": a.neg, "map_loop": a.map_loop,
-                        "mem": a.mem, "d_mem": a.d_mem,
-                        "retr": a.retr, "retr_k": a.retr_k,
-                        "retr_mode": a.retr_mode, "d_key": a.d_key,
-                        "retr_drop": a.retr_drop, "sink_k": a.sink_k,
-                        "map_cache": a.map_cache,
-                        "map_sub": int(round(((tr.dataset if hasattr(tr, "dataset")
-                                               else tr).tokens.shape[-1] / 12)
-                                             ** 0.5)),
-                        "retr_tau": a.retr_tau, "knn_file": knn_file,
-                        "enc_gate": a.enc_gate,
-                        "geo": a.geo, "d_geo": a.d_geo,
-                        "split_mode": split_mode,
-                        "split_hash": split_hash,
-                        "release": config.RELEASE,
-                        "init_from": a.init,
-                        "epochs_total": prev_epochs + ep,
-                        "opt": opt.state_dict() if a.save_opt else None,
-                        "epoch": ep, "val_loss": mva["loss"],
-                        "val_km": km, "val_hit": hit, "select": a.select,
-                        "sel_n": a.sel_n, "sel_k": a.sel_k},
-                       config.CHECKPOINTS / (a.tag + ".pt"))
+            ck = {"model": model.state_dict(), "g": tm.G, "steps": steps,
+                  "map_layers": a.map_layers, "street_file": a.street_file,
+                  "pool": a.pool, "pool_q": a.pool_q, "pos": a.pos,
+                  "soft": a.soft, "neg": a.neg, "map_loop": a.map_loop,
+                  "mem": a.mem, "d_mem": a.d_mem,
+                  "retr": a.retr, "retr_k": a.retr_k,
+                  "retr_mode": a.retr_mode, "d_key": a.d_key,
+                  "retr_drop": a.retr_drop, "sink_k": a.sink_k,
+                  "map_cache": a.map_cache,
+                  "map_sub": _map_sub((tr.dataset if hasattr(tr, "dataset")
+                                       else tr).tokens.shape[-1]),
+                  "retr_tau": a.retr_tau, "knn_file": knn_file,
+                  "enc_gate": a.enc_gate,
+                  "geo": a.geo, "d_geo": a.d_geo,
+                  "split_mode": split_mode,
+                  "split_hash": split_hash,
+                  "release": config.RELEASE,
+                  "init_from": a.init,
+                  "epochs_total": prev_epochs + ep,
+                  "opt": opt.state_dict() if a.save_opt else None,
+                  "epoch": ep, "val_loss": mva["loss"],
+                  "val_km": km, "val_hit": hit, "select": a.select,
+                  "sel_n": a.sel_n, "sel_k": a.sel_k, "seed": a.seed,
+                  "wd_legacy": a.wd_legacy, "wd": a.wd,
+                  # Result-defining settings that used to live only in the
+                  # runner's argv. Two arms trained at different learning
+                  # rates were indistinguishable from their checkpoints, so
+                  # nothing could tell you why they differed -- and the
+                  # runner's log is the only other record, which is
+                  # append-only and reused across attempts.
+                  "lr": a.lr, "wd": a.wd, "warmup": a.warmup,
+                  "batch": a.batch, "limit": a.limit, "epochs": a.epochs,
+                  "smooth": a.smooth, "sink_w": a.sink_w,
+                  "emb_drop": a.emb_drop, "emb_noise": a.emb_noise,
+                  "mem_drop": a.mem_drop, "val_n": a.val_n,
+                  "sel_score_steps": a.sel_score_steps}
+            safeio.save_torch(ck, config.CHECKPOINTS / (a.tag + ".pt"))
     if best == float("inf"):
         raise SystemExit(
             "no checkpoint was written: the {!r} criterion never produced a "

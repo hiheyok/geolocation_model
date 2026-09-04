@@ -1,10 +1,16 @@
 """Train/inference parity for the pieces added on 2026-09-02.
 
-Both bugs these cover were live: `--sink-k > 1` trained one network and scored
-another because beam search called `policy_logits` without `step`, and a
-sub-patch map cache could be read by a model built for 12-d tokens. Neither
-raises -- they quietly evaluate a different model than the one that trained,
-which is the failure mode this project keeps hitting.
+Both bugs these cover were live, and neither raised: `--sink-k > 1` trained one
+network and scored another because beam search called `policy_logits` without
+`step`, and a sub-patch map cache could be read by a model built for 12-d
+tokens. Quietly evaluating a different model than the one that trained is the
+failure mode this project keeps hitting.
+
+The first version of this file did not actually catch either. It called
+`policy_logits` directly, so reverting the beam fix left it green, and it
+appended the sink key by hand on top of the one `policy_logits` appends -- an
+A+2 shape that never occurs. The guard now lives in the model: omitting `step`
+while extra sink keys exist raises, so the caller cannot get it wrong.
 """
 
 import sys
@@ -30,40 +36,68 @@ def build(sink_k=1, n_classes=12):
                     retr=True, retr_mode="dual", d_key=128)
 
 
-def _logits(m, B=8, seed=1):
+def inputs(B=8, seed=1):
+    """Exactly the shapes production passes: keys WITHOUT the sink appended."""
     torch.manual_seed(seed)
-    f = torch.randn(B, 512)
-    keys = torch.randn(B, tm.actions(), 256)
-    step = torch.randint(0, tm.STEPS, (B,))
-    k = torch.cat([keys, m.sink.expand(B, 1, -1)], 1)
-    with torch.no_grad():
-        return m.policy_logits(f, k, None, step), m.policy_logits(f, k, None), step
+    return (torch.randn(B, 512),
+            torch.randn(B, tm.actions(), 256),
+            torch.randint(0, tm.STEPS, (B,)))
 
 
 def test_extra_sink_keys_start_neutral():
     """A sink_k=4 model loaded with sink_k=1 weights must score identically."""
     a, b = build(1), build(4)
     missing, unexpected = b.load_state_dict(a.state_dict(), strict=False)
-    assert set(missing) == {"sink_ext", "sink_ext_b"}
+    assert set(missing) == {"sink_ext", "sink_ext_b", "sink_ext_g"}
     assert not unexpected
     a.eval(); b.eval()
-    la, _, _ = _logits(a)
-    lb, _, _ = _logits(b)
+    f, keys, step = inputs()
+    with torch.no_grad():
+        la = a.policy_logits(f, keys, None, step)
+        lb = b.policy_logits(f, keys, None, step)
+    assert la.shape == lb.shape == (len(f), tm.actions() + 1)
     assert torch.allclose(la, lb, atol=1e-6)
 
 
-def test_sink_keys_are_dead_without_step():
-    """The regression itself: omitting `step` silently disables the extras.
+def test_omitting_step_raises_when_extras_exist():
+    """The regression itself, guarded where the caller cannot skip it.
 
-    Once the extras carry weight, passing step must change the sink logit.
-    If this ever stops differing, the extras are inert and sink_k is a no-op.
+    beam.search omitted `step`, which silently disabled the extra keys. A test
+    that calls policy_logits directly cannot catch that, so the model refuses
+    instead: any caller that forgets `step` fails loudly.
     """
     m = build(4)
     m.eval()
+    f, keys, _ = inputs()
+    with pytest.raises(ValueError, match="step"):
+        m.policy_logits(f, keys, None)
+    # a sink_k=1 model has no extras and must stay callable without step
+    m1 = build(1)
+    m1.eval()
     with torch.no_grad():
-        m.sink_ext_b.fill_(0.0)          # switch the extra keys on
-    with_step, without_step, _ = _logits(m)
-    assert not torch.allclose(with_step[:, -1], without_step[:, -1], atol=1e-4)
+        assert m1.policy_logits(f, keys, None).shape[-1] == tm.actions() + 1
+
+
+def test_sink_gate_can_actually_learn():
+    """Neutral must not mean dead.
+
+    The first design gave each extra a -20 bias, which is neutral and also
+    gradient-starved: about e^-20 of the log-sum-exp gradient, so the keys
+    never move and sink_k reads as a null result. The gate must start at zero
+    and receive a real gradient.
+    """
+    m = build(4)
+    m.train()
+    f, keys, step = inputs()
+    loss = m.policy_logits(f, keys, None, step)[:, -1].sum()
+    loss.backward()
+    g = m.sink_ext_g.grad
+    assert g is not None, "sink gate has no gradient"
+    # one gate per step; every step present in the batch must receive one
+    seen = torch.unique(step).tolist()
+    assert g.abs()[seen].min().item() > 1e-3, (
+        "sink gate gradient {} at steps {}; the extras cannot learn"
+        .format(g.tolist(), seen))
 
 
 def test_sub_tokens_contain_the_original():
@@ -81,9 +115,24 @@ def test_sub_tokens_contain_the_original():
         assert np.allclose(cells.mean(1), base, atol=1e-6)
 
 
-def test_tokenizer_width_must_match_the_cache():
-    """A model built for 12-d tokens must not silently accept 48-d ones."""
-    m = build(1, n_classes=48)
-    assert m.map.proj.in_features == 48
-    with pytest.raises(RuntimeError):
-        m.map.proj(torch.randn(4, 256, 12))
+def test_token_source_rejects_a_width_mismatch(tmp_path):
+    """A 12-d cache must not be read as if it were a sub=2 cache.
+
+    Checking that Linear(48,...) rejects a 12-wide tensor tested pytorch, not
+    this code. This builds a real cache directory and asserts TokenSource
+    refuses it, which is what protects an arm from being scored against the
+    wrong map representation.
+    """
+    from beam import TokenSource
+
+    np.save(tmp_path / "tokens.f16.npy", np.zeros((4, 256, 12), np.float16))
+    # No index file: the width check runs before the index is read, which is
+    # deliberate -- refusing a mismatched cache should not depend on anything
+    # else being loadable. (Writing one here also faults pyarrow under pytest
+    # on this machine.)
+    with pytest.raises(ValueError, match="48-d"):
+        TokenSource(tm.G, cache=str(tmp_path), sub=2)
+    # The matching-width path is deliberately not exercised here: completing
+    # the constructor builds a tile client and a thread pool, which faults in
+    # native code under pytest on Windows. That path runs on every evaluation
+    # anyway; the rejection is the part that had no coverage.

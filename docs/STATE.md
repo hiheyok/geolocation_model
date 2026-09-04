@@ -1,303 +1,309 @@
-# Live state — rewritten 2026-09-02 02:00, before a context compaction
+# Live state — updated 2026-09-04
 
-Read this first after a compaction. `docs/NEXT.md` is the forward plan;
-`docs/NAMING.md` explains arm names. Durable findings also live in the memory
-directory and in the git log, which is unusually detailed —
-`git log --oneline -40` reconstructs most of the reasoning.
+Read this first. `docs/REVIEW.md` and `docs/REVIEW2.md` hold the two Codex
+reviews with every item marked; `docs/BACKLOG.md` the code and performance
+work; `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings
+are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
+**277 tests pass. Nothing is running. Tile server is up.**
 
-**Nothing is running.** The demo server, all training, and the harvest are
-stopped. `git status` is clean apart from two probe `.npz` files in `runs/`.
+---
 
-## What ships
+## 1. What to ship
 
-**`d1536-b350-e6-drop30`** for quality; **`d768-b350-e6-drop30`** if the corpus
-is to grow past 3.40M. The two are indistinguishable on held-out photographs;
-the 1536-d arm wins the benchmark, the 768-d arm is the only one whose bank can
-reach 4.90M on a 31.7 GB machine.
+**`d768-b350-e6-drop70`** — 768-d street vector, 3.40M bank, 6 epochs,
+`--retr-drop 0.7`.
 
-| arm | OSV-5M `<25 km` | KartaView `<25 km` (n=5,000) | KartaView median |
+| arm | OSV-5M `<25 km` | KartaView `<25 km` | KartaView median |
 |---|---|---|---|
-| `d768-b265-e6` | 72.8% | 12.9% | 450.6 km |
-| `d768-b350-e6` | 75.6% | 11.6% | 486.2 km |
-| `d768-b350-e6-drop30` | ~75.6% | 12.7% | 475.3 km |
-| `d1536-b350-e6` | 76.2% | 11.7% | 518.2 km |
-| **`d1536-b350-e6-drop30`** | **~76.9%** | **12.5%** | **458.1 km** |
+| `d768-b265-e6` | 72.8% | 12.1% | 474.8 km |
+| `d768-b350-e6` | 75.6% | 11.6% | 505.6 km |
+| **`d768-b350-e6-drop70`** | ~75.6% | **13.4%** | **435.7 km** |
+| `d768-b350-e6-drop90` | **-5.7 pp** | 14.0% | 390.0 km |
+| `d768-b350-e6-sub2` | — | 12.5% | 459.7 km |
+| `d1536-b350-e6` | 76.2% | **11.2%** | **532.5 km** |
+| `d1536-b350-e6-drop30` | **76.9%** | 12.3% | 492.0 km |
+| `d1536-b350-e6-drop70` | 75.9% | 12.8% | 467.4 km |
 
-`d1536-b350-e6-drop30` beats `d1536-b350-e6` by +0.10 to +1.30 pp on the
-benchmark and by +0.82 pp [+0.26, +1.38] and −60.1 km [−76.0, −38.8] externally,
-all separated. Against `d768-b350-e6-drop30` it is separated-better on the
-benchmark and inside noise on every external metric.
+All KartaView numbers are at shipping parity (each checkpoint's own bank, its
+own `retr_k`). **Best benchmark and best real-world are different arms**, and
+the gap widened at parity: `d1536-b350-e6-drop30` has the best benchmark of any
+arm and loses externally to the half-width `drop70` by −1.06 pp and −56.3 km,
+both separated. Width and dropout do not compose — `d1536-b350-e6-drop70` loses
+on both measures.
 
-**Neighbour dropout is a plain regulariser, not a trade.** Across both widths it
-is separated-better in five of six benchmark/external cells and **never
-measurably worse anywhere**. The retrieval prior was under-regularised; the
-transfer gap was the symptom that made it visible.
+---
 
-**The selection set is not evidence.** Its 2,000 images said dropout was 0.6 pp
-*behind* on `d1536` at e4; the 5,000-image bootstrap says it is ahead,
-separated. It picks checkpoints, it does not measure them.
+## 2. The three results that matter
 
-## The corpus curve, four points
+**The model is overwhelmingly a retrieval system.** With the prior removed at
+inference (`bootstrap.py --retr-off`):
 
-| bank | median km | mean | `<25 km` | step |
-|---|---|---|---|---|
-| 1.15M `d1536-b115-e6` | 7.7 | 391.4 | 64.1% | — |
-| 1.90M `d1536-b190-e6` | 3.6 | 367.5 | 70.6% | +6.50 [+5.50, +7.64] |
-| 2.65M `d1536-b265-e6` | 2.5 | 356.7 | 73.8% | +3.21 [+2.40, +4.02] |
-| **3.40M `d1536-b350-e6`** | **1.8** | **311.0** | **76.2%** | **+2.34 [+1.56, +3.12]** |
-
-**4.3x median reduction, +12.1 pp, architecture untouched throughout.** Every
-ladder converges at six epochs (e4 vs e6 inside noise), so the gains are not
-undertrained baselines flattering newer arms.
-
-**Predict the next step from retrieval, not from the metric's history.**
-Extrapolating the previous *metric* gain overshot once (+9 predicted, +6.5
-observed). Extrapolating the **measured top-1 similarity increments** was right
-three times running, most recently predicting +2.0 to +2.6 pp and observing
-+2.34. The curve: 0.8926 → 0.9000 → 0.9046 → 0.9080, near log-linear, converting
-at 8.8 then 7.0 pp per 0.01 of similarity. Build the kNN, read the delta,
-multiply by the most recent conversion rate.
-
-**The mean barely moves while the median collapses** — 391.4 → 311.0 against a
-4.3x median improvement. Corpus scaling fixes the typical case and leaves the
-tail alone. On `cell8` the mean sits near 1,020 km for every arm because there
-almost everything is tail. The mean is close to useless for selection here,
-which is why `--select hit` exists.
-
-## The benchmark and the world disagree in sign
-
-Measured 2026-09-02 on 5,000 held-out KartaView photographs, paired, each model
-against its own bank:
-
-| step | OSV-5M `<25 km` | KartaView `<25 km` |
-|---|---|---|
-| `d768-b265-e6` → `d768-b350-e6` | **+2.8 pp [+1.96, +3.66]** | **−1.32 pp [−2.04, −0.60]** |
-
-Both separated. **The corpus step that is this project's main axis buys
-benchmark points and loses real ones.** `<1 km` is unchanged (+0.08 pp): the
-damage is at 25–200 km, exactly where the retrieval prior operates.
-
-**A 2×2 blames the model, not the bank.** Each model run against both banks
-(`eval_highres --bank` overrides the checkpoint's own):
-
-| `<25 km` | bank 2.65M | bank 3.50M |
-|---|---|---|
-| model b265 | 12.92% | 12.80% |
-| model b350 | 12.16% | 11.60% |
-
-* bank effect at fixed model: −0.12 pp [−0.66, +0.40] and −0.56 pp [−1.04, −0.08]
-* model effect at fixed bank: **−0.76 pp [−1.44, −0.06]** and **−1.20 pp [−1.86, −0.54]**
-
-The model trained against denser retrieval is worse off-domain *whichever bank
-it is given at inference*. It is a training-time dependency on dense coverage,
-not a property of the bank. Off-domain top-1 similarity is 0.71 against 0.90 on
-the benchmark, and a policy that only ever saw 0.90 over-trusts the prior.
-
-**`--retr-drop` fixes it, for free.** Hiding each retrieved neighbour with
-probability 0.3 during training recovers the external loss
-(**+1.10 pp [+0.44, +1.78]** over `d768-b350-e6`, back to level with
-`d768-b265-e6` at −0.22 pp inside noise) while costing nothing on the benchmark
-([−0.98, +0.30] pp). The prediction that it would trade benchmark for
-generalisation was **falsified** — the selection curve suggests the earlier arms
-were simply under-regularised: no-drop drifts 74.4% → 74.2% from e4 to e6 while
-drop30 holds 75.0%. The median against `b265` is still worse
-(+24.6 km [+3.5, +44.9]), so the recovery is in hit rate, not everywhere.
-p was not tuned; the p-curve is open.
-
-**Two measurement lessons, both of which nearly produced wrong answers.**
-At n=1,000 the corpus contrast reads −1.40 pp [−3.00, +0.20] — inside noise. I
-briefly reported it as "no transfer", and only n=5,000 separated it. A wide
-interval is a reason to get more data, not to weaken the claim. And
-`--n 1000 --seed 0` was *not* a fixed sample: it permuted the manifest, which
-grew 18,812 → 47,646 overnight, so two runs with identical flags scored
-different images. Selection is now `crc32(seed + image_id)`, stable under
-growth. Numbers from before that fix (the 442.6 km figure) are not comparable.
-
-## Multi-photograph queries — measured, real, small
-
-If the benchmark is easy because the *bank* is dense around the query, several
-photographs of one spot manufacture that density on the **query** side, which is
-free. The retrieval prior takes k neighbours as a similarity-weighted set and
-cannot tell which image produced them, so **this needed no retraining**.
-
-2,496 spatial groups within 100 m, paired on the same anchors:
-
-| photos | median km | `<25 km` | hit rate vs 1 | median vs 1 |
-|---|---|---|---|---|
-| 1 | 557.0 | 10.7% | — | — |
-| 2 | 513.6 | 11.9% | **+1.2 pp [+0.12, +2.32]** | **−43 km [−74, −14]** |
-| 4 | 498.1 | 12.0% | +1.3 pp [+0.12, +2.56] | −59 km [−94, −27] |
-
-**It saturates at two.** The second photograph buys +1.2 pp; the third and
-fourth add +0.1 pp between them. Ask for one more angle, not eight. Worth about
-half a corpus doubling, for free.
-
-**Three things it needs to be visible at all**, each of which produced a wrong
-answer first:
-
-* **Groups chosen before embedding, and full.** Sampling images first and
-  grouping second gave 200 groups of which *one* had four members, so
-  `take[:N]` returned the same two photographs for N=2, 4 and 8 and the curve
-  read as saturating at two when there was never a third to add.
-* **Round-robin the merge, and dedupe.** Ranking all N×32 candidates together
-  lets the strongest-matching photograph fill every slot. On the same groups the
-  naive merge reads +0.5/+0.8/+1.3 and round-robin reads +2.1/+2.3/+1.8.
-  `serve.py` already did this; the experiment did not.
-* **~2,500 groups.** At 390 every step is inside noise and the `near` control
-  came out non-monotone — 8.0 → 7.5 → 6.4 → 9.5 — which is what noise looks
-  like when only one ordering is run and it happens to rise.
-
-Never compare absolute numbers across group populations: requiring 8
-photographs within 100 m selects a harder set of places (1221 km median) than
-requiring 4 (557 km). Per-group errors are in `runs/multiq_pow4.npz`.
-
-## 768-d: the width cost vanishes as the bank grows
-
-**Updated 2026-09-02: at the bank size that matters the cost is gone.** On the
-3.40M bank, `d768-b350-e6` is **1.9 km / 320.4 mean / 75.6%** against
-`d1536-b350-e6` at 1.8 / 311.0 / 76.2% — a gap of **+0.6 pp, CI
-[−0.18, +1.32], inside noise**. At 2.65M the same contrast was +1.05 pp
-[+0.28, +1.82] and separated.
-
-| bank | 1536-d | 768-d | deficit |
+| arm | retrieval on | off | loses |
 |---|---|---|---|
-| 2.65M | 2.5 km / 73.8% | 2.7 / 72.8% | +1.05 [+0.28, +1.82] separated |
-| **3.40M** | 1.8 / 76.2% | **1.9 / 75.6%** | **+0.6 [−0.18, +1.32]** inside noise |
+| `d768-b350-e6` | 75.6% | **2.7%** | −72.9 pp |
+| `drop70` | 75.2% | **10.7%** | −64.5 pp |
+| `drop90` | 69.9% | **19.3%** | −50.6 pp |
 
-**The width cost shrinks as the corpus grows**, which was the branch written
-down before the run ("if much better, the projection is cheaper on a denser
-bank"). Treat +1.05 pp as a decaying upper bound, not a fixed toll. The ladder
-converges as every other one does — e4 (75.5%) vs e6 (75.6%) is inside noise.
+Monotone in p, every contrast separated. Dropout buys standalone capability.
+The 75.6% headline is mostly corpus coverage. This was **predicted** from
+`cond_probe` (the prior's share of the logit spread, 42% → 28%) and agrees with
+`diag_beam` (headroom up, top-1 down) — three independent routes, one mechanism.
 
-768-d is still worse on the *mean* (320.4 vs 311.0) while level on median and
-hit rate: it trades the head of the distribution for the tail.
+**`--retr-drop 0.7`, and the reason is not the one first recorded.** The curve
+at parity: 11.6 / 11.1 / 12.1 / 12.6 / **13.4** / 14.0% for p = 0 … 0.9.
+0.7 vs 0.9 on `<25 km` is +0.58 pp [−0.24, +1.38], **inside noise** — 0.9 does
+not overshoot the hit rate, and is separated *better* on `<200 km` and the
+median. What 0.9 costs is `<1 km` (separated worse than both 0.7 and no
+dropout) plus a −5.7 pp benchmark regression. p=0.3 is now inside noise, so
+**p ≥ 0.5 before anything is separable** — the original 0.3 guess is not
+supported.
 
-**So 768-d is the route to 4.90M.** At 1536-d that table is 15.05 GB and can
-never clear `0.4 × free` on a 31.7 GB machine; at 768-d it is 7.53 GB and
-resident. The only argument against the projection was its accuracy cost, and
-at 3.40M that cost is not measurable.
+**Step 0 is the entire tail.** `error_profile` on the shipping arm: 7.9% of
+images first go wrong at step 0 and carry **84.3% of the mean error**; 2.5% of
+images carry 66.9%. Meanwhile 33.6% first go wrong at step 3 and contribute
+0.0 km. The median and the tail are different problems.
 
-**The prediction was recorded before the run and held:** ~75.2% and ~2.0 km
-against an observed 75.6% and 1.9 km.
+---
 
-Retrieval said it was free (−0.17 pp [−1.00, +0.63], while 384 was separated at
-−0.87). The mechanism for the disagreement: PCA keeps 97.89% of *variance* and a
-cosine is dominated by exactly those high-variance directions, while the agent
-additionally learns `StreetProj` and the retrieval keys, which can exploit the
-low-variance directions that were discarded. Half the pooled vector is a shared
-component — mean norm 46.44 against a row norm of 65.87 — which is why raw
-cosines sit at 0.90.
+## 3. Corrections to already-published claims
 
-## The pyramid: mean pooling cannot use the third level; attention untested
+**The corpus axis.** Reported as −1.32 pp [−2.04, −0.60] separated on
+photographs. At parity it is **−0.46 pp [−1.12, +0.18], inside noise**. The
+median effect survives (+30.8 km, separated) and `<1 km` slightly favours the
+bigger bank. The 2×2 blaming the model rather than the bank **survives**: bank
+effect noise in both cells, model effect separated on the median at both banks.
+And **with dropout the corpus transfers**: b265 → drop70 is +1.34 pp, +3.58 pp
+at 200 km, −39.2 km, all separated.
 
-18,812 global high-resolution images cached as 33 tokens each (3 crops, 6 tiles
-at 2x linear, 24 at 4x) in `cache/street/s10/pyr33.f16.npy`.
+**Why the caveat was wrong.** It said every arm was measured the same way so
+paired directions would hold. Parity cost p=0 nothing and each dropout arm
+~0.6 pp — the error was **correlated with the treatment**, because neighbour
+count is what `--retr-drop` manipulates. The rule that replaces it: *ask whether
+the error is independent of the treatment first.*
 
-| paired against `L0` | `<1 km` | `<25 km` |
+**The pyramid fusion head: retracted, then re-established.** Reported negative
+from a confounded comparison. Retracted after the review, then survived three
+attempts to break it. The head at **initialisation** scores 33.1% against the
+1536-d mean's 33.7%, so the random projection is worth 0.63 pp of the 11.30.
+Training is what destroys it:
+
+| epochs / objective | train loss | `<25 km` |
 |---|---|---|
-| L0+L1 [level] | −0.43~ | +0.27~ |
-| L0+L1+L2 [**token**] | −4.37 | −2.90 |
-| L0+L1+L2 [**level**] | −1.40 | −0.97~ |
-| L2 alone | −6.73 | −5.13 |
+| **1 epoch** | — | **32.2%** |
+| 12, 5 km positives | 0.063 | 20.5% |
+| 12, 0.5 km positives | 0.0145 | 12.9% |
 
-Changing only *how the union is averaged* recovers two thirds of the three-level
-penalty — 24 of 33 tokens are L2, so a token mean hands the deepest level 73% of
-the vector. But level weighting still does not make L2 pay. **Mean pooling
-cannot extract it, and most of its apparent harm is an averaging artifact.**
+Loss and retrieval move in opposite directions — overfitting, 2.5M parameters
+on 38,009 images. Three explanations were tested and none survives: the random
+projection (0.63 pp), the false negatives (50.3% of off-diagonal cells were
+true positives; fixing them moved 20.9 → 20.5%), and the positive radius (my
+hypothesis, wrong in the opposite direction). **The multi-level mean stands**:
+L0+L1+L2 beats L0 alone by +1.6 pp and 40 km at equal width, with no learned
+head. *Caveat:* REVIEW2 new#6 found the OneCycle schedule was truncated in
+these runs, so the individual numbers were produced under a shortened schedule;
+the epoch curve is robust to that, the point estimates less so.
 
-The attention arm collapsed: −15.75 pp [−17.8, −13.8] alone, −2.15 combined.
-**Recorded as confounded, not as a result** — it trained on 14,938 images
-against the 96,091 that produced +3.67 pp on OSV-5M, with 33 tokens instead of
-9. The harvest below is what disambiguates data volume from architecture.
+**KartaView/OSV leakage, audited.** 0 image-id and 0 sequence-id overlaps.
+Median nearest-OSV distance 231 m; 1.06% of evaluated queries within 10 m.
+Dropping those 53 moves the dropout result from +1.80 to +1.80 pp and the
+corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
 
-Levels are not redundant: L0 vs L2 cosine is 0.615. Leak screen on the harvest:
-**0 of 2,000** images carry a parseable burned-in coordinate, against 1.45% of
-OSV-5M.
+---
 
-## Assets on disk
+## 4. Reviews
 
-* **47,646 KartaView images, 84 GB**, `E:/data/kartaview_hr`, median 6.0 MP,
-  17,378 sequences, global (US 14,944 / DE 4,115 / CA 2,909 / FR 1,926 / GB
-  1,892 / TH 1,554 / AU 1,539 …). The harvest completed on its own. 2.5x the set
-  that produced the confounded pyramid null.
-* `pool_bal_bank70.f16.npy` 10.75 GB (3.50M × 1536), `pca768_bank70.f16.npy`
-  5.38 GB, `pyr33.f16.npy` 1.91 GB. Street cache totals 155 GB.
-* 240 GB free on C:, 415 GB on E:. Shards 70–97 unused — 1.4M more images,
-  taking the corpus to its 4.90M ceiling.
+`docs/REVIEW.md` — 86 items: **68 fixed, 8 refuted, 7 deferred, 2 open, 1
+forced a retraction.** The two still open (24, 39) both need a re-baseline
+decision and are in §5.
+`docs/REVIEW2.md` — 22 items: **all 22 fixed.**
 
-## Unfinished, resumable
+Round two found that **three of round one's forty were wrong**, two of them
+defects I introduced while fixing something else, and one fixed in the wrong
+file. Chief among them: `split_hash` hashed only each label's first character,
+so train and test were indistinguishable and the bootstrap row-parity guarantee
+was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
 
-**`pyrcache-hr47k`** — the pyramid cache over the full 47,646-image harvest,
-running since 07:24 with a 900-minute window for a ~620-minute job (2.6 img/s
-per encoder, two encoders). Needs no tile server. Resumable through its own
-`pyr47_done.u8.npy` mask, so killing it costs one image. `fuse-attn-pyr47`
-follows and is guarded by `Stage(needs=...)`, so it skips rather than failing
-three times in three seconds when the cache is absent.
+**Still open, REVIEW.md:** 24 and 39 only, both awaiting a re-baseline call.
 
-Open questions in rough order of value:
+**The largest thing found closing them was not a review item as written.**
+Item 61 was stated conditionally — "*if* one real drive crosses the corpus
+boundary, same-sequence exclusion fails". It is the normal case, and it
+inflates the OSV-5M benchmark. See §3.
+**Still open, REVIEW2.md:** none.
 
-* **The `--retr-drop` p-curve.** 0.3 was a guess that happened to work. 0.1 and
-  0.5 would say whether the effect is a plateau or a peak.
-* **Does `d1536` carry the same dependency?** It holds the best benchmark
-  number and has never been measured externally. If it behaves like `d768`,
-  the shipping recommendation changes again.
-* **A second external domain.** Every transfer claim here rests on one test set
-  of KartaView dashcam frames. "Does not transfer to KartaView" is not "does not
-  transfer".
-* **Seeds.** Every arm here is a single seed, and seeds have differed by 18 km
-  on the median in this project.
-* Shards 70–97 remain unused — 1.4M more images to the 4.90M ceiling. Worth
-  doing *with* `--retr-drop`, given what the corpus step did without it.
+The last eight of round two closed on 2026-09-04, and each was checked by
+reverting its guard and watching its test go red -- the discipline whose
+absence produced three wrong fixes in round one. Five of the eight are the same
+shape: a consumer reading an artifact without asking which of its rows are
+real, or a guard that stopped one file short of the last place it was needed.
 
-## Hardware constraints, measured
+**The provenance family closed on 2026-09-04.** #40 with 43, 44, 46, 47, 62,
+63 and 66 were one issue — every artifact addressed by row position with
+nothing proving two describe the same rows — and one design change retired all
+eight: `src/provenance.py`, a digest of the ordered ids in a sidecar beside
+each artifact, with `scripts/backfill_prov.py` for the 38 that already existed.
+Absent warns, mismatched refuses. See the closing section of `docs/REVIEW.md`.
 
-* **31.7 GB RAM.** The host-RAM tier needs `0.4 × free` to exceed the table, so
-  anything above ~2.9M images at 1536-d falls to the memmap tier. That tier
-  costs a measured ~4% (805 s vs 738 s cold), and it is *cheaper* than a paged
-  private copy, because a memmapped page is clean and a dirty private page must
-  be written to the pagefile before eviction.
-* **Large pages work only as the first big allocation after boot.** Confirmed
-  in both directions in one evening: 10.75 GB succeeds on a freshly booted idle
-  machine; four hours later with three jobs running, 4.22 GB succeeds and
-  10.75 GB fails with ERROR_NO_SYSTEM_RESOURCES. `dataset.py` tries and falls
-  back cleanly, saying why. `NO_LARGE_PAGES=1` disables it.
-* **Training is GPU-bound.** Corrected 2026-09-02: measured directly at
-  **94-96% utilisation and 172 W** with nothing else on the card. The earlier
-  "every run logs 1% GPU" reading is from before the reboot and cannot be
-  reconciled with the same ~27 min per rung; two other measurements agree with
-  the new one and not the old, which is what settles it. The memmap tier costs
-  only ~4%, which a genuinely data-bound run could not manage, and stacking
-  three jobs cost 2.6x, which a data-bound run would not — they would interleave
-  their I/O rather than queue for one saturated device. Treat 1% as a broken
-  sensor, not as evidence. The practical consequence: **never stack GPU jobs**,
-  and faster iteration comes from less work per step, not more I/O throughput.
-* **C: is NVMe (0.20 ms), E: is a 2 TB HDD.** Shard zips live on E:, which is
-  why sequential `slurp()` took `embed_street` from 3 to 83 MB/s.
+Doing it turned up two things reading would not have. The first resolver
+stamped `pyr47_fuse_p05` as release rows: its `_rows.i64.npy` holds 0..47645,
+a legal index into a 500,000-row release that actually indexes a KartaView
+cache. And **a live regression**: the strong `split_hash` had landed without a
+legacy fallback in `dataset.py`, so every kNN cache on disk was refused and the
+shipping retrieval path could not build at all. All three sites comparing a
+split digest now go through one `splits.hash_matches`.
 
-## Recurring mistakes worth not repeating
+**#70–73 closed the same day**, and it was the other structural group: a
+stage identified by its name alone, and a log appended to across days. Both
+made a file describe work a different run did — the pair that killed
+`fuse-attn-pyr47` at epoch 11 of 12. `src/runlog.py` holds both conventions.
+Measured rather than argued: 47 of 200 logs had been parsing to zero epochs,
+so those report rows all carried a NaN seconds-per-epoch, and two training
+logs were genuinely spliced across attempts.
 
-* **`OSV_RELEASE` defaults to `s01`.** Three silent wrong answers in one day:
-  test fixtures in the wrong cache, `after.py` skipping the entire corpus block
-  while logging that block 3 had not finished, and the harvester seeding from a
-  50k pool while reporting a plausible number. Each failed by quietly doing
-  less. The scripts that hit it are pinned individually; the real fix is for
-  `config.py` to have no default.
-* **`ThreadPoolExecutor.map` buffers everything.** It OOM'd `pyramid_cache.py`
-  after `tile_cache.py` already carried a comment warning about it. Use the
-  bounded sliding window.
-* **Unquoted heredocs let backticks expand**, mangling several patches
-  including one that silently no-matched and left a memory file inconsistent
-  with its own description.
-* **Mechanical substitutions applied too broadly** — the arm rename rewrote
-  `NAMING.md`'s own counter-example so the doc argued against itself.
-* **Markers record that a stage ran, not that its inputs are unchanged.**
-  `w768_eval` was skipped as done when it had only ever evaluated one rung.
+---
 
-## The habit that keeps earning its keep
+## 5. Needs your decision — do not fix these silently
 
-**Verify the reproduction before reading the number.** The high-resolution
-evaluation looked like catastrophic domain shift; checking the pipeline against
-stored vectors first is what made it safe to trust the result, and the two
-controls that followed killed both of my explanations for it. Two predictions
-were falsified this way in one day — the undertraining story for `fh_pos1`, and
-aspect ratio for KartaView — and both were cheaper to test than to argue about.
+Eight items change what a trained arm *is*, so fixing any makes future arms
+incomparable with all 122 checkpoints on file. Each needs a re-baseline. **#29
+is done and under measurement; #24 joined the list on 2026-09-04; seven remain.**
+
+* **#29 weight decay — fixed 2026-09-04, being measured now.** The rule was
+  `"pos" in name`. Enumerated rather than assumed, and the line above was
+  wrong: it caught **three** ndim-2 tensors, not two. Two are
+  `retr.q_pos.weight` and `retr.k_pos.weight` — `nn.Linear` projections, the
+  **learned retrieval keys**, 196,608 parameters, 3.7% of the model, worth
+  +4.1 pp on record, and the branch `--retr-drop` exists to regularise. The
+  third is `map.pos.weight`, a real `nn.Embedding` that *should* be exempt, so
+  simply deleting the clause would have been a second bug. Now classified by
+  module type: `nn.Embedding` covers `map.pos`, `state.step` and `GeoMem.emb`
+  (retiring the `"geo."` clause), `ndim <= 1` covers the norms, biases and the
+  `retr.w_pos` scalar. One other change: `geo.q_geo`, a dense Linear the geo
+  clause also exempted, now decays — 8,192 parameters, geo arms only.
+  `--wd-legacy` restores the old rule so both sides can be run fresh at one
+  seed; see §6.
+* **#28 `quality()`** sees the unmasked top-1 similarity even when
+  `--retr-drop` hid that neighbour.
+* **#27 `--save-opt`** writes optimizer state nothing loads; scheduler and RNG
+  are not saved, so a 2+2+2 ladder is three optimizer restarts.
+* **#2 `FuseHead.baseline`** omits a per-encoder renormalisation the printed
+  baseline applies. The head is a residual on exactly that vector, so changing
+  it invalidates today's fusion runs and the 33.1% init score.
+* **#31 sink coefficient** unconstrained (dormant — all checkpoints `sink_k=1`).
+* **#32 memory dropout** lacks inverted-dropout scaling.
+* **#24 multi-photo scoring** — the learned neighbour score is
+  `cos(q_pos(q_emb), k_pos(nbr_emb))` and one query embedding is supplied per
+  group, so candidates a *secondary* photograph retrieved are scored against a
+  photograph that did not retrieve them. Closing it means letting the
+  retrieval prior take a query embedding per neighbour: a shipped model's
+  interface, and it invalidates "several photos help a little" (+1.2 pp).
+  `multiquery.py` prints the caveat whenever a pos/dual arm runs at N>1.
+* **#39 RoPE** gives no relative position. Measured: with identical content at
+  all 256 positions, the attention logit's within-offset spread is 0.845 of its
+  overall spread as built, against 0.000 for the textbook arrangement. Live for
+  108 of 122 checkpoints including the shipping arm.
+
+---
+
+## 6. Running now: the #29 re-baseline
+
+`scripts/wd29.py`, launched 2026-09-04 00:45, ~3 h of GPU plus evaluation.
+Two full d768/3.50M/p=0.7 ladders — e2 -> e4 -> e6, two epochs a rung with
+`--init` between, exactly how `d768-b350-e6-drop70` was built — one with the
+fixed grouping and one with `--wd-legacy`, **both at `--seed 0`**.
+
+Both sides are trained fresh on purpose. Every one of the 122 checkpoints
+predates `--seed`, so scoring a new seeded arm against the shipping one would
+differ in the seed as well as the rule — and the seed is not small here: two
+seeds of one configuration differ by 18 km on the median. Pairing a seed
+difference with a treatment difference is exactly the mistake the corpus
+caveat made, where the error turned out to be correlated with the treatment.
+
+Then a paired bootstrap over `wd29-fix-e6`, `wd29-legacy-e6` and the shipping
+arm on the sequence benchmark, plus KartaView at 5,000. `bootstrap` now labels
+any table whose arms disagree on the grouping rule. Read `<25 km`, not the
+median — the median swings 300 km between epochs.
+
+Outputs: `runs/BOOTSTRAP_wd29.md`, `runs/wd29_fix.npz`, `runs/wd29_legacy.npz`,
+logs in `runs/logs/wd29-*.log`, runner log `runs/logs/wd29_runner.log`.
+
+---
+
+## 7. Best next experiment
+
+**An auxiliary coarse street-only head.** Two independent measurements point at
+it: step 0 carries 84.3% of the mean error, and with retrieval off the visual
+branch scores 2.7%. It is Tier 1 in `ARCHITECTURE_NEXT.md`, needs tiles and a
+training run.
+
+Also promoted there: **capped or mixture retrieval combination**, because
+`cond_probe` showed the prior's contribution outweighs the top-1 margin in 85%
+of rows — it is deciding the answer often enough that how it is combined
+matters. That measurement reversed three conclusions I had drawn from the
+static gates alone, which the same document had flagged as a floor rather than
+the whole story.
+
+---
+
+## 8. Tools written this session
+
+`scripts/parity_report.py` — the whole external table from the exports.
+`scripts/pair_npz.py` — paired bootstrap over two exported error arrays.
+`scripts/rope_probe.py` — is rotary giving relative position (no).
+`scripts/cond_probe.py` — the retrieval prior's real influence on a logit.
+`scripts/fuse_init_probe.py` — the fusion head scored at initialisation.
+`bootstrap.py --retr-off` — corpus dependency measured directly.
+`eval_highres.py --match-bank` — reproduce the bank's embedding pipeline.
+`src/safeio.py` — atomic checkpoint and report writes.
+
+Tests: `test_checkpoint_contract.py`, `test_split_hash_and_cache.py`,
+`test_topk_bounds.py`, `test_import_order.py`, `test_safeio.py`,
+`test_cache_completeness.py`.
+
+---
+
+## 9. Hardware and environment
+
+* RTX 3070, 8 GB. Training is **GPU-bound**, 92–96% at 165–176 W. The fusion
+  head runs 97% at 236 W with 6.9/8 GB resident. **Never stack GPU jobs** —
+  measured 2.6× cost.
+* 31.7 GB RAM. Casting a bank to float32 whole is a 10.7 GB allocation; chunk.
+* `python` on PATH is MSYS2's and lacks numpy. Always
+  `/c/Users/longd/AppData/Local/Programs/Python/Python313/python.exe`.
+* Tile server `192.168.50.1:3000`. Needed by all training (beam rollout) and
+  all evaluation. Not needed by pyramid/fusion work or any probe above.
+* `OSV_RELEASE` is now **required** — no default. The runner sets it.
+
+---
+
+## 10. Rules learned the hard way
+
+* **A fix is not done until it is tested against the failure it prevents.**
+  Round two found three wrong fixes and every one had never been run against
+  its own failure case: the split hash never fed a swapped assignment, the
+  cache resolver never given a retrained checkpoint, the top-k never run at
+  `K == bank size`. Two of those I introduced while fixing something else.
+* **Ask whether a measurement error is independent of the treatment**, not
+  merely whether it was applied uniformly.
+* **A guard that is defined and never called is not a guard.** Happened twice
+  (#65, #17). Nor is one that fails open (#42).
+* **Never type a backslash inside a Bash heredoc** — it arrives as a real
+  newline. Hit six times today despite being written down. Build it as
+  `chr(92)` or write the patch script to a file with the Write tool.
+* **Assert before writing** in patch scripts. Two anchors missed today and
+  neither corrupted a file. But re-running a patch script double-applies —
+  check for duplication after.
+* **Scope every log check to the newest `==== attempt`.** An append-only log
+  matched a `FAIL` from the previous day and killed `fuse-attn-pyr47` at epoch
+  11 of 12.
+* **Do not block on `WaitForExit` in the PowerShell tool**, and expect the Bash
+  tool's background jobs to be reaped. Long runs survive as detached
+  `Start-Process` with output redirected to a file, polled afterwards.
+* **`git checkout <file>` discards uncommitted work.** Lost the `overnight.py`
+  edits that way; commit before sabotage-testing.
+* **Never `git stash`.** It swept a session's uncommitted work out from under
+  a diagnostic on 2026-09-04. Recovered with `stash pop`, but the safe form of
+  "what did this look like before my change?" is `git show <rev>:<path>` to a
+  scratch file, never anything that touches the working tree.
+* The **2,000-image selection set is not evidence**; it picks checkpoints.
+* **A wide interval means get more data, not weaken the claim.**

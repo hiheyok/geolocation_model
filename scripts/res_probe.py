@@ -48,8 +48,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import config
-from tile_pool import great_circle, l2, paired
+from tile_pool import paired
 from tile_match import dense_sim, topk_stats
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
@@ -158,6 +157,10 @@ def main():
             a.model, size, (size // patch) ** 2), flush=True)
 
     emb = {x: np.zeros((len(recs), 768), np.float32) for x in arms}
+    # A row that never decoded keeps its id, coordinates and sequence while
+    # holding a zero vector, so it is scored as an image that simply matches
+    # nothing. Track them and drop them before any metric is computed.
+    decoded_ok = np.zeros(len(recs), bool)
     pool = ThreadPoolExecutor(a.workers)
 
     def load(i):
@@ -188,10 +191,32 @@ def main():
         buf = {x: [] for x in arms}
         idx = []
 
-    for i, v in pool.map(load, range(len(recs))):
+    def bounded(items, ahead):
+        """Keep at most `ahead` decodes in flight.
+
+        `pool.map` submits every task immediately and buffers every result, so
+        a probe over 47,646 images held tens of thousands of decoded variant
+        stacks at once -- each one several MB (item 18). The same windowed
+        generator the caches use.
+        """
+        from collections import deque
+        q, it = deque(), iter(items)
+        def top_up():
+            while len(q) < ahead:
+                nxt = next(it, None)
+                if nxt is None:
+                    return
+                q.append(pool.submit(load, nxt))
+        top_up()
+        while q:
+            yield q.popleft().result()
+            top_up()
+
+    for i, v in bounded(range(len(recs)), 4 * a.workers):
         if v is None:
             bad += 1
             continue
+        decoded_ok[i] = True
         for x in arms:
             buf[x].append(v[x])
         idx.append(i)
@@ -219,6 +244,18 @@ def main():
                  **{x: emb[x] for x in arms})
         print("saved embeddings -> {}".format(d / ("emb_%s.npz" % a.model)),
               flush=True)
+
+    # Drop the rows that never decoded. They kept their coordinates and
+    # sequence while holding a zero vector, so they were scored as images that
+    # simply match nothing -- a silent penalty applied equally to every arm,
+    # which is worse than it sounds: it shrinks every difference toward zero.
+    if not decoded_ok.all():
+        keep = np.flatnonzero(decoded_ok)
+        print("dropping {:,} of {:,} rows that failed to decode"
+              .format(len(recs) - len(keep), len(recs)), flush=True)
+        recs = [recs[i] for i in keep]
+        for x in arms:
+            emb[x] = emb[x][keep]
 
     lat = np.array([r["lat"] for r in recs])
     lon = np.array([r["lon"] for r in recs])

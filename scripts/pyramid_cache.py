@@ -50,7 +50,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config
-from res_probe import ARMS, variants, MODELS
+from res_probe import variants, MODELS
 
 LEVELS = ["crop3_224", "tile6", "tile24"]      # 3 + 6 + 24 = 33 tokens
 NTOK = {"crop3_224": 3, "tile6": 6, "tile24": 24}
@@ -62,6 +62,52 @@ def level_index():
     needs it for a level embedding, and the probes need it for weighting."""
     return np.concatenate([np.full(NTOK[k], i, np.int64)
                            for i, k in enumerate(LEVELS)])
+
+
+def _load_done(path, n):
+    """Per-encoder completion, (n, 2). A 1-D file is a pre-2026-09-02 cache
+    where a row could only be written after both passes, so both are done."""
+    if not path.exists():
+        return np.zeros((n, 2), np.uint8)
+    d = np.load(path)
+    if d.ndim == 1:
+        d = np.repeat(d.reshape(-1, 1), 2, axis=1)
+    # A mask of the wrong length, or holding anything but 0/1, is not a resume
+    # point -- it is another run's file under this one's name, and trusting it
+    # blesses rows that were never written.
+    if d.shape != (n, 2):
+        raise SystemExit(
+            "resume mask is {} but this cache wants {}; it belongs to a "
+            "different build. Delete it to start fresh.".format(d.shape, (n, 2)))
+    if not np.isin(d, (0, 1)).all():
+        raise SystemExit(
+            "resume mask holds values outside {0, 1}; it is not a completion "
+            "mask. Delete it to start fresh.")
+    return d.astype(np.uint8)
+
+
+def _mark(done, loaded, ei, path, mm=None):
+    """Persist progress for one encoder, after its data is on disk.
+
+    The ordering matters and used to be backwards: the mask was written
+    durably through tmp+replace while the token memmap was never flushed, so a
+    crash could leave rows marked complete whose tokens never reached disk --
+    and an unwritten row is the zero fill, which reads as a valid embedding.
+
+    The mask used to be written once, after *both* passes. Fourteen attempts
+    were logged and one reached 14,000 images; every restart resumed from zero
+    because nothing had been recorded. Saving per flush makes an interruption
+    cost one batch instead of the whole run.
+    """
+    if not loaded:
+        return
+    if mm is not None:
+        mm.flush()
+    done[np.array(sorted(loaded), np.int64), ei] = 1
+    loaded.clear()
+    tmp = path.with_suffix(".tmp.npy")
+    np.save(tmp, done)
+    os.replace(tmp, path)
 
 
 def main():
@@ -100,14 +146,40 @@ def main():
     donep = config.STREET_CACHE / (a.out + "_done.u8.npy")
     config.STREET_CACHE.mkdir(parents=True, exist_ok=True)
     shape = (n, ntok, 2, D_ENC)
-    if out.exists() and np.load(out, mmap_mode="r").shape == shape:
+    have = np.load(out, mmap_mode="r").shape if out.exists() else None
+    if have and have[1:] == shape[1:] and have[0] < n and donep.exists():
+        # `order` is a permutation prefix precisely so that raising --n extends
+        # the same cache. It did not: the resume branch demanded an exact shape
+        # match, so a larger --n fell through to `w+` and destroyed every row
+        # already computed -- the one case the prefix trick exists to serve.
+        old = np.load(out, mmap_mode="r")
+        k = len(old)
+        print("extending {:,} -> {:,} rows (keeping the cached prefix)"
+              .format(k, n), flush=True)
+        tmp = out.with_suffix(".grow.npy")
+        Y = np.lib.format.open_memmap(tmp, mode="w+", dtype=np.float16,
+                                      shape=shape)
+        for s in range(0, k, 2000):
+            Y[s:min(s + 2000, k)] = old[s:min(s + 2000, k)]
+        Y.flush()
+        del old, Y
+        os.replace(tmp, out)
+        prev = _load_done(donep, k)
+        done = np.zeros((n, 2), np.uint8)
+        done[:k] = prev
+        np.save(donep, done)
         X = np.load(out, mmap_mode="r+")
-        done = np.load(donep) if donep.exists() else np.zeros(n, np.uint8)
-        print("resuming: {:,}/{:,} already cached".format(int(done.sum()), n))
+        print("resuming: {:,}/{:,} complete".format(int(done.all(1).sum()), n))
+    elif have == shape:
+        X = np.load(out, mmap_mode="r+")
+        done = _load_done(donep, n)
+        print("resuming: {:,}/{:,} complete  (dinov2 {:,}, siglip {:,})".format(
+            int(done.all(1).sum()), n,
+            int(done[:, 0].sum()), int(done[:, 1].sum())))
     else:
         X = np.lib.format.open_memmap(out, mode="w+", dtype=np.float16,
                                       shape=shape)
-        done = np.zeros(n, np.uint8)
+        done = np.zeros((n, 2), np.uint8)
     print("{}  {:.2f} GB".format(out.name, X.nbytes / 1e9), flush=True)
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -115,20 +187,42 @@ def main():
     enc_order = ["dinov2", "siglip"]
 
     def load_img(k):
+        """Decode AND cut the 33 views, both in the worker.
+
+        Cutting them on the consumer side serialised the expensive half onto
+        one thread: `variants` resizes a 6 MP image up to 1344x896 and cuts 33
+        tiles, which is far more work than the JPEG decode. Measured mid-run,
+        neither resource was saturated -- E: queue length 0.5, CPU 13% -- while
+        the GPU alternated 100/0, which is the signature of a single-threaded
+        stage in the middle of the pipeline.
+
+        This also shrinks what the queue holds: 33 x 224 x 224 x 3 is 4.96 MB
+        against roughly 18 MB for the decoded 6 MP image.
+        """
         try:
             im = Image.open(root / "img" / ("%s.jpg" % order[k]))
             im.load()
-            return k, im.convert("RGB")
+            v = variants(im.convert("RGB"), LEVELS)
+            return k, np.concatenate([v[name] for name in LEVELS])
         except Exception:
             return k, None
 
-    todo = np.flatnonzero(done == 0)
-    if not len(todo):
-        print("nothing to do")
-        return
+    # Do NOT return here. A crash between the final _mark and the metadata
+    # write leaves a cache whose mask says complete and whose _meta.npz does
+    # not exist, and every later run took this branch and exited -- so the
+    # cache permanently reported "nothing to do" and never became usable.
+    # Fall through instead: the encoder loops are already no-ops when done,
+    # and the verification and metadata write below are cheap and idempotent.
+    if done.all():
+        print("all rows already cached; verifying and rewriting metadata")
 
-    loaded = set()
     for ei, mname in enumerate(enc_order):
+        # per encoder, so a run interrupted during siglip does not redo dinov2
+        todo = np.flatnonzero(done[:, ei] == 0)
+        if not len(todo):
+            print("  {:<7} already complete".format(mname))
+            continue
+        loaded = set()
         # img_size must be given: DINOv2's timm default is 518, and every
         # token here is 224. mean/std come from the model's own config -- they
         # differ between these two encoders (ImageNet vs 0.5), and hardcoding
@@ -178,12 +272,18 @@ def main():
                     X[k, :, ei, :] = z[j].astype(np.float16)
                 buf_v.clear()
                 buf_k.clear()
+                # Record here, not after the pass. `_mark`'s own docstring says
+                # "saving per flush makes an interruption cost one batch
+                # instead of the whole run", and the call site did not do that
+                # -- it ran once, after the loop. The project log has fourteen
+                # pyramid attempts and one reached 14,000 images; every restart
+                # resumed from zero because nothing had been written yet.
+                _mark(done, loaded, ei, donep, X)
 
-            for k, im in decoded(todo.tolist(), 2 * a.workers):
-                if im is None:
+            for k, views in decoded(todo.tolist(), 2 * a.workers):
+                if views is None:
                     continue
-                v = variants(im, LEVELS)
-                buf_v.append(np.concatenate([v[k2] for k2 in LEVELS]))
+                buf_v.append(views)
                 buf_k.append(k)
                 loaded.add(int(k))
                 seen += 1
@@ -196,6 +296,7 @@ def main():
                                   (len(todo) - seen) / max(seen / el, 1e-9) / 60),
                           flush=True)
             flush()
+            _mark(done, loaded, ei, donep, X)
         del net
         torch.cuda.empty_cache()
         print("  {} done in {:.0f} min".format(mname, (time.time() - t0) / 60),
@@ -205,16 +306,26 @@ def main():
     # stamp a failed decode as cached and leave 33 all-zero tokens behind --
     # the same silent-null failure the GeoMem table had, and it would look like
     # an honest result rather than an error.
-    ok = np.array(sorted(loaded), np.int64)
-    done[ok] = 1
-    np.save(donep, done)
-    bad = int((np.abs(np.asarray(X[ok][:, :, 0, :], np.float32)).sum(-1) == 0).sum())
-    if bad:
-        raise SystemExit("{:,} all-zero tokens among images marked done"
-                         .format(bad))
-    if len(ok) < len(todo):
-        print("{:,} of {:,} images failed to decode and are left unmarked"
-              .format(len(todo) - len(ok), len(todo)))
+    ok = np.flatnonzero(done.all(1))
+    # Validate BOTH encoder slices. Checking only slice 0 would pass an image
+    # that decoded for dinov2 and failed for siglip, leaving half its tokens
+    # zero behind a "done" flag -- the silent-null failure this check exists
+    # to prevent.
+    # Chunked, and the encoder axis sliced BEFORE the cast. `X[ok][:, :, ei]`
+    # is fancy indexing: it materialises both encoders for every complete row
+    # as float32 first -- (n, 33, 2, 768), over 10 GB at full scale -- and
+    # only then throws half away. Same shape of bug as the embed_street scan.
+    for ei, mname in enumerate(enc_order):
+        z = 0
+        for s in range(0, len(ok), 20000):
+            blk = np.asarray(X[ok[s:s + 20000]][:, :, ei, :], np.float32)
+            z += int((np.abs(blk).sum(-1) == 0).sum())
+        if z:
+            raise SystemExit("{:,} all-zero {} tokens among images marked "
+                             "complete".format(z, mname))
+    if len(ok) < n:
+        print("{:,} of {:,} images are not complete for both encoders"
+              .format(n - len(ok), n))
     lat = np.array([recs[i]["lat"] for i in order], np.float64)
     lon = np.array([recs[i]["lon"] for i in order], np.float64)
     seq = np.array([str(recs[i].get("sequence_id", i)) for i in order])
@@ -226,6 +337,14 @@ def main():
     print("\nwrote {} and {}_meta.npz  ({:,} images)".format(
         out.name, a.out, int(done.sum())))
     print("levels per token:", np.bincount(level_index()))
+
+    short = n - int(done.all(1).sum())
+    if short:
+        # The stage runner keys its markers on the exit code, so exiting 0
+        # with rows outstanding marked a partial cache finished and it was
+        # never retried. Unwritten rows are zero embeddings that read as valid.
+        sys.exit("\nINCOMPLETE: {:,} of {:,} rows are missing an "
+                 "encoder pass. Re-run to resume.".format(short, n))
 
 
 if __name__ == "__main__":

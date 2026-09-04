@@ -60,6 +60,8 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import provenance as prov
+import safeio
 import splits as sp
 from tile_pool import l2, paired
 from tile_match import dense_sim, topk_stats
@@ -130,6 +132,13 @@ class FuseHead(nn.Module):
         per = [torch.nn.functional.normalize(
             x[:, self.level_of == l].mean(1), dim=-1)
             for l in range(self.n_lvl)]
+        # DELIBERATELY NOT FIXED. Review item 2 is real: this differs from the
+        # printed baseline by a per-encoder renormalisation. But the head is a
+        # residual on exactly this vector, so changing it changes the arm --
+        # the three fusion runs of 2026-09-03, and the head-at-init score of
+        # 33.1% that the retraction rests on, would all become incomparable.
+        # Same class as items 29, 31 and 32: fix it with a re-baseline, as a
+        # decision, not as a tidy-up.
         return torch.stack(per).mean(0).flatten(1)      # (B, 2*768)
 
     def forward(self, x):
@@ -161,6 +170,41 @@ class FuseHead(nn.Module):
         return b @ self.base_w
 
 
+def require_written(donep, n, stem):
+    """Refuse rows the cache never wrote.
+
+    The beam-search completion check does not reach this consumer, and an
+    unwritten row is the zero fill -- which L2-normalises to a unit-length
+    nothing and trains as if it were a real view. That is the silent-null
+    failure one file over: no loss can show it, because a zero token is
+    well-formed. tile_cache marks a row only after its embedding is on disk,
+    so the mask is the record of which rows are real.
+
+    The mask indexes the cache file positionally; `sel` addresses the dataset
+    and is a different space.
+    """
+    if not donep.exists():
+        print("warning: no {} -- cannot prove every {} row was written"
+              .format(donep.name, stem), flush=True)
+        return
+    d = np.load(donep)
+    # (n,) for a single-encoder cache, (n, k) for one column per encoder --
+    # the pyramid writes the latter, and a row is real only when every
+    # encoder wrote it. Checking column 0 alone would pass an image that
+    # decoded for dinov2 and failed for siglip.
+    if d.shape[0] != n or d.ndim > 2:
+        raise SystemExit(
+            "{} is {} but {}.f16.npy holds {:,} rows; they describe "
+            "different builds".format(donep.name, d.shape, stem, n))
+    bad = int((~(d.astype(bool).all(-1) if d.ndim == 2 else d.astype(bool)))
+              .sum())
+    if bad:
+        raise SystemExit(
+            "{:,} of {:,} {} rows were never written (zero fill). Finish "
+            "the cache before training the fusion head."
+            .format(bad, n, stem))
+
+
 def load_tokens(sel):
     """(n, 9, 2, 768) float16: 3 crops then 6 tiles, split by encoder."""
     C = np.asarray(np.load(config.STREET_CACHE / "dual_c3.f16.npy",
@@ -171,10 +215,18 @@ def load_tokens(sel):
                   C[:, h:].reshape(-1, nc, D_ENC)], axis=2)
     T = np.asarray(np.load(config.STREET_CACHE / "tile6.f16.npy",
                            mmap_mode="r"), np.float32)
+    require_written(config.STREET_CACHE / "tile6_done.u8.npy", len(T), "tile6")
     T = np.stack([T[:, :, :D_ENC], T[:, :, D_ENC:]], axis=2)
     X = np.concatenate([C, T], axis=1)
     X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)   # per-token L2
     return X.astype(np.float16)
+
+
+def unit3_t(la, lo, dev):
+    """Unit vectors on the device, for in-batch great-circle masking."""
+    la = torch.as_tensor(np.radians(la), dtype=torch.float32, device=dev)
+    lo = torch.as_tensor(np.radians(lo), dtype=torch.float32, device=dev)
+    return torch.stack([la.cos() * lo.cos(), la.cos() * lo.sin(), la.sin()], 1)
 
 
 def unit3(lat, lon):
@@ -190,6 +242,12 @@ def main():
     ap.add_argument("--lr", type=float, default=3e-4)
     ap.add_argument("--d", type=int, default=256)
     ap.add_argument("--pos-km", type=float, default=5.0)
+    ap.add_argument("--mask-fn", type=int, default=1,
+                    help="mask off-diagonal true positives in the "
+                         "contrastive loss; 0 reproduces the runs "
+                         "before 2026-09-03")
+    ap.add_argument("--uniq-anchor", type=int, default=1,
+                    help="at most one row per anchor per batch")
     ap.add_argument("--tau", type=float, default=0.05)
     ap.add_argument("--queries", type=int, default=3000)
     ap.add_argument("--hard", action="store_true",
@@ -237,9 +295,13 @@ def main():
                       for x in seq.tolist()])
         tr = np.flatnonzero(h < 8)
         te = np.flatnonzero(h >= 8)
-        X = np.asarray(np.load(config.STREET_CACHE
-                               / (a.pyr_stem + ".f16.npy"),
-                               mmap_mode="r"), np.float32)
+        _pyr = config.STREET_CACHE / (a.pyr_stem + ".f16.npy")
+        # The same check the tile6 branch gets. pyr47_done.u8.npy happens to be
+        # complete, so no reported run was affected -- which is luck, not a
+        # guarantee, and an unwritten row here is the same unit-length nothing.
+        require_written(config.STREET_CACHE / (a.pyr_stem + "_done.u8.npy"),
+                        len(np.load(_pyr, mmap_mode="r")), a.pyr_stem)
+        X = np.asarray(np.load(_pyr, mmap_mode="r"), np.float32)
         X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
         X = X.astype(np.float16)
         print("{:,} pyramid rows: {:,} train, {:,} test   levels {}"
@@ -272,7 +334,10 @@ def main():
             if j != i and seq[tr[j]] != seq[tr[i]]:
                 pairs.append((tr[i], tr[j]))
     pairs = np.array(pairs, np.int64)
-    print("{:,} anchor-positive pairs within {:.0f} km, different sequence "
+    # {:g}, not {:.0f}: --pos-km 0.5 printed "within 0 km", which is the
+    # radius that defines a positive misreported in the one line anyone would
+    # check it against.
+    print("{:,} anchor-positive pairs within {:g} km, different sequence "
           "({:.1f}% of train images have one)".format(
               len(pairs), a.pos_km,
               100 * len(np.unique(pairs[:, 0])) / len(tr)), flush=True)
@@ -284,10 +349,44 @@ def main():
                      level_of=level_of).to(dev)
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
-    steps = a.epochs * max(1, len(pairs) // a.batch)
+    # Count the batches actually yielded. With --uniq-anchor the loop keeps
+    # at most one row per anchor and drops the remainder, so scheduling from
+    # len(pairs) made OneCycle plan for far more steps than it takes and the
+    # run ended mid-schedule, never reaching the final low-LR phase. This
+    # affected the masked fusion runs.
+    _per_epoch = (len(set(pairs[:, 0].tolist())) // a.batch if a.uniq_anchor
+                  else len(pairs) // a.batch)
+    steps = a.epochs * max(1, _per_epoch)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=steps,
                                                 pct_start=0.1)
     print("head {:,} params   {:,} steps".format(n_par, steps), flush=True)
+
+    # The token table is read-only and small enough to live on the card at
+    # this size, which removes the host gather and the PCIe copy entirely --
+    # indexing then happens in VRAM. Falls back to a pinned host gather when it
+    # does not fit, and the two lookups per step are combined into one so the
+    # expensive fancy-index runs once rather than twice.
+    Xg = None
+    if dev == "cuda":
+        free, _ = torch.cuda.mem_get_info()
+        need = X.nbytes + (1 << 30)          # table plus a gigabyte of headroom
+        if need < free:
+            Xg = torch.from_numpy(X).to(dev)
+            print("tokens on GPU  {:.2f} GB resident, {:.2f} GB free"
+                  .format(X.nbytes / 1e9, free / 1e9), flush=True)
+        else:
+            print("tokens stay on host: {:.2f} GB needed, {:.2f} GB free"
+                  .format(need / 1e9, free / 1e9), flush=True)
+
+    def take_pair(idx):
+        """Both halves of the batch in one gather -> (2B, ntok, 2, D)."""
+        flat = np.concatenate([idx[:, 0], idx[:, 1]])
+        if Xg is not None:
+            t = Xg[torch.from_numpy(flat).to(dev)].float()
+        else:
+            t = torch.from_numpy(X[flat]).pin_memory().to(
+                dev, non_blocking=True).float()
+        return t[:len(idx)], t[len(idx):]
 
     def take(rows):
         return torch.from_numpy(X[rows]).to(dev).float()
@@ -312,10 +411,40 @@ def main():
                   sum(len(b) for b in buckets), len(pairs)), flush=True)
         if not buckets:
             sys.exit("no bucket holds a full batch; lower --batch or --bucket-z")
+        # Re-plan the schedule. --hard drops every bucket below one batch and
+        # then drops each bucket's remainder, so the run takes far fewer steps
+        # than `steps` assumed and OneCycle never reaches its final low-LR
+        # phase. Same defect as the --uniq-anchor one, in the other branch.
+        _hard_per_epoch = sum(len(b) // a.batch for b in buckets)
+        _want = a.epochs * max(1, _hard_per_epoch)
+        if _want != steps:
+            print("  schedule {:,} -> {:,} steps (hard negatives drop small "
+                  "buckets and remainders)".format(steps, _want), flush=True)
+            steps = _want
+            sched = torch.optim.lr_scheduler.OneCycleLR(
+                opt, a.lr, total_steps=steps, pct_start=0.15)
 
     def batches():
         if not a.hard:
             order = rng.permutation(len(pairs))
+            if a.uniq_anchor:
+                # One row per anchor per batch. An anchor with many neighbours
+                # contributes many pairs, so a plain permutation put the same
+                # anchor in a batch twice in 100% of batches -- and the diagonal
+                # target then asks one identical vector to match its own
+                # positive and *not* another equally valid one. Measured before
+                # this was added: every batch affected.
+                seen, keep = set(), []
+                for k in order:
+                    ai = int(pairs[k, 0])
+                    if ai in seen:
+                        continue
+                    seen.add(ai)
+                    keep.append(k)
+                    if len(keep) == a.batch:
+                        yield pairs[keep]
+                        seen, keep = set(), []
+                return
             for s in range(0, len(order) - a.batch + 1, a.batch):
                 yield pairs[order[s:s + a.batch]]
             return
@@ -331,12 +460,30 @@ def main():
         model.train()
         tot, nb = 0.0, 0
         for idx in batches():
-            za = model(take(idx[:, 0]))
-            zp = model(take(idx[:, 1]))
+            ta, tp = take_pair(idx)
+            za, zp = model(ta), model(tp)
             logits = za @ zp.T / a.tau
             tgt = torch.arange(len(idx), device=dev)
+            if a.mask_fn:
+                # Mask off-diagonal cells that are *true* positives. The pair
+                # list is every image within --pos-km of another, and the
+                # harvest is geographically clustered, so a random batch is
+                # full of co-located images: 50.3% of the off-diagonal cells
+                # were valid positives being trained as negatives -- 128 of
+                # every 255 "negatives". Half the gradient was pushing apart
+                # images within 5 km of each other, which is the objective
+                # working against the thing it is supposed to learn.
+                A = unit3_t(lat[idx[:, 0]], lon[idx[:, 0]], dev)
+                P = unit3_t(lat[idx[:, 1]], lon[idx[:, 1]], dev)
+                near = (A @ P.T).clamp(-1, 1).arccos() * 6371.0088 < a.pos_km
+                eye = torch.eye(len(idx), dtype=torch.bool, device=dev)
+                logits = logits.masked_fill(near & ~eye, float("-inf"))
+                lt = (za @ zp.T / a.tau).T.masked_fill(near.T & ~eye,
+                                                       float("-inf"))
+            else:
+                lt = logits.T
             loss = 0.5 * (nn.functional.cross_entropy(logits, tgt) +
-                          nn.functional.cross_entropy(logits.T, tgt))
+                          nn.functional.cross_entropy(lt, tgt))
             opt.zero_grad(set_to_none=True)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -387,8 +534,9 @@ def main():
     # that made crops+tiles work: complementary errors beat either alone.
     combo = np.concatenate([l2(base_un), l2(Z)], axis=1)
 
-    def pca_to(X, d, rng, fit=40000):
-        F = X[rng.choice(len(X), min(fit, len(X)), replace=False)]
+    def pca_to(X, d, rng, fit=40000, fit_rows=None):
+        src = X if fit_rows is None else X[fit_rows]
+        F = src[rng.choice(len(src), min(fit, len(src)), replace=False)]
         mu = F.mean(0, keepdims=True)
         Fc = F - mu
         Om = rng.standard_normal((Fc.shape[1], d + 64)).astype(np.float32)
@@ -397,9 +545,15 @@ def main():
             Y = Fc @ (Fc.T @ Y)
         Q, _ = np.linalg.qr(Y)
         _, _, Vt = np.linalg.svd(Q.T @ Fc, full_matrices=False)
+        _basis.update(mu=mu, P=Vt[:d].T)
         return (X - mu) @ Vt[:d].T
 
-    combo_eq = pca_to(combo, base_un.shape[1], np.random.default_rng(0))
+    _basis = {}
+    # Fit on TRAIN rows only. Fitting over every row lets the basis be
+    # chosen with the test queries in hand, which flatters the arm that uses
+    # it -- and that arm was the one reporting the best median.
+    combo_eq = pca_to(combo, base_un.shape[1], np.random.default_rng(0),
+                      fit_rows=tr)
 
     if a.export:
         # Everything above is a retrieval probe: 3,000 queries against a 96k
@@ -412,9 +566,23 @@ def main():
         np.save(str(stem) + ".f16.npy", combo_eq.astype(np.float16))
         np.save(str(stem) + "_rows.i64.npy",
                 sel if a.tokens == "osv" else np.arange(len(X)))
-        torch.save({"state": model.state_dict(), "d": a.d, "tau": a.tau,
+        safeio.save_torch({"state": model.state_dict(), "d": a.d, "tau": a.tau,
                     "pos_km": a.pos_km, "seed": a.seed,
                     "n_rows": int(len(X))}, str(stem) + "_head.pt")
+        # Without the PCA mean and basis the export is a set of vectors nobody
+        # can join: a new query runs through the head and then has nowhere to
+        # land, because the final projection was fitted here and discarded
+        # (item 5). Saved in the same shape project_street writes, so the same
+        # loader reads both.
+        if _basis:
+            np.savez(str(stem) + "_pca.npz", mu=_basis["mu"], P=_basis["P"],
+                     src=a.export, dim=combo_eq.shape[1])
+            prov.write(Path(str(stem) + ".f16.npy"),
+                       sel if a.tokens == "osv" else np.arange(len(X)),
+                       release=config.RELEASE,
+                       projection=a.export + "_pca.npz",
+                       row_space=("rows of the release" if a.tokens == "osv"
+                                  else "rows of " + a.pyr_stem))
         print("")
         print("exported {}.f16.npy  {} x {}   (+ _rows.i64.npy, _head.pt)"
               .format(a.export, len(X), combo_eq.shape[1]),

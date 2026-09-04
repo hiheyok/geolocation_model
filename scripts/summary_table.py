@@ -29,11 +29,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import config
+import safeio
 import splits as sp
 import tile_math as tm
-from beam import TokenSource
+from beam import source_for
 from dataset import GeoStepDataset, street_table
-from evaluate import evaluate, load_model, street_file_for
+from evaluate import check_split, evaluate, load_model, street_file_for
 from train import run_epoch
 
 CAP = 5000
@@ -66,24 +67,40 @@ def main():
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    source = TokenSource(tm.G)
     rows = []
 
     for tag in [t.strip() for t in a.tags.split(",") if t.strip()]:
         model, ck, d_street = load_model(tag, dev)
+        # per arm, not once: arms in one table may be tokenised at different
+        # `sub`, and a shared source scores one against the other's map
+        source = source_for(ck)
         sf = street_file_for(ck, d_street)
         tbl = (street_table(config.STREET_CACHE / sf, dev)
                if ck.get("retr_mode") in ("pos", "dual") else None)
         kn = dict(knn_file=ck.get("knn_file"),
-                  knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
+                  knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                  cache=ck.get("map_cache"))
         mode = ck.get("split_mode", sp.PRIMARY)
+        # This table reads both splits, and a checkpoint trained under another
+        # split_mode scores its own training images here -- spectacularly, and
+        # without complaint.  The release check inside matters just as much:
+        # every cache is indexed by row order.
+        check_split(ck, mode, "test")
+        check_split(ck, mode, "train")
         neg = dict(n_neg=ck.get("neg", 0), neg_random=False, neg_seed=11)
 
-        # limit is encoded in the tag, e.g. s10_n100k_e10
-        limit = 0
-        for part in tag.split("_"):
-            if part.startswith("n") and part.endswith("k") and part[1:-1].isdigit():
-                limit = int(part[1:-1]) * 1000
+        # The limit used to be encoded in the tag, e.g. s10_n100k_e10.
+        # Current tags look like d768-b350-e6 and carry no such part, so this
+        # silently yielded 0 -- meaning "no limit", i.e. evaluate over every
+        # training row including ones the arm never saw. The checkpoint has
+        # recorded it since 2026-09-03; fall back to the tag only for older
+        # files.
+        limit = int(ck.get("limit") or 0)
+        if not limit:
+            for part in tag.split("_"):
+                if (part.startswith("n") and part.endswith("k")
+                        and part[1:-1].isdigit()):
+                    limit = int(part[1:-1]) * 1000
 
         tr = GeoStepDataset("train", street_file=sf, split_mode=mode, **kn, **neg)
         te = GeoStepDataset("test", street_file=sf, split_mode=mode, **kn, **neg)
@@ -133,7 +150,7 @@ def main():
             "tst s0 | tst s1 | tst s2 | tst s3 | "
             "gap s0 | gap s1 | gap s2 | gap s3 | "
             "roll s0 | roll s1 | roll s2 | roll s3 | "
-            "loss trn | loss tst | Δloss | median km | mean km | <25km |")
+            "loss trn | loss tst | d-loss | median km | mean km | <25km |")
     L.append(head)
     L.append("|" + "---|" * (head.count("|") - 1))
     for r in rows:
@@ -150,7 +167,7 @@ def main():
         L.append("| " + " | ".join(cells) + " |")
 
     txt = "\n".join(L) + "\n"
-    Path(a.out).write_text(txt, encoding="utf-8")
+    safeio.write_text(a.out, txt)
     print("\n" + txt)
 
 

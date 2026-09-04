@@ -12,14 +12,12 @@ the tile server, so the whole script has to be done before it goes.
 """
 
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
-import config
 import overnight as O
 from overnight import Stage, load_state, log, run_stage
 from marathon import ARCH, BAL_BANK, KNN_BALBANK_SEQ, boot, cutoff_at, tiles_up

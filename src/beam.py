@@ -38,7 +38,7 @@ class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
     def __init__(self, grid=tm.G, cache=None, client=None, threads=16, sub=1):
-        tokens_p, index_p, _ = config.map_files(cache)
+        tokens_p, index_p, done_p = config.map_files(cache)
         self.grid = grid
         self.sub = int(sub)
         self.tokens = np.load(tokens_p, mmap_mode="r")
@@ -54,7 +54,33 @@ class TokenSource:
         k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
                         np.asarray(idx["x"]).astype(np.int64),
                         np.asarray(idx["y"]).astype(np.int64))
-        self.lut = dict(zip(k.tolist(), np.asarray(idx["row"]).astype(np.int64).tolist()))
+        rows = np.asarray(idx["row"]).astype(np.int64)
+        # Drop rows the cache never actually fetched. An unfetched row is the
+        # memmap's zero fill, which is a legal token histogram, so keeping it
+        # in the lookup means beam search silently scores a blank map instead
+        # of a tile -- the same defect dataset.py refuses outright. Here the
+        # better answer is a miss, not an error: there is already a live
+        # fallback, so an incomplete cache degrades to slower and correct.
+        if done_p.exists():
+            done = np.load(done_p)
+            # Fail closed. The first version skipped the whole check when the
+            # mask was too short -- exactly the case where it is least
+            # trustworthy -- so a truncated mask let unwritten zero rows back
+            # into inference under a guard that read as protective.
+            need = int(rows.max(initial=-1)) + 1
+            if len(done) < need:
+                raise SystemExit(
+                    "map cache mask has {:,} entries but the index addresses "
+                    "row {:,}; it belongs to a different build. Delete it and "
+                    "re-run fetch_tiles.".format(len(done), need - 1))
+            ok = done[rows] == 1
+            if True:
+                if not ok.all():
+                    print("map cache: {:,} of {:,} indexed tiles were never "
+                          "fetched; they will be fetched live"
+                          .format(int((~ok).sum()), len(rows)), flush=True)
+                k, rows = k[ok], rows[ok]
+        self.lut = dict(zip(k.tolist(), rows.tolist()))
         self.client = client or T.TileClient(config.TILE_SERVER)
         self.pool = ThreadPoolExecutor(max_workers=threads)
         self.live = {}
@@ -163,22 +189,38 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
         m = 1 if (greedy or not rank_here) else min(top_m, A)
         w = 1.0 if rank_here else 0.0
         new_tiles, new_paths = [], []
-        new_scores = np.zeros((B, K if not greedy else 1))
-        for b in range(B):
-            cand = []
-            live = [j for j in range(nb) if p_sink[b, j] < sink_prune]
-            if not live:                       # never leave an image with nothing
-                live = [int(np.argmin(p_sink[b]))]
-            for j in live:
+        # Every image must leave this step with the same number of beams.
+        # _views flattens (image, beam) to `b * nb + j`, so a short row would
+        # shift every later image onto another image's street embedding -- and
+        # the score array is dense, so an unfilled slot would read as 0.0, a
+        # better cumulative log-probability than any real path.
+        width = min(nb * m, K)
+        new_scores = np.full((B, width), -np.inf)
+
+        def expand(b, js):
+            out = []
+            for j in js:
                 order = np.argpartition(-logp[b, j], m - 1)[:m]
                 for aidx in order:
-                    cand.append((scores[b, j] + w * logp[b, j, aidx], j, int(aidx)))
-            cand.sort(key=lambda c: -c[0])
-            cand = cand[:K]
+                    out.append((scores[b, j] + w * logp[b, j, aidx], j, int(aidx)))
+            return out
+
+        for b in range(B):
+            live = [j for j in range(nb) if p_sink[b, j] < sink_prune]
+            cand = sorted(expand(b, live), key=lambda c: -c[0])[:width]
+            if len(cand) < width:
+                # Pruning must not cost this image beam width, or its beams
+                # stop lining up with everyone else's.  Top up from the beams
+                # pruning rejected, worst-rejected last; `width` is the same
+                # for every image, so this always fills.
+                rest = [j for j in range(nb) if j not in set(live)]
+                extra = sorted(expand(b, rest), key=lambda c: -c[0])
+                cand += extra[:width - len(cand)]
             new_tiles.append([tm.descend(*tiles_[b][j], a, g) for _, j, a in cand])
             new_paths.append([paths[b][j] + [a] for _, j, a in cand])
-            for i, (s, _, _) in enumerate(cand):
-                new_scores[b, i] = s
+            for i, (sc, _, _) in enumerate(cand):
+                new_scores[b, i] = sc
+        assert all(len(r) == width for r in new_tiles), "ragged beam width"
         tiles_, paths, scores = new_tiles, new_paths, new_scores
 
     # click head on the final view of every surviving beam

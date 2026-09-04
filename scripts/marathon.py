@@ -111,8 +111,11 @@ def best_cell8_lr():
     for tag in cands:
         if not (config.CHECKPOINTS / (tag + ".pt")).exists():
             continue
-        e = ROOT / "runs" / "errs" / (tag + "_test_5000r_k2_d3.npy")
-        if e.exists():
+        # Was built by hand and missed every stamped cache written after
+        # 2026-09-03, falling back to validation data or a stale legacy file.
+        from bootstrap import find_err_cache
+        e = find_err_cache(tag)
+        if e is not None:
             v = np.load(e)
             hit, src, km = float((v < 25).mean()), "test", float(np.median(v))
         else:

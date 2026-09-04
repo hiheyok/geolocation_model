@@ -1,0 +1,674 @@
+No files were changed. The most consequential finding is that the fusion-head experiment is not an apples-to-apples test of learned fusion versus mean pooling.
+
+<!-- annotated 2026-09-03 -->
+
+**Status markers.** `[x]` fixed and verified. `[~]` confirmed by measurement,
+not yet fixed. `[!]` confirmed and it changed a conclusion already published.
+`[-]` refuted or narrower than stated. `[.]` already known and deliberately
+deferred. Unmarked items are not yet triaged.
+
+
+## Critical: fusion conclusions
+
+1. `[!]` **The fusion residual does not initialize to the reported baseline.**
+   [fuse_head.py](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:103) projects the 1536-d mean through a fixed random 1536→768 matrix before adding the learned residual. At initialization it is a normalized random projection, not the measured mean-pooled representation. The −11.30 pp result therefore combines:
+   - random dimensionality reduction,
+   - learned fusion,
+   - and the changed output width.
+
+   It establishes that this particular 768-d system is bad, but not that a learned identity-preserving fusion head is bad.
+
+   > **Confirmed - conclusion retracted.** Premise confirmed: `base_w` is a fixed random 1536->768 map, so the head does not start at the measured baseline. **Quantified**: scoring the head at init (`scripts/fuse_init_probe.py`) gives 33.1% within 25 km against the 1536-d mean's 33.7% -- the projection is worth **-0.63 pp of the -11.30 pp**, and a train-fitted PCA to 768 gives +0.53 pp. So the confound is real but small, and the trained head is 10.7 pp below its own starting point: training destroys the representation rather than failing to improve it. The recorded conclusion "the pyramid fusion head is negative, do not re-open" is **retracted** -- what was measured was the objective below.
+   >
+   > **Deferred, with the reason:** Real, and deliberately not fixed. The head is a residual on exactly this vector, so correcting it changes the arm: today's three fusion runs and the head-at-init score of 33.1% that the retraction rests on would all become incomparable. Same class as 29, 31 and 32 -- fix it with a re-baseline, as a decision rather than a tidy-up. Recorded in the code at the site.
+
+
+2. `[.]` **The printed baseline and the head’s internal baseline differ.**
+   The head averages normalized level vectors without normalizing their mean at [fuse_head.py:123](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:123). The displayed baseline normalizes again at [fuse_head.py:397](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:397). The code explicitly says they should match.
+
+   > **Confirmed.** Confirmed. `FuseHead.baseline` omits the per-encoder renormalisation that the printed baseline applies, so the two differ by a dino/siglip reweighting -- the same shape as the recorded "encoder blend was accidental" bug.
+
+
+3. `[x]` **The contrastive batches contain false negatives.**
+   [fuse_head.py:266](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:266) creates directed near pairs, then applies diagonal symmetric cross-entropy without deduplicating anchors or masking other valid positives. Two nearby positives in the same batch are trained against one another.
+
+   > **Fixed.** Confirmed and **far worse than stated**. Measured over 60 real batches of 256: **100% contain a duplicate anchor**, and **50.3% of off-diagonal cells are true positives trained as negatives** -- 128 of every 255. Half the gradient was pushing apart images within 5 km of each other, which explains item 1's 10.7 pp collapse. Fixed: the loss masks off-diagonal true positives by great-circle distance and batches at most one row per anchor (`--mask-fn`, `--uniq-anchor`, both default on; `--mask-fn 0` reproduces the old runs). Mask unit-tested to kill co-located cross-terms, preserve the diagonal and keep the loss finite. Corrected arm has since run: the head is **20.5%** against 20.9% before -- essentially unchanged. So the false negatives were real but **not the binding constraint**. Training loss collapsed 3.82 -> 0.063, and the head is *better* than the mean at 2500 km (87.0% vs 86.2%) while collapsing at 1 km (4.8% vs 17.8%). That is `--pos-km 5.0` doing what it says: declaring any two images within 5 km identical, which is exactly the discrimination the reported buckets need. `--pos-km 0.5` has now run and **refuted that prediction**: 12.9% against 20.5%, median 670.5 against 384.1. Training loss and retrieval move in opposite directions across all three objectives (3.82 -> 20.9%, 0.063 -> 20.5%, 0.0145 -> 12.9%), so the head overfits 38k images. The original conclusion is re-established: the learned head is harmful, and the fix for this item, while a genuine defect, did not change it.
+   >
+   > **Fixed:** The combined arm's PCA is fitted on train rows only.
+
+
+4. `[x]` **The “mean + head, PCA” comparison leaks test data.**
+   PCA is fitted over every row, including test queries, at [fuse_head.py:416](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:416), before the train/test retrieval evaluation.
+
+   > **Confirmed.** Confirmed. `combo` spans every row and `pca_to` fits on a sample of it, so the `mean + head, PCA to 1536` arm -- the one with the best median -- is fitted transductively on the test queries.
+
+   > **Confirmed.** Confirmed. The export writes `.f16.npy`, `_rows.i64.npy` and `_head.pt` and nothing else -- no PCA mean or basis -- so a new query cannot be placed in the exported coordinate system.
+
+
+5. `[x]` **The exported combined representation is incomplete.**
+   The PCA-transformed vectors are saved, but the corresponding PCA mean and basis are not. New queries cannot be embedded in the exported coordinate system.
+
+   > **Confirmed.** Inspected and consistent with the claim. Does not touch any reported result: the pyr47 runs did not use `--hard`.
+
+6. `[x]` **Hard-negative scheduling is calculated from the wrong number of batches.**
+   In `--hard` mode, OneCycle uses the full pair count, while training drops small buckets and bucket remainders. Consequently, the schedule may never approach its final phase. The latest pyr47 run did not use `--hard`, so this did not affect that result.
+
+   > **Confirmed.** Inspected; the review's own check stands -- `pyr47_done.u8.npy` is complete, so no reported run was affected.
+
+7. `[x]` **Fusion ignores pyramid completion masks.**
+   Missing pyramid rows would silently become zero tokens. I checked the actual `pyr47_done.u8.npy`: all 95,292 encoder-row entries are complete, so this bug did not affect the reported pyr47 run.
+
+## External evaluation and leakage
+
+8. `[-]` **`eval_highres.py` does not implement the claimed shipping preprocessing.**
+   [eval_highres.py:90](/C:/Users/longd/Programming/geolocation_model/scripts/eval_highres.py:90) omits the PIL decoder hint used by cache generation and omits the BF16 autocast used by cache generation and serving. External images are therefore embedded by a slightly different pipeline.
+
+   > **Confirmed.** Confirmed. Only the output width is checked, and `--basis` defaults to the bank55 PCA whatever bank is loaded. Current use is correct by design -- the banks deliberately share one PCA space -- but nothing records which basis a bank was built with, so it is true by convention rather than by construction.
+
+   > **Confirmed, measured, immaterial.** The mismatch is real: the bank is
+   > built with a JPEG draft decode under bf16 autocast, the queries with a
+   > full decode in fp32. Over 300 images the two embeddings differ by cosine
+   > 0.993 mean and 0.926 worst. But it does not move the metric. Adding
+   > `--match-bank` to reproduce the bank pipeline exactly, paired over the
+   > same 2,000 queries: `<25 km` 13.6% -> 13.1%, `<1 km` 2.5% -> 2.4%,
+   > `<200 km` 33.1% -> 32.8%, all inside noise, and top-1 bank similarity
+   > moves 0.7146 -> 0.7158. I had expected the mismatch to be *depressing*
+   > external scores, so that part of the domain gap would be a preprocessing
+   > artifact. It is not. The flag is kept for reproducibility and is not the
+   > default, since every number on file was measured without it.
+
+
+9. `[x]` **PCA identity is not validated.**
+   [eval_highres.py:143](/C:/Users/longd/Programming/geolocation_model/scripts/eval_highres.py:143) defaults to the bank55 PCA and checks only output width. Any unrelated 768-d PCA is accepted silently.
+
+   > **Confirmed.** Confirmed. `meta_stem` is chosen by scanning the bank filename for "70"/"55"/"40". Renaming a bank silently selects the wrong extension metadata while every dimensional check passes.
+
+10. `[x]` **Bank metadata is inferred from filenames.**
+    Renaming a bank or using a custom bank can cause the evaluator to load the wrong extension metadata while still passing dimensional checks.
+
+   > **Partly refuted.** **Refuted.** `config.knn_name` does include it: `tail = "_bank{}k".format(bank_limit // 1000)` whenever `bank_limit` is set. Restricted-bank caches cannot collide with unrestricted ones on this axis.
+
+11. `[-]` **Restricted-bank k-NN cache names omit the bank limit.**
+    Different bank restrictions can collide or reuse incompatible caches.
+   >
+   > **Fixed:** Both evaluators now announce the release they picked instead of choosing in silence.
+
+12. `[x]` **`eval_highres.py` and `multiquery.py` restore an implicit `s10` default.**
+    This bypasses the repository’s newer “release must be explicit” rule and reintroduces wrong-release execution.
+
+   > **Confirmed.** Confirmed. Both scripts set `OSV_RELEASE=s10` when unset, before importing config, which bypasses the no-default rule in exactly the two tools that produce every external number. Narrower than stated in one respect: they only set it when unset, so an explicit choice is never overridden.
+
+
+13. `[-]` **The external KartaView corpus has no enforced OSV-overlap exclusion.**
+    The harvest is seeded near OSV images and KartaView is an OSV source, but neither image IDs nor sequences are checked against OSV. The assumption that external queries need no same-sequence masking is therefore unproven. This is a high-confidence leakage risk; an actual collision requires a data audit.
+
+   > **Audited - bounded and immaterial.** No shared identifiers: 0 image-id
+   > and 0 sequence-id overlaps between the 47,646 KartaView images and the
+   > 500,000 OSV rows. Geographically the corpora are co-located by design
+   > (the harvest was seeded near OSV), median nearest-OSV distance 231 m, but
+   > true same-spot duplicates are rare: **0.02% of evaluated queries within
+   > 1 m, 0.48% within 5 m, 1.06% within 10 m**. And they do not move the
+   > conclusions, because a duplicate is solved by every arm and cancels in a
+   > paired difference - measured, not assumed: dropping all 53 queries within
+   > 10 m takes the dropout result from +1.80 pp [+1.08, +2.50] to +1.80 pp
+   > [+1.09, +2.49], and the corpus result from +1.34 pp to +1.33 pp. So the
+   > risk is real in principle; absolute hit rates may be inflated by at most
+   > ~1 pp, and every paired contrast reported is unaffected.
+
+   > **Confirmed.** Confirmed. `leak_blocklist.json` appears in exactly one file, `screen_leak.py`, which writes it. No training or evaluation path reads it, so screening currently gates nothing.
+
+
+14. `[x]` **Leak screening does not gate downstream use.**
+    `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
+
+   > **Confirmed.** Inspected. Unreadable images are skipped while the denominator stays the manifest size, so the screened fraction is overstated.
+   >
+   > **Fixed:** `examined` now counts only images that opened, and the run reports how many it could not.
+
+15. `[x]` **Leak-screen failures are counted as successfully screened.**
+    Unreadable images are skipped, but the denominator remains the complete manifest size.
+
+   > **Confirmed.** Inspected. The blocklist is written, not merged. Compounds 14, where nothing reads it at all.
+   >
+   > **Fixed:** The blocklist merges by id and accumulates the screened count instead of replacing.
+
+16. `[x]` **Partial screening can overwrite a previous blocklist.**
+    A sampled run replaces rather than merges exclusions.
+
+   > **Confirmed.** Inspected. Failed decodes keep their row, so a zero embedding is scored as if it were an image.
+   >
+   > **Fixed:** Rows that failed to decode are dropped before any metric, with a count printed.
+
+17. `[x]` **Resolution-probe decode failures remain in evaluation.**
+    [res_probe.py:159](/C:/Users/longd/Programming/geolocation_model/scripts/res_probe.py:159) leaves failed images as zero embeddings while retaining their IDs, coordinates and sequence metadata.
+
+   > **Confirmed.** Inspected. Unbounded executor mapping; a memory-pressure risk, not a correctness one.
+
+18. `[x]` **Resolution probing can buffer too many decoded images.**
+    Unbounded executor mapping can retain many completed image variants simultaneously and cause avoidable memory spikes.
+
+## Serving and multi-photograph retrieval
+
+   > **Confirmed.** Confirmed. `serve.py` calls no split check anywhere, so it will happily serve a checkpoint from another release or split mode against caches indexed by row order.
+   >
+   > **Fixed:** serve.py calls check_split before loading anything addressed by row order.
+
+19. `[x]` **Serving does not validate checkpoint split/release provenance.**
+    [serve.py:40](/C:/Users/longd/Programming/geolocation_model/scripts/serve.py:40) reads positional artifacts without calling the repository’s split check.
+
+   > **Confirmed.** Confirmed twice over: the encoder scale is chosen by `"pca768" in sf`, and the basis is the hardcoded `pca768_bank55_pca.npz` regardless of what produced the file.
+
+20. `[x]` **Serving selects preprocessing from filename substrings.**
+    Any filename containing `pca768` receives the bank55 basis, whether or not it was produced with that basis.
+
+   > **Confirmed.** Confirmed. `ck["knn_file"]` is a bare subscript, so a non-retrieval checkpoint dies with a KeyError rather than being supported or refused with a reason.
+   >
+   > **Fixed:** A non-retrieval checkpoint is refused with a reason instead of a KeyError three frames deep.
+
+21. `[x]` **Serving assumes every checkpoint contains `knn_file`.**
+    Non-retrieval checkpoints fail with an incidental `KeyError` instead of being supported or rejected explicitly.
+
+   > **Confirmed.** Confirmed. `sims.topk(k)` with no clamp to the bank size.
+   >
+   > **Fixed:** topk is clamped to the bank size.
+
+22. `[x]` **`topk` can exceed the available bank size.**
+
+   > **Confirmed.** Inspected and the mechanism is right: slots are allocated per photograph, then raw similarities from different photographs go into one softmax with no per-image calibration.
+
+23. `[x]` **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
+    Candidate slots are allocated equally, but raw similarities from different photographs are pooled into one softmax. Scores are not calibrated across images, so one view can still dominate.
+
+   > **Confirmed.** Inspected. For `pos`/`dual` the primary embedding scores candidates that a secondary photograph retrieved.
+
+24. `[~]` **Learned multi-photo modes score secondary candidates with the primary photo.**
+    For `pos` and `dual`, the primary street embedding produces the learned scores for candidates retrieved by every secondary photograph.
+
+   > **Confirmed.** Confirmed. `--tag` defaults to `d1536-b350-e6`, which expects 1536 dimensions, while the cached queries are always projected to 768 by the bank55 PCA. The default invocation cannot work.
+   >
+   > **Fixed:** The default tag is a 768-d arm, matching the projection the queries always get.
+
+25. `[x]` **The default multiquery configuration is dimensionally inconsistent.**
+    The default tag expects 1536 dimensions, while cached queries are always projected with the bank55 PCA to 768 dimensions.
+
+   > **Confirmed.** Confirmed -- the cache validates ids and count only. Same shape as the kNN provenance hole closed in 78/79, in a path that was not covered by that fix.
+   >
+   > **Fixed:** The query cache is stamped with image root, PCA basis, encoder scale and release, and recomputes when any moves.
+
+26. `[x]` **Multiquery query caches lack provenance.**
+    They validate IDs/count only—not image root, preprocessing, encoder, PCA basis, scale or release.
+
+## Core training and model behavior
+
+27. `[.]` **Optimizer resume is not implemented.**
+    [train.py:435](/C:/Users/longd/Programming/geolocation_model/src/train.py:435) can save optimizer state, but `--init` restores only model weights. Scheduler and RNG state are also absent. A 2+2+2 ladder is three Adam/cosine restarts, not a continuous six-epoch run.
+
+   > **Known, deferred.** Already recorded and deliberately deferred: fixing it changes training and would break comparability with every arm on file. Now also pinned in `tests/test_checkpoint_contract.py` as a known orphan, so it cannot be quietly forgotten.
+
+
+28. `[.]` **Conditional quality gating sees a neighbor hidden by dropout.**
+    [retrieval.py:184](/C:/Users/longd/Programming/geolocation_model/src/retrieval.py:184) masks retrieval neighbors, but the quality gate receives the original top similarity.
+
+   > **Known, deferred.** Already recorded and deliberately deferred, for the same reason as 27: it would alter training semantics and break comparability with the measured p-curve.
+
+   > **Confirmed.** Confirmed, and the blast radius is worth naming. The rule is `"pos" in name`, and on the shipping arm it catches exactly two tensors: `retr.q_pos.weight` and `retr.k_pos.weight`, 196,608 parameters, 3.7% of the model. Those are the **learned retrieval keys** -- worth +4.1 pp on record -- so the keyed retrieval branch has been training with no weight decay, unintentionally, on precisely the branch `--retr-drop` exists to regularise.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed: changing the decay set changes every future arm's optimisation and makes it incomparable with all 122 checkpoints on file. Worth doing as a re-baseline, and it is the one of these most likely to have moved a result -- it exempts the learned retrieval keys, 3.7% of the model.
+
+
+29. `[.]` **Weight-decay parameter grouping uses unsafe substring matching.**
+    For example, `q_pos.weight` receives no decay because its name contains `pos`; memory embeddings and some bias-like tensors receive decay incorrectly.
+
+30. `[.]` **Step-3 sink keys receive no positive sink supervision.**
+    Sink-positive sampling in [dataset.py:283](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:283) is limited to steps 1 and 2.
+
+   > **Known, deferred.** Already recorded in `docs/STATE.md`; it is why the sink capacity experiment was retired as contaminated rather than reported as a null.
+
+   > **Confirmed.** Confirmed in code -- `merged = base + g * (lse - base)` with `g` an unconstrained parameter, so it extrapolates outside [0,1]. **Dormant**: all 122 checkpoints on disk have `sink_k=1`, so this branch never executes in any trained model.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed, and dormant anyway: every checkpoint on disk has sink_k=1, so the branch never runs.
+
+
+31. `[.]` **The sink “interpolation” coefficient is unconstrained.**
+    [model.py:212](/C:/Users/longd/Programming/geolocation_model/src/model.py:212) allows negative values and values above one, so the operation can extrapolate or invert rather than interpolate.
+
+   > **Confirmed.** Inspected. No inverted-dropout scaling, so the magnitude distribution differs between train and eval.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed: inverted-dropout scaling changes the magnitudes a trained arm sees, so it needs a re-baseline.
+
+32. `[.]` **Memory dropout lacks inverted-dropout scaling.**
+    Its magnitude distribution changes between training and evaluation.
+
+   > **Confirmed.** Confirmed in part: `tr = Subset(tr, range(a.overfit))` builds invalid indices when `--overfit` exceeds the (possibly `--limit`-ed) training set.
+   >
+   > **Fixed:** --overfit larger than the training set is refused instead of indexing past the end.
+
+33. `[x]` **`--overfit` is broken with the default hit-based selector.**
+    Validation is disabled, selection metrics stay `NaN`, and no best checkpoint is written. An overfit size larger than the limited training set also creates invalid subset indices.
+
+   > **Confirmed.** Confirmed. `soft` is parsed with `float()` and gated on `soft[t] > 0`, so a negative temperature falls through to hard CE with no warning.
+   >
+   > **Fixed:** A negative --soft temperature is refused instead of silently meaning hard CE.
+
+34. `[x]` **Negative `--soft` temperatures are silently treated as hard CE.**
+
+   > **Confirmed.** Confirmed. `map_sub` is `round((width/12) ** 0.5)` with no check that `width == 12 * sub ** 2`.
+   >
+   > **Fixed:** _map_sub refuses any width that is not 12*sub^2; verified on 12/48/192 and 13/47/0.
+
+35. `[x]` **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
+    Invalid dimensions can be accepted and misinterpreted.
+
+   > **Fixed.** Confirmed and fixed, with the gap enumerated rather than described: **18 CLI arguments were never saved**, including `lr`, `wd`, `warmup`, `batch`, `smooth`, `sink_w`, `emb_drop`, `emb_noise`, `mem_drop`, `limit` and `epochs`. Two arms trained at different learning rates were indistinguishable from their checkpoints, and the only other record is the runner's log, which is append-only and reused across attempts. Thirteen are now recorded; the rest are either already saved under another name or genuinely runtime-only (`workers`, `tag`, `init`, `overfit`, `save_opt`). Purely additive, so old checkpoints still load.
+
+36. `[x]` **Checkpoints omit many result-defining hyperparameters.**
+    Memory dropout, sink weight, embedding noise/dropout, smoothing, learning rate, weight decay, warmup and batch size are among the missing fields.
+
+   > **Partly refuted.** Confirmed but **not silent**, which the item implies it is. `build_from_ck` does use the live `tm.actions()` and `tm.STEPS` rather than the saved `g`/`steps`, but any mismatch changes the policy-head and step-embedding shapes, so the strict `load_state_dict` raises. Latent rather than dangerous -- every checkpoint on disk is g=16.
+
+37. `[-]` **Evaluation ignores checkpoint grid geometry.**
+    [evaluate.py:21](/C:/Users/longd/Programming/geolocation_model/src/evaluate.py:21) reconstructs models using current `G` and `STEPS`, not the saved checkpoint values.
+
+   > **Confirmed.** Confirmed. `street_file_for` takes an explicit override ahead of the checkpoint's own record and checks neither provenance nor width.
+   >
+   > **Fixed:** An explicit --street-file override goes through the same existence and width checks as the recorded name.
+
+38. `[x]` **Explicit street-file overrides are not checked for provenance or dimensions.**
+
+39. `[~]` **The RoPE implementation does not provide the claimed relative-position behavior.**
+    [encoders.py:159](/C:/Users/longd/Programming/geolocation_model/src/encoders.py:159) rotates token embeddings before LayerNorm and arbitrary Q/K projections. Those operations do not generally commute with RoPE rotations.
+
+   > **Confirmed.** Independently confirmed earlier the same day by measurement, before this review was read. `scripts/rope_probe.py`: with identical content at all 256 positions, the attention logit's within-offset spread is 0.845 of its overall spread as built, against 0.000 for the textbook arrangement. Relative position is absent. Live for 108 of 122 checkpoints including the shipping arm.
+
+## Positional artifact correctness
+
+   > **Confirmed.** Confirmed and it is the root of this whole family. Every cache here is addressed by row position and nothing proves two artifacts describe the same ordered rows. This is what the backlog calls provenance manifests, and it subsumes 43, 44, 46, 47, 63 and 66.
+
+40. `[x]` **Dataset artifacts are trusted purely by row position.**
+    [dataset.py](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:141) does not prove that street embeddings, target files, image-ID sidecars and map indices describe the same ordered rows.
+
+   > **Confirmed.** Confirmed. `z["idx"][:, :knn_k]` is sliced with no range check, and a negative index would read from the end of the table and return a neighbour that is not the one recorded.
+   >
+   > **Fixed:** Neighbour indices are bounded against the address tables. No cost: datasets still build in 2.2 s.
+
+41. `[x]` **k-NN indices are not fully validated.**
+    Negative or out-of-range indices can survive; negative NumPy indices read from the end and silently reference the wrong sample.
+
+   > **Fixed.** Confirmed and fixed -- and it was a gap in a fix made earlier the same day. `TokenSource` discarded the done-mask path with `_`, so an indexed-but-unfetched row returned the memmap's zero fill; the live fallback only covers tiles missing from the *index*. `dataset.py` had been taught to refuse exactly this, and the sibling path in beam search had not. Unfetched rows are now dropped from the lookup, which makes them ordinary misses: beam already fetches live, so an incomplete cache degrades to slower and correct rather than silently blank. Verified no change on the complete cache (75.2%, median 2.2 km, identical).
+
+42. `[x]` **Beam token loading ignores map completion masks.**
+
+   > **Confirmed.** Confirmed; an instance of 40.
+
+43. `[x]` **Dataset and target files are published separately.**
+    An interruption can leave two valid-looking files from different generations.
+
+   > **Confirmed.** Confirmed. A custom invocation without `--out` writes the release's canonical embedding path.
+
+44. `[x]` **Generic street embedding can overwrite the canonical cache.**
+    A custom parquet/model invocation without `--out` writes to the normal release embedding path.
+
+   > **Confirmed.** Confirmed. There is no completion mask for street embeddings, and the closing check reads `emb[:512]` -- so an interrupted write is caught only if it stopped inside the first 512 rows.
+   >
+   > **Fixed:** The zero-fill scan covers every row, in 200k blocks -- the first version asked for a 10.7 GB allocation.
+
+45. `[x]` **Street embedding has no completion mask.**
+    An interrupted full-shaped memmap appears complete. Its final sanity check examines only the first 512 rows.
+
+   > **Confirmed.** Confirmed; an instance of 40.
+
+46. `[x]` **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
+    Same-shaped artifacts from different orders can be combined without error.
+
+   > **Confirmed.** Confirmed; the same shape as 9.
+
+47. `[x]` **Reused PCA bases are validated by shape only.**
+
+## Cache construction
+
+   > **Confirmed.** Inspected. `--n` extension rebuilds rather than extends.
+
+48. `[x]` **Pyramid `--n` extension actually destroys and recomputes the cache.**
+
+   > **Confirmed.** Confirmed, and it explains something already on the record. `_mark` is called once per encoder pass, after the whole loop, so an interruption mid-pass loses that pass entirely. The project log has 14 pyramid attempts of which one reached 14,000 images and all resumed from zero -- this is why. The tmp+replace in `_mark` made the *file* durable; it did not make progress incremental.
+
+49. `[x]` **Pyramid progress is recorded only after an entire encoder pass.**
+    A mid-pass interruption loses all resumable progress from that pass.
+
+   > **Confirmed.** Confirmed. Decode failures are counted and printed but do not change the exit status.
+   >
+   > **Fixed:** pyramid_cache exits non-zero when rows are missing an encoder pass.
+
+50. `[x]` **Pyramid decode failures are swallowed and the command can exit successfully with incomplete output.**
+
+   > **Confirmed.** Confirmed. The token memmap is never `flush()`ed, while the done bits are written durably through tmp+replace -- so a crash can leave rows marked complete whose data never reached disk. The ordering is exactly backwards.
+   >
+   > **Fixed:** The token memmap is flushed before the completion bits are written.
+
+51. `[x]` **Completion bits can be persisted before embedding data is flushed.**
+    A crash can leave rows marked complete whose token data was not durable.
+
+   > **Confirmed.** Inspected. An existing done array is loaded without checking shape or that its values are 0/1.
+   >
+   > **Fixed:** A resume mask of the wrong length, or holding anything but 0/1, is refused. Verified against the real pyr47 mask.
+
+52. `[x]` **Existing pyramid completion arrays are not validated for shape and legal values.**
+
+   > **Confirmed.** Inspected. Reuse is keyed on tile count, not grid geometry.
+   >
+   > **Fixed:** The reuse check compares the cell count as well as the token width.
+
+53. `[x]` **Tile-cache reuse ignores grid geometry.**
+    Configurations such as 3×2 and 2×3 with the same tile count can reuse incompatible data.
+
+   > **Confirmed.** Confirmed; the same ordering defect as 51, in the tile cache.
+   >
+   > **Refuted on a closer read:** The tile cache already had this right: `tok.flush()` runs before `np.save(DONE, done)`. Only the pyramid cache (51) had the ordering backwards. Documented rather than changed.
+
+54. `[-]` **Tile-cache completion can also be saved before the memmap is flushed.**
+
+   > **Confirmed.** Confirmed by the fix to 42: pooling and matching consult the completion data and the beam path did not. Now it does.
+   >
+   > **Resolved elsewhere:** Resolved by the fix to 42: the beam path now consults the completion data that pooling and matching already did.
+
+55. `[x]` **Tile-cache consumers are inconsistent.**
+    Pooling and matching consult completion data; OSV token loading in the fusion script does not.
+
+   > **Confirmed.** Inspected. A crash between truncating and rewriting the mask can bless new zero rows.
+   >
+   > **Fixed:** The stale completion mask is removed before the memmap truncates the tokens.
+
+56. `[x]` **Tile-fetch recreation does not immediately reset the previous completion mask.**
+    A crash between truncating the cache and rewriting the mask can bless new zero rows on restart.
+
+   > **Confirmed.** Confirmed exactly: `return (s * np.abs(X) ** p).mean(1)` with no `** (1/p)`. A signed third moment, not a generalised mean.
+   >
+   > **Fixed:** The p-th root is restored, so it is a generalised mean again.
+
+57. `[x]` **The tile “GeM” implementation is missing the p-th root.**
+    It computes a signed p-th moment, not generalized-mean pooling.
+
+   > **Confirmed.** Confirmed exactly: `k = min(K, S.shape[1] - 1)`. One valid neighbour is dropped whenever query and bank are disjoint, and a one-row bank gives k=0.
+   >
+   > **Fixed:** min(K, n) rather than n-1, which assumed the query sits inside the bank.
+
+58. `[x]` **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
+    It unnecessarily drops one valid neighbor and breaks on a one-row bank.
+
+   > **Fixed, and then measured: inert here.** The defect is real -- `best`
+   > comes from `set_sim()`, which never received the same-sequence mask that
+   > `topk_stats` applies to the chamfer and max-max arms it is compared
+   > against. Masking now happens before the reduction, which is idempotent for
+   > the other two arms.
+   >
+   > **But it changes nothing in this configuration, and my first reading of it
+   > was wrong on two counts.** Re-running with and without the mask gives
+   > identical oracle rows (crop3 10.1%, tile6 12.4%): the query and bank sets
+   > are a random draw of 120k from 500k images, so there are only **34
+   > same-sequence pairs in the entire 3,000 x 117,000 matrix** and 1.1% of
+   > queries have any. And the headroom actually cited as motivating the fusion
+   > work is the **union** statistic, +5.03 pp [+4.27, +5.83] here against
+   > +5.00 pp on record -- computed from the matcher arms, which were always
+   > masked. I claimed in a commit message that this item inflated that
+   > evidence. It does not. The fix stands as a correctness guard for
+   > configurations where the sets do overlap.
+   >
+   > **Fixed:** The oracle's candidates are masked before the reduction. Measured afterwards: inert in this configuration, and it corrected nothing that was reported.
+
+59. `[x]` **Tile-match oracle statistics are computed before same-sequence exclusion.**
+    The reported oracle/headroom can include forbidden near-duplicate matches—the evidence used to motivate fusion is therefore inflated.
+
+## k-NN and bank extensions
+
+   > **Confirmed.** Confirmed: `cell = np.asarray(ds["cell_z8"])` is read whatever `split_mode` says, so a cell12 or cell16 split compares z8 cells against z12/z16 extension cells. Latent for now -- only `sequence` and `cell8` are in use.
+
+60. `[x]` **Held-region filtering is wrong for cell12/cell16 extensions.**
+    [build_knn.py:130](/C:/Users/longd/Programming/geolocation_model/scripts/build_knn.py:130) reads held cells from the dataset’s z8 field and compares them with extension z12/z16 cells.
+
+   > **Confirmed.** Inspected. Release and extension sequences are treated as disjoint by construction, so a drive crossing the boundary would defeat same-sequence exclusion.
+
+61. `[x]` **Sequences are forcibly treated as disjoint across release and extension banks.**
+    If one real drive crosses the corpus boundary, same-sequence exclusion fails.
+
+   > **Confirmed.** Inspected; an instance of 40 in the extension metadata.
+
+62. `[x]` **Extension release metadata is ignored.**
+
+   > **Confirmed.** Confirmed; an instance of 40.
+
+63. `[x]` **Embedding validation permits extra rows and does not establish row identity/order.**
+
+   > **Confirmed.** Inspected. With fewer than K legal neighbours, placeholder rows can survive into the top-k.
+
+64. `[x]` **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
+
+   > **Confirmed.** Inspected. Duplicate extension ids are not rejected.
+   >
+   > **Fixed:** Duplicate extension ids are refused. The guard was written and initially never called; testing caught that.
+
+65. `[x]` **Extension duplicate image IDs are not rejected.**
+
+   > **Confirmed.** Confirmed; an instance of 40 -- total length is checked, part order is not.
+
+66. `[x]` **Merged bank metadata checks total length but not whether part order matches embedding-stack order.**
+
+   > **Confirmed.** Inspected. The per-sequence cap is applied before download, so a failed or undersized fetch still consumes its slot.
+
+67. `[x]` **KartaView quotas are consumed before download success is known.**
+    Failed or undersized images suppress later valid candidates.
+
+   > **Confirmed.** Confirmed. `--save-dir` only does `save.mkdir(...)`; no image bytes are ever written.
+   >
+   > **Fixed:** --save-dir says it writes metadata and URLs only.
+
+68. `[x]` **Mapillary `--save-dir` does not save images.**
+    The directory is created, but the implementation writes only metadata/URLs.
+
+   > **Confirmed.** Inspected.
+
+69. `[x]` **Mapillary harvesting can exceed `--max-images`.**
+
+## Orchestration and reporting
+
+   > **Confirmed.** Confirmed. `marker()` is `MARKS / (name + ".done")` and nothing else, so changed arguments, changed code or a deleted output all leave a stage looking finished.
+
+70. `[x]` **Overnight completion markers are keyed only by stage name.**
+    Changed arguments, code, release, inputs or deleted/corrupt outputs do not invalidate them.
+
+   > **Confirmed.** Confirmed, with lived evidence. The log is opened `"a"` and each attempt appends a header. This is what cost an hour on 2026-09-02: a wait loop grepped the file for `FAIL` and matched a failure from the previous day, killing `fuse-attn-pyr47` at epoch 11 of 12.
+
+71. `[x]` **Retries append to the same log.**
+    Calibration and reporting can read stale attempts; the calibration path takes the first regex match. The pyr47 log itself contains multiple appended attempts and duplicate successes.
+
+   > **Confirmed.** Confirmed; an instance of 71, whose append-only log is the shared cause.
+
+72. `[x]` **Report parsing can mix epochs from separate attempts.**
+
+   > **Confirmed.** Inspected; an instance of 71.
+
+73. `[x]` **The report epoch regex is not multiline-aware.**
+    Logs beginning with an attempt header may produce an empty epoch list and `NaN` seconds-per-epoch.
+
+   > **Confirmed.** Confirmed. `state["failed"][name]` is written on failure and never cleared, so a stage that later succeeds still reports as failed in the summary.
+   >
+   > **Fixed:** A retry that succeeds clears the earlier failure.
+
+74. `[x]` **A later successful retry does not clear the stage’s stale failure record.**
+
+   > **Confirmed.** Confirmed -- `st.needs` is an existence check only, which is the same hole 51 and 54 create on the producing side.
+   >
+   > **Fixed:** An empty dependency file no longer counts as a satisfied dependency.
+
+75. `[x]` **Dependency readiness checks only file existence.**
+    A metadata file from an incomplete cache can launch downstream work.
+
+   > **Confirmed.** Inspected.
+   >
+   > **Fixed:** The deadline is re-checked before each retry, not only before the first.
+
+76. `[x]` **Retry deadlines are checked before, rather than during, the retry loop.**
+
+   > **Confirmed.** Confirmed. The stamped bootstrap filenames introduced on 2026-09-03 broke this lookup; marathon still expects the unstamped name.
+   >
+   > **Fixed:** One resolver, find_err_cache, handles stamped and pre-stamp names. This was a regression I introduced the same day.
+
+77. `[x]` **Marathon looks for an obsolete unstamped bootstrap filename.**
+    It can fall back to validation data or stale legacy errors instead of the current test bootstrap.
+
+78. `[x]` **Bootstrap cache hits bypass model and split validation.**
+    The key does not include dataset/split identity.
+
+   > **Fixed.** Confirmed and fixed. `check_split` ran only on a cache miss, so a cached arm was returned with no proof of its release or split. Provenance now runs before the cache and reads only the checkpoint dict, so a hit does not pay for a model build.
+
+
+79. `[x]` **Bootstrap error caches contain no image IDs.**
+    Same-length results with different image ordering can be treated as paired.
+
+   > **Fixed.** Confirmed. Addressed by pinning the row set rather than storing ids: `main()` now requires every arm to share release, split mode and split hash, which with the seeded sample and equal `n` fixes the rows exactly. Verified both ways -- two `sequence` arms still pair from cache, and a `sequence` arm against a `cell8` arm now refuses instead of returning a tight interval over unrelated images.
+
+   > **Confirmed.** Confirmed. The limit is parsed by scanning tag parts for `n<digits>k`, which no current tag contains -- `d768-b350-e6` yields limit 0, meaning evaluation over all training rows.
+   >
+   > **Fixed:** The training limit is read from the checkpoint, falling back to the tag only for older files.
+
+
+80. `[x]` **The summary table reconstructs training limits from obsolete tag syntax.**
+    Current tags can report evaluation over all training rows, including unseen rows.
+
+   > **Confirmed.** Confirmed; the same obsolete tag syntax as 80.
+   >
+   > **Fixed:** The report glob covers current d768-/d1536- names.
+
+81. `[x]` **The report glob omits current `d768`/`d1536`-style runs.**
+
+   > **Confirmed.** Confirmed; caused by the stamped filenames added on 2026-09-03, as with 77.
+   >
+   > **Fixed:** tag_of_err_cache strips the stamp. Also my regression; verified on tags containing underscores.
+
+82. `[x]` **Digest cannot parse current stamped bootstrap filenames correctly.**
+
+83. `[-]` **Several runners now fail standalone because they import `config` before setting their declared release.**
+    Conversely, another group silently hardcodes `s10`; together these undermine the explicit-release invariant.
+
+   > **Partly refuted.** Half confirmed, half refuted. The 16 scripts that hardcode a release are real, and they do undercut the explicit-release invariant. But the scripts that "fail standalone" do not fail for that reason: `after`, `b70`, `half`, `keys`, `more`, `offline`, `tiles2`, `tonight_0902` and `w768b70` take positional arguments and simply reject `--help`. All 72 scripts import cleanly.
+
+   > **Confirmed.** Confirmed; the same transductive PCA fit as item 4.
+   >
+   > **Fixed:** The probe's PCA is fitted on the bank only.
+
+
+84. `[x]` **Width-probe PCA is fitted on train and held-out queries together.**
+
+   > **Partly refuted.** Split confirmed, label claim confirmed but immaterial. The cut is `permutation(n)` over **patches**, not tiles, so patches from one tile appear on both sides and the absolute accuracies are optimistic. The orientation label is indeed the gradient direction while the road runs perpendicular to it -- but the probe is a binary classification of recoverability, and its accuracy is invariant under a consistent relabelling, so this changes nothing it reports. Both representations were measured under identical leakage, so the 74.8% vs 52.7% *comparison* holds even though both numbers are inflated; and the conclusion that rests on it was settled end-to-end by the sub2 arm, which lost on every measure.
+
+85. `[-]` **Map-structure probing splits patches rather than source tiles.**
+    Patches from one map tile can occur in both train and test, overstating recoverability. Its orientation label also names the gradient direction as the road direction, although those are perpendicular.
+
+   > **Partly refuted.** Confirmed but immaterial. `baselines.py` uses `err_km <= b` while the bootstrap and external evaluators use `< t`. For continuous great-circle distances the disagreement is a measure-zero set, so no reported number can differ. A consistency wart, not a defect.
+
+86. `[-]` **Threshold semantics differ between evaluators.**
+    Core baselines use `<=`; external/bootstrap evaluation uses `<`.
+
+The bottom-N external selection issue remains a known growth-stability limitation, not a current fixed-manifest correctness problem, so I would not prioritize it.
+
+This was a static review. All 95 Python files parse successfully, but I could not run the test suite because the available shell has no pytest-capable Python installation.
+
+## Closed 2026-09-04: the provenance family
+
+Items **40, 43, 44, 46, 47, 62, 63 and 66** were one hole seen from eight
+places, exactly as the review said: every cache here is addressed by row
+position and nothing proved two artifacts described the same ordered rows.
+That failure has no loud version -- every array is the right dtype and a
+plausible shape, every metric lands in a believable range, and each image has
+been scored against another image's data.
+
+`src/provenance.py` digests an ordered id sequence into a sidecar beside each
+artifact.  Absent warns, mismatched refuses: everything on disk predates this,
+and refusing it would strand a corpus that took days of GPU time.
+`scripts/backfill_prov.py` stamps what already exists with `basis="observed"`,
+which detects drift from that day forward and vouches for nothing before it --
+and says so, in the sidecar.  It resolved 38 of the 39 artifacts on disk; the
+one it could not is reported rather than guessed.
+
+| item | what closed it |
+|---|---|
+| 40 | the street cache and `targets.parquet` are both verified at dataset construction |
+| 43 | `targets.parquet` has carried an `image_id` column all along and nothing read it -- no sidecar was needed, the evidence was already in the file |
+| 44 | `embed_street` refuses to write the canonical cache when the run differs from it (`--parquet`, `--crops`, `--patch-grid`, `--size`, `--model`), before the encoder loads |
+| 46 | `stack_bank` records row identity; `project_street` carries its source's rows through the projection |
+| 47 | a reused PCA basis is checked against the encoder that produced the cache, not only its width -- several caches here share a width and are different spaces |
+| 62 | one loader reads the extension's release, in all three places an extension is opened |
+| 63 | row identity and order, not just row count |
+| 66 | `stack_bank` stamps release-then-extension and `build_knn` reads it; reversing the halves of a 3,500,000-row bank leaves 3,500,000 rows, so length could never see it |
+
+**Two things were found by doing this rather than by reading.** The first
+resolver stamped `pyr47_fuse_p05` as release rows, because its `_rows.i64.npy`
+holds 0..47645 -- a legal index into a 500,000-row release that in fact indexes
+a KartaView cache, passing every bounds check.  And running the shipping
+retrieval path turned up a live regression: the strong `split_hash` had landed
+without a legacy fallback in `dataset.py`, so every kNN cache on disk was
+refused and the retrieval path could not build at all.  All three sites that
+compare a split digest now go through one `splits.hash_matches`.
+
+## Closed 2026-09-04: the runner's marker and log design
+
+Items **70, 71, 72 and 73** were the second structural group, and one design:
+a stage was identified by its name alone and its log was append-only across
+days, so both files said things about work a *different* run had done.  This
+is the pair that cost an hour on 2026-09-02, when a wait loop grepped a
+training log for `FAIL`, matched a failure appended the previous day, and
+killed `fuse-attn-pyr47` at epoch 11 of 12.
+
+`src/runlog.py` holds both conventions: read the last attempt rather than the
+file, and write a stage's identity into its marker rather than treating the
+filename as the record.
+
+| item | what closed it |
+|---|---|
+| 70 | the marker holds the stage's argv and release; a changed command re-runs. A marker predating the stamp reads as *unknown*, not as a mismatch -- all 212 on disk are bare durations, and reading those as mismatches would re-run a finished queue |
+| 71 | the previous run's log is archived to `<stage>.prev.log` before the first attempt, so one file holds one run. Retries within a run still append, which is what the attempt headers are for |
+| 72 | `report.read_train` and the calibration parser both read the last attempt. The calibration one took `findall(...)[0]` over the whole file, which after a retry is the timing of the run that *failed* |
+| 73 | `re.M` on the epoch regex |
+
+**Measured on the artifacts on disk, not argued.**  47 of 200 logs parsed to
+zero epochs under the non-multiline regex, so those report rows all carried a
+NaN seconds-per-epoch.  Two training logs were genuinely spliced --
+`train-d768-b350-e2-drop70-sink4` and `gm_bias` each show four epochs across
+the file and two in the last attempt -- so their best-epoch selection did mix
+attempts.  The other sixteen multi-attempt logs are non-training stages with
+no epoch lines, so item 72's splice affected two arms, not eighteen.
+
+## Closed 2026-09-04: the last of the independent items
+
+Sixteen more closed the same day: 5, 6, 7, 9, 10, 14, 18, 20, 23, 48, 49, 60,
+61, 64, 67, 69.  Three of them turned out to be larger than the review stated,
+and one of those changes what the benchmark means:
+
+* **61 is not conditional.**  The review put it as "*if* one real drive
+  crosses the corpus boundary".  It is the normal case: 75.5% of test sequences
+  also appear in `bank_ext70`, and **41.57% of test queries had a same-sequence
+  frame as their top-1 neighbour**, at a median 0.31 km.  Simulated corrected
+  top-1 goes from 2.40 km to 25.65 km median.  See the commit and
+  `scripts/seqleak.py`.
+* **60 was latent but total.**  At z8 the derived held cells match the stored
+  column exactly (834 = 834), so `sequence` and `cell8` are unaffected; at z12
+  and z16 the overlap with the z8 ids is **exactly 0**, so no extension row
+  would ever have been dropped.
+* **49's fix was already written down and never applied.**  `_mark`'s docstring
+  said "per flush ... an interruption costs one batch"; the call site ran it
+  once per encoder pass.  Fourteen logged attempts, one reaching 14,000 images,
+  all resumed from zero.
+
+**Still open in this file: 24 and 39.**
+
+**24** is confirmed and *not* fixed, deliberately.  The learned neighbour score
+is `cos(q_pos(q_emb), k_pos(nbr_emb))` and `ExternalSet` supplies one query
+embedding per group, so candidates a secondary photograph retrieved are scored
+against a photograph that did not retrieve them.  Closing it means letting the
+retrieval prior take a query embedding *per neighbour*, which changes a shipped
+model's interface and invalidates the multi-photo numbers on record.  That is a
+re-baseline decision, so it joins the list in `docs/STATE.md` rather than being
+fixed quietly.  `multiquery.py` now prints the caveat whenever it runs a
+pos/dual arm at N>1.
+
+**39** (RoPE gives no relative position) was already on that list.  Seven more are listed in `docs/STATE.md` as needing a
+re-baseline decision before they can be touched at all.

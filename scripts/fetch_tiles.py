@@ -25,6 +25,25 @@ import tiles as T
 TOKENS, INDEX, DONE = config.map_files()
 
 
+def _load_mask(path, n):
+    """A completion mask is only a resume point if it describes this cache.
+
+    Loaded blind, a short mask makes the run unrecoverable without deleting it
+    by hand, and values above one corrupt the completed count that decides
+    whether the build is finished.
+    """
+    d = np.load(path)
+    if d.shape != (n,):
+        raise SystemExit(
+            "tile cache mask is {} but this build wants {}; it belongs to a "
+            "different cache. Delete it to start fresh.".format(d.shape, (n,)))
+    if not np.isin(d, (0, 1)).all():
+        raise SystemExit(
+            "tile cache mask holds values outside {0, 1}; it is not a "
+            "completion mask. Delete it to start fresh.")
+    return d.astype(np.uint8)
+
+
 def needed_keys(grid, exhaustive_z8):
     tg = pq.read_table(config.TARGETS_PARQUET)
     z = np.asarray(tg["tile_z"]).astype(np.int64)
@@ -109,9 +128,17 @@ def main():
             # 12-d cache for a --sub 2 build would keep the old memmap and an
             # all-complete done mask, then report "nothing to do".
             try:
-                w = np.load(TOKENS, mmap_mode="r").shape[-1]
+                shp = np.load(TOKENS, mmap_mode="r").shape
+                w, cells = shp[-1], shp[1]
             except Exception:
-                w = None
+                w, cells = None, None
+            # Cell count as well as width: the memmap header would catch a
+            # mismatch on open, but only by raising somewhere less obvious
+            # than here.
+            if cells not in (None, d):
+                reuse = False
+                print("cache holds {} cells per tile, this build wants {} "
+                      "-- starting fresh".format(cells, d))
             if w != width:
                 reuse = False
                 print("cache is {}-d, this build is {}-d -- starting fresh"
@@ -119,10 +146,17 @@ def main():
         if not reuse:
             print("index changed -- starting a fresh cache")
 
+    if not reuse and DONE.exists():
+        # Drop the old mask BEFORE the memmap below truncates the tokens.
+        # Otherwise a crash in between leaves a zeroed token file beside a
+        # mask that still says every row is complete, and the next run
+        # blesses rows that hold nothing.
+        DONE.unlink()
+
     tok = np.lib.format.open_memmap(
         TOKENS, mode="r+" if reuse else "w+",
         dtype=np.float16, shape=(n, d, width))
-    done = (np.load(DONE) if reuse
+    done = (_load_mask(DONE, n) if reuse
             else np.zeros(n, dtype=np.uint8))
     pq.write_table(idx, INDEX)
 
@@ -201,6 +235,19 @@ def main():
     for e in errors:
         print("  " + e)
     print("cached total {:,}/{:,}".format(int(done.sum()), n))
+
+    # Exiting 0 here is what let a partial cache look finished: the stage runner
+    # keys its markers on the exit code, so a run that lost tiles to a flaky
+    # server wrote a success marker and was never retried.  The unfetched rows
+    # stay at the memmap's zero fill, which is a legal token histogram, so
+    # nothing downstream complained either.  Re-running is safe and resumable.
+    short = n - int(done.sum())
+    if short:
+        print()
+        sys.exit("INCOMPLETE: {:,} of {:,} tiles were not fetched. The cache "
+                 "is not usable as it stands -- unfetched rows are all-zero "
+                 "token histograms that read as valid. Re-run to resume."
+                 .format(short, n))
 
 
 if __name__ == "__main__":

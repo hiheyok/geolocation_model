@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 
@@ -147,9 +148,21 @@ def main():
         **{sp.column(m): pa.array(v.tolist()) for m, v in modes.items()},
     })
     pq.write_table(ds, config.DATASET_PARQUET)
+    # The authority for row order in this release. Everything downstream is
+    # checked against this digest rather than against another derived file: a
+    # chain of pairwise checks can be internally consistent and collectively
+    # wrong.
+    _ids = np.asarray(ds["image_id"])
+    prov.write(config.DATASET_PARQUET, _ids, release=config.RELEASE,
+               row_space="the release")
 
     tg = build_targets(image_id, lat, lon, a.g, a.steps)
     pq.write_table(tg, config.TARGETS_PARQUET)
+    # Written in the same breath as the dataset, and that is the whole point:
+    # the two are paired by row position downstream, and rebuilding one alone
+    # gives every image another image's zoom path with no symptom.
+    prov.write(config.TARGETS_PARQUET, _ids, release=config.RELEASE,
+               row_space="the release")
 
     print("\nwrote      dataset.parquet  {:,} images".format(ds.num_rows))
     print("wrote      targets.parquet  {:,} rows ({} per image)".format(

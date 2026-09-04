@@ -61,14 +61,25 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 if not os.environ.get("OSV_RELEASE"):
+    # Declared, not silent. config refuses to guess a release precisely
+    # because guessing produced five wrong-release runs; a tool that picks one
+    # for you should at least say so in the output it is about to print.
     os.environ["OSV_RELEASE"] = "s10"
+    print("OSV_RELEASE not set; using s10 (this tool's bank and harvest are "
+          "s10-only)", flush=True)
 
 import config
 import names
+import safeio
+
+# Named once: these decide what a cached query vector means, and the cache
+# stamp below has to move whenever they do.
+BASIS = "pca768_bank55_pca.npz"
+SIGLIP_SCALE = 4.03
 import tile_math as tm
 from dataset import street_table
 from evaluate import evaluate, load_model
-from beam import TokenSource, source_for
+from beam import source_for
 from eval_highres import ExternalSet, embed, tile_for_vec
 
 R_EARTH = 6371.0088
@@ -80,7 +91,7 @@ def unit3(lat, lon):
                      np.cos(lat * p) * np.sin(lon * p), np.sin(lat * p)], 1)
 
 
-def merge_candidates(take, idx32, sim32, K, how):
+def merge_candidates(take, idx32, sim32, K, how, calib="top1"):
     """Which neighbours the extra photographs actually get to contribute.
 
     `global` ranks every photograph's 32 candidates together and keeps the best
@@ -92,10 +103,24 @@ def merge_candidates(take, idx32, sim32, K, how):
     `rr` gives each photograph an equal share by rank and deduplicates, so a
     bank row two photographs both found does not vote twice. At N=1 the two are
     identical, so the baseline is untouched either way.
+
+    **Equal slots are not equal weight** (item 23). `rr` hands each photograph
+    the same number of slots and then carries each candidate's *raw* cosine
+    into a single softmax downstream. Similarity scale varies per photograph --
+    that is the very fact `rr` exists to work around -- so a photograph whose
+    best match is 0.72 has its candidates suppressed against one whose best is
+    0.95, and the allocation it was given back is spent. `calib="top1"`
+    subtracts each photograph's own top-1, so every photograph's best candidate
+    enters at 0 and only its internal structure survives, which is what "equal
+    share" has to mean for a softmax. `calib="none"` reproduces the runs on
+    record, including the +1.2 pp second-angle result.
     """
+    off = np.zeros(len(sim32), dtype=np.float64)
+    if calib == "top1":
+        off = sim32.max(axis=1).astype(np.float64)
     if how == "global":
         ci = idx32[take].reshape(-1)
-        cs = sim32[take].reshape(-1)
+        cs = (sim32[take] - off[take, None]).reshape(-1)
         o = np.argsort(-cs)[:K]
         return ci[o], cs[o]
     seen, oi, os_ = set(), [], []
@@ -108,12 +133,12 @@ def merge_candidates(take, idx32, sim32, K, how):
                 continue
             seen.add(b)
             oi.append(b)
-            os_.append(float(sim32[t, r]))
+            os_.append(float(sim32[t, r] - off[t]))
         if len(oi) >= K:
             break
     if len(oi) < K:                     # heavy overlap: top up from the pool
         ci = idx32[take].reshape(-1)
-        cs = sim32[take].reshape(-1)
+        cs = (sim32[take] - off[take, None]).reshape(-1)
         for j in np.argsort(-cs):
             if len(oi) >= K:
                 break
@@ -123,9 +148,14 @@ def merge_candidates(take, idx32, sim32, K, how):
             seen.add(b)
             oi.append(b)
             os_.append(float(cs[j]))
-    while len(oi) < K:                  # fewer than K distinct rows exist
+    while len(oi) < K:
+        # Fewer than K distinct rows exist. The padding used to repeat the last
+        # candidate at its own score, which makes one bank row vote twice --
+        # the exact double-count `rr` deduplicates to avoid, reintroduced two
+        # lines later. Repeat the index (it has to be a legal row) but at a
+        # score no softmax gives weight to.
         oi.append(oi[-1])
-        os_.append(os_[-1])
+        os_.append(-1e4)
     return np.array(oi), np.array(os_)
 
 
@@ -182,35 +212,65 @@ def cached_queries(data, pick, dev, stem):
     for line in (Path(data) / "manifest.jsonl").open(encoding="utf-8"):
         r = json.loads(line)
         recs[r["id"]] = r
+    # Everything that changes what these vectors mean, not just which images
+    # they came from: a different image root, PCA basis, encoder scale or
+    # release produces different embeddings for the same ids, and the cache
+    # used to hand them back as if they matched.
+    # Fingerprint the CONTENTS of everything that decides what these vectors
+    # mean, not its filename. Rebuilding the PCA basis or replacing the images
+    # under the same path used to leave the cache valid, so the run silently
+    # mixed vectors from two different bases.
+    stamp = "{}|{}|{}|{}|{}|{}".format(
+        data, safeio.file_stamp(Path(data) / "manifest.jsonl"),
+        BASIS, safeio.file_stamp(config.STREET_CACHE / BASIS),
+        SIGLIP_SCALE, config.RELEASE)
     if p.exists() and q.exists():
         m = np.load(q, allow_pickle=True)
-        if len(m["image_id"]) == len(pick) and (m["image_id"] == np.array(pick)).all():
+        same_build = str(m["stamp"]) == stamp if "stamp" in m.files else False
+        if not same_build:
+            # Say it. A silent re-embed of 5,000 images looks like a slow run,
+            # and the reason it is re-embedding is the thing worth knowing.
+            print("query cache was built under a different basis, image root "
+                  "or release; re-embedding", flush=True)
+        if (same_build and len(m["image_id"]) == len(pick)
+                and (m["image_id"] == np.array(pick)).all()):
             print("reusing cached query embeddings, {:,}".format(len(pick)),
                   flush=True)
             return (np.load(p), m["lat"], m["lon"],
                     m["sequence"].astype("U40"))
     paths = [str(Path(data) / "img" / (i + ".jpg")) for i in pick]
     E = embed(paths, dev)
-    tok = np.concatenate([E["dinov2"], 4.03 * E["siglip"]], axis=2)
+    tok = np.concatenate([E["dinov2"], SIGLIP_SCALE * E["siglip"]], axis=2)
     pooled = tok.mean(1).astype(np.float32)
-    z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
+    z = np.load(config.STREET_CACHE / BASIS)
     V = ((pooled - z["mu"]) @ z["P"]).astype(np.float16)
     lat = np.array([recs[i]["lat"] for i in pick], np.float64)
     lon = np.array([recs[i]["lon"] for i in pick], np.float64)
     seq = np.array([str(recs[i].get("sequence_id", i)) for i in pick])
     np.save(p, V)
-    np.savez(q, image_id=np.array(pick), lat=lat, lon=lon, sequence=seq)
+    np.savez(q, image_id=np.array(pick), lat=lat, lon=lon, sequence=seq,
+             stamp=stamp)
     return V, lat, lon, seq
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tag", default="d1536-b350-e6")
+    # The queries are always projected to 768 by BASIS, so a 1536-d default
+    # could only ever exit with "cached queries are 768-d but this wants
+    # 1536-d". Default to the arm that actually ships.
+    ap.add_argument("--tag", default="d768-b350-e6-drop70")
     ap.add_argument("--bank", default=None,
                     help="defaults to the checkpoint's own street file")
     ap.add_argument("--data", default="E:/data/kartaview_hr")
     ap.add_argument("--radius", type=float, default=100.0, help="metres")
     ap.add_argument("--sizes", default="1,2,4,8")
+    ap.add_argument("--calib", default="top1", choices=("top1", "none"),
+                    help="calibrate each photograph's similarities before "
+                         "they are pooled into one softmax. Equal slots are "
+                         "not equal weight: a photograph whose best match is "
+                         "0.72 is suppressed against one whose best is 0.95, "
+                         "which spends the equal share rr just handed it. "
+                         "'none' reproduces the runs on record.")
     ap.add_argument("--groups", type=int, default=400,
                     help="cap; the harvest supplies 339 full groups at 100 m")
     ap.add_argument("--order", default="diverse", choices=("diverse", "near"),
@@ -228,6 +288,20 @@ def main():
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model, ck, _ = load_model(a.tag, dev)
+    if ck.get("retr_mode") in ("pos", "dual"):
+        # Item 24, stated rather than papered over. The learned term is
+        # cos(q_pos(q_emb), k_pos(nbr_emb)) and ExternalSet supplies ONE query
+        # embedding per group -- the primary photograph's -- so candidates a
+        # secondary photograph retrieved are scored against a picture that did
+        # not retrieve them. Fixing it means letting the prior take a query
+        # embedding per neighbour, which changes a shipped model's interface,
+        # so it is not done here. Every N>1 number from this script under
+        # pos/dual carries that caveat.
+        print("caveat: --tag {} uses retr_mode={!r}, whose learned neighbour "
+              "score is computed against the PRIMARY photograph's embedding "
+              "for every candidate, including those a secondary photograph "
+              "retrieved (review item 24, open). The similarity term is "
+              "unaffected.".format(a.tag, ck.get("retr_mode")), flush=True)
     bank_file = a.bank or ck.get("street_file")
     dim = 768 if "768" in bank_file else 1536
     sizes = [int(x) for x in a.sizes.split(",")]
@@ -237,6 +311,18 @@ def main():
     # sampling images first and grouping second manufactures a false plateau.
     recs = [json.loads(l) for l in
             (Path(a.data) / "manifest.jsonl").open(encoding="utf-8")]
+    # Same gate as eval_highres. Groups are formed from the whole manifest, so
+    # a blocked image has to go before grouping or it can anchor a group.
+    _block, _screened = prov.leak_blocklist(a.data)
+    if _block:
+        _before = len(recs)
+        recs = [r for r in recs if str(r["id"]) not in _block]
+        print("leak screen dropped {:,} of {:,} images with burned-in "
+              "coordinates".format(_before - len(recs), _before), flush=True)
+    elif not _screened:
+        print("leak screen: no blocklist at {} -- nothing has been screened, "
+              "which is not the same as nothing leaking".format(a.data),
+              flush=True)
     mlat = np.array([r["lat"] for r in recs], np.float64)
     mlon = np.array([r["lon"] for r in recs], np.float64)
     mseq = np.array([str(r.get("sequence_id", r["id"])) for r in recs])
@@ -265,6 +351,41 @@ def main():
 
     # ---- neighbours for every image, once -------------------------------
     bank = np.load(config.STREET_CACHE / bank_file, mmap_mode="r")
+    # Search the rows the checkpoint's k-NN was actually built over, the same
+    # restriction eval_highres needed. A bank file carries extension rows the
+    # training bank excluded -- 99,820 of them for bank70 -- and including them
+    # gives the policy a corpus it never trained against. In range, so silent.
+    keep = None
+    kf = ck.get("knn_file")
+    if a.bank and a.bank != ck.get("street_file"):
+        # --bank swaps the corpus, and the checkpoint's bank_rows index its
+        # OWN bank file. Applying them to a different one filters it by
+        # unrelated positions -- in range, so silent. eval_highres already
+        # resolves the cache built over the bank in use; do the same here.
+        stem, _how = prov.ext_for_bank(config.STREET_CACHE / bank_file,
+                                       bank_file)
+        kf = config.knn_name(bank_file, ck.get("split_mode", "sequence"),
+                             ext=stem)
+        if not (config.STREET_CACHE / kf).exists():
+            sys.exit("--bank {} needs the kNN cache built over it ({}) to "
+                     "know which rows that bank holds; the checkpoint's own "
+                     "{} describes a different file."
+                     .format(bank_file, kf, ck.get("knn_file")))
+        print("bank override: rows from {} (not the checkpoint's {})"
+              .format(kf, ck.get("knn_file")), flush=True)
+    if kf and (config.STREET_CACHE / kf).exists():
+        meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
+        if "bank_rows" in meta.files:
+            keep = np.asarray(meta["bank_rows"], np.int64)
+    if keep is None:
+        keep = np.arange(bank.shape[0], dtype=np.int64)
+        print("bank rows  {:,} (checkpoint records none)".format(len(keep)))
+    else:
+        print("bank rows  {:,} of {:,} in the file, from {}"
+              .format(len(keep), bank.shape[0], kf))
+    keep_set = np.zeros(bank.shape[0], bool)
+    keep_set[keep] = True
+
     Q = torch.nn.functional.normalize(
         torch.from_numpy(V.astype(np.float32)).to(dev), dim=1)
     K = 32
@@ -272,18 +393,25 @@ def main():
     bi = torch.zeros((len(V), K), dtype=torch.long, device=dev)
     t0 = time.time()
     for s in range(0, bank.shape[0], 200000):
+        m = keep_set[s:s + 200000]
+        if not m.any():
+            continue
+        gidx = torch.from_numpy(np.flatnonzero(m).astype(np.int64) + s).to(dev)
         B = torch.nn.functional.normalize(
-            torch.from_numpy(np.asarray(bank[s:s + 200000], np.float32)
+            torch.from_numpy(np.asarray(bank[s:s + 200000][m], np.float32)
                              ).to(dev), dim=1)
-        v, i = torch.topk(Q @ B.T, K, dim=1)
+        v, i = torch.topk(Q @ B.T, min(K, B.shape[0]), dim=1)
         cv = torch.cat([bv, v], 1)
-        ci = torch.cat([bi, i + s], 1)
+        ci = torch.cat([bi, gidx[i]], 1)      # local -> global row id
         bv, sel = torch.topk(cv, K, dim=1)
         bi = torch.gather(ci, 1, sel)
         del B
     sim32, idx32 = bv.cpu().numpy(), bi.cpu().numpy()
+    # len(keep), not bank.shape[0]: the search is masked to the
+    # checkpoint's own bank, and printing the file's size restates a
+    # number instead of deriving it -- the bug the mask exists to undo.
     print("kNN over {:,} bank rows in {:.0f}s   top-1 {:.4f}".format(
-        bank.shape[0], time.time() - t0, sim32[:, 0].mean()), flush=True)
+        len(keep), time.time() - t0, sim32[:, 0].mean()), flush=True)
 
     # ---- bank z16 addresses ---------------------------------------------
     import pyarrow.parquet as pq
@@ -295,12 +423,10 @@ def main():
     # part-order contract, which is silent when broken: a wrong order still
     # concatenates to the right length and every address is then attached to
     # the wrong bank row.
-    stem = "bank_ext"
-    for n in ("70", "55", "40"):
-        if "bank" + n in bank_file:
-            stem = "bank_ext" + n
-            break
-    m = np.load(config.bank_meta(stem), allow_pickle=True)
+    stem, how = prov.ext_for_bank(config.STREET_CACHE / bank_file, bank_file)
+    print("bank {}   addresses {}  ({})".format(bank_file, stem, how),
+          flush=True)
+    m = prov.bank_ext(stem, config.RELEASE)
     bx = np.concatenate([bx, m["x16"].astype(bx.dtype)])
     by = np.concatenate([by, m["y16"].astype(by.dtype)])
     assert len(bx) == bank.shape[0], (stem, len(bx), bank.shape[0])
@@ -324,7 +450,8 @@ def main():
             # the *same* photograph against the same ground truth and the only
             # thing that changes is how many others voted with it.
             take = members[:N]
-            ci, cs = merge_candidates(take, idx32, sim32, K_use, a.merge)
+            ci, cs = merge_candidates(take, idx32, sim32, K_use, a.merge,
+                                      a.calib)
             anchors.append(members[0])
             nidx.append(ci)
             nsim.append(cs)

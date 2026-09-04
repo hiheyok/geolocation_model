@@ -28,6 +28,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 
@@ -37,6 +38,41 @@ def cache_path(street_file, mode, k, bank_limit=0, ext=None):
     return config.STREET_CACHE / config.knn_name(
         street_file, mode, k, bank_limit, ext)
 
+
+
+def held_cells(ds, labels, zc):
+    """The cells this split holds out, at the split's OWN zoom.
+
+    `cell_z8` was read whatever the mode said, so a cell12 or cell16 split
+    compared z8 cell ids against z12/z16 ids -- different numbering, so almost
+    nothing matched, so the extension served neighbours from precisely the
+    regions being held out and the transfer question went unasked while the
+    run printed a plausible "N dropped" line (item 60).
+
+    Both sides are derived the same way here, from the z16 address, so they
+    cannot disagree about what a cell id means. Latent until now: only
+    `sequence` (no held cells at all) and `cell8` are in use, and at z8 the
+    column happened to be right.
+    """
+    # tile_math.project is scalar (math.sin, min/max), so the array form is
+    # written out here exactly as build_dataset and dataset.py write it.
+    lat = np.clip(np.asarray(ds["lat"], dtype=np.float64),
+                  -tm.MAX_LAT, tm.MAX_LAT)
+    lon = np.asarray(ds["lon"], dtype=np.float64)
+    sin = np.sin(np.radians(lat))
+    px = (lon + 180.0) / 360.0
+    py = 0.5 - np.log((1.0 + sin) / (1.0 - sin)) / (4.0 * np.pi)
+    n16 = 1 << (4 * tm.STEPS)
+    x16 = np.clip((px * n16).astype(np.int64), 0, n16 - 1)
+    y16 = np.clip((py * n16).astype(np.int64), 0, n16 - 1)
+    return cell_ids(x16, y16, zc)[labels != "train"]
+
+
+def cell_ids(x16, y16, zc):
+    """z16 addresses -> cell ids at zoom zc. One definition, used both sides."""
+    sh = 4 * tm.STEPS - zc
+    return ((x16.astype(np.int64) >> sh) * (1 << zc)
+            + (y16.astype(np.int64) >> sh))
 
 
 def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
@@ -56,18 +92,13 @@ def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
         rows = rows[np.sort(keep)]
     if not ext_stem:
         return rows, None
-    m = np.load(config.bank_meta(ext_stem), allow_pickle=True)
+    m = prov.bank_ext(ext_stem, config.RELEASE)
     n_rel = len(labels)
     keep = np.ones(len(m["x16"]), dtype=bool)
     zc = sp.MODES[mode]
     if zc is not None:
-        cell = np.asarray(ds["cell_z8"])
-        held = np.fromiter(set(np.unique(cell[labels != "train"]).tolist()),
-                           dtype=np.int64)
-        sh = 4 * tm.STEPS - zc
-        ec = ((m["x16"].astype(np.int64) >> sh) * (1 << zc)
-              + (m["y16"].astype(np.int64) >> sh))
-        keep = ~np.isin(ec, held)
+        held = np.unique(held_cells(ds, labels, zc))
+        keep = ~np.isin(cell_ids(m["x16"], m["y16"], zc), held)
     return np.concatenate([rows, np.arange(n_rel, n_rel + len(keep))[keep]]), m
 
 
@@ -117,13 +148,19 @@ def main():
     # release rows, so a neighbour index addresses both spaces uniformly.
     ext_n = 0
     if a.bank_ext:
-        m = np.load(config.bank_meta(a.bank_ext), allow_pickle=True)
+        m = prov.bank_ext(a.bank_ext, config.RELEASE)
         ext_n = len(m["x16"])
         if emb.shape[0] < n_rel + ext_n:
             raise SystemExit(
                 "{} has {:,} rows but the release has {:,} and the extension "
                 "{:,}; run scripts/stack_bank.py first".format(
                     a.street_file, emb.shape[0], n_rel, ext_n))
+        # Length was the only thing ever checked, and every wrong order
+        # satisfies it too. The stacked file records release-then-extension;
+        # this is where that record is read (item 66).
+        prov.check_stack(config.STREET_CACHE / a.street_file,
+                         [np.asarray(ds["image_id"]), m["image_id"]],
+                         a.street_file)
         ext_rows = np.arange(n_rel, n_rel + ext_n, dtype=np.int64)
         ext_keep = np.ones(ext_n, dtype=bool)
 
@@ -133,21 +170,26 @@ def main():
             # model transfers to unseen regions. The extension has no split
             # label, so without this it would serve neighbours from exactly the
             # held-out cells and the question would go unasked.
-            cell = np.asarray(ds["cell_z8"])
-            held = set(np.unique(cell[labels != "train"]).tolist())
-            shift = 4 * tm.STEPS - zc
-            ex = (m["x16"].astype(np.int64) >> shift)
-            ey = (m["y16"].astype(np.int64) >> shift)
-            ext_cell = ex * (1 << zc) + ey
-            ext_keep = ~np.isin(ext_cell, np.fromiter(held, dtype=np.int64))
+            held = np.unique(held_cells(ds, labels, zc))
+            ext_keep = ~np.isin(cell_ids(m["x16"], m["y16"], zc), held)
             print("bank ext   {:,} of {:,} dropped: they sit in z{} cells this "
                   "split holds out".format(int((~ext_keep).sum()), ext_n, zc))
 
         ext_rows = ext_rows[ext_keep]
         bank_rows = np.concatenate([bank_rows, ext_rows])
-        # sequence ids must not collide across the two corpora
-        _, ext_seq = np.unique(m["sequence"], return_inverse=True)
-        seq_id = np.concatenate([seq_id, ext_seq + seq_id.max() + 1])
+        # Factorise the two corpora TOGETHER, so a sequence appearing in both
+        # gets one id. Offsetting the extension's ids made the corpora disjoint
+        # by construction, which is not a fact about the data: one real drive
+        # crossing the boundary then had two ids, and same-sequence exclusion
+        # -- the entire reason this column exists -- silently stopped applying
+        # to it (item 61).
+        both = np.concatenate([seq.astype("U40"),
+                               np.asarray(m["sequence"]).astype("U40")])
+        _, seq_id = np.unique(both, return_inverse=True)
+        shared = len(np.intersect1d(seq.astype("U40"),
+                                    np.asarray(m["sequence"]).astype("U40")))
+        print("bank ext   {:,} sequence ids shared with the release{}".format(
+            shared, " -- exclusion now covers them" if shared else ""))
         print("bank ext   {:,} images kept from {}".format(
             len(ext_rows), ", ".join(str(x) for x in m["shards"])))
 
@@ -216,6 +258,27 @@ def main():
     # index neighbours the same way it indexes everything else
     idx_out = bank_rows[best_j.numpy()]
     sim_out = best_s.numpy()
+
+    # Excluded rows are masked to -2.0 rather than removed, so a query with
+    # fewer than k legal neighbours in the bank keeps the placeholders and
+    # they reach the cache as ordinary neighbours with an ordinary index
+    # (item 64). Their weight is near zero -- `score = sim/tau + ...` with
+    # tau ~ 0.07 makes -2.0 worth exp(-29) against a real 0.9 -- but "near
+    # zero" is not "absent", and the index still points at an excluded row.
+    #
+    # Fail rather than emit them. With a 3.4M-row bank this cannot happen
+    # short of a pathological query, and if it ever does the operator should
+    # lower --k rather than train on rows the exclusion meant to remove. The
+    # caches on disk hold none: min similarity is 0.340.
+    short = sim_out <= -1.99
+    if short.any():
+        rows_hit = int(short.any(1).sum())
+        raise SystemExit(
+            "{:,} of {:,} queries have fewer than k={} legal neighbours, so "
+            "{:,} slots would carry an excluded row at similarity -2.0. Lower "
+            "--k, or widen the bank. (This became reachable when same-sequence "
+            "exclusion started applying across the corpus boundary.)"
+            .format(rows_hit, len(sim_out), a.k, int(short.sum())))
 
     out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit,
                      a.bank_ext)

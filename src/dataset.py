@@ -18,6 +18,7 @@ from torch.utils.data import Dataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 
@@ -90,6 +91,43 @@ def gather_nbr(table, rows, dev):
     return table[idx].to(dev, non_blocking=True).float()
 
 
+def _check_fetched(done_p, tok_row, zs, n_neg, split):
+    """An unfetched tile is a zero row, and a zero row is a legal histogram.
+
+    fetch_tiles marks each row it completes in done.u8.npy and leaves the rest
+    of the memmap at its zero fill.  Nothing here read that mask, so a cache
+    interrupted part way through trained happily against all-zero map tokens
+    for every tile it never got -- which no loss can show you, because a
+    uniform-zero histogram is a perfectly well-formed input.  It just makes a
+    quietly worse model, which is this project's most expensive failure shape.
+
+    Only the rows this split can actually reach are checked.  With negatives
+    enabled the reachable set widens to every z4 and z8 tile, because a sibling
+    negative may descend into any of them.
+    """
+    if not done_p.exists():
+        return                      # caches written before the mask existed
+    done = np.load(done_p)
+    if len(done) != len(zs):
+        raise SystemExit(
+            "map cache is inconsistent: {} index rows but a {}-row done mask "
+            "({}). Rebuild the cache; a stale mask cannot be interpreted."
+            .format(len(zs), len(done), done_p))
+
+    used = np.unique(tok_row)
+    if n_neg > 0:
+        # sibling negatives descend into arbitrary z4/z8 tiles
+        used = np.union1d(used, np.flatnonzero(zs <= 8))
+    miss = used[done[used] == 0]
+    if len(miss):
+        raise SystemExit(
+            "map cache is incomplete: {:,} of the {:,} tiles the {!r} split "
+            "reads were never fetched ({}). Those rows are all-zero token "
+            "histograms, which look valid and are not. Re-run fetch_tiles; it "
+            "is resumable and will fetch exactly these."
+            .format(len(miss), len(used), split, done_p))
+
+
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
                  street_file=None, n_neg=0, neg_seed=0,
@@ -113,11 +151,19 @@ class GeoStepDataset(Dataset):
         self.lon = np.asarray(ds["lon"], dtype=np.float64)[keep]
         self.country = np.asarray(ds["country"].to_pylist(), dtype=object)[keep]
 
-        # street embeddings: row order matches dataset.parquet
+        # street embeddings: row order matches dataset.parquet -- asserted,
+        # until now, by nothing at all. The digest is computed once here and
+        # reused for every artifact checked below; it costs 2 ms at 500k rows.
+        self.rows_digest = prov.rows_digest(all_ids)
         self._street_path = config.STREET_CACHE / street_file
-        self._tokens_path, index_p, _ = config.map_files(cache)
+        self._tokens_path, index_p, done_p = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
+        # A bank extension holds no release rows and is addressed separately,
+        # so only a full-length cache is claiming to be this release's rows.
+        if len(self.street) == len(all_ids):
+            prov.check(self._street_path, all_ids, street_file,
+                       digest=self.rows_digest)
 
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
@@ -133,6 +179,26 @@ class GeoStepDataset(Dataset):
         # targets, reshaped to [n_images_total, steps+1]
         tg = pq.read_table(config.TARGETS_PARQUET)
         per = steps + 1
+        # targets.parquet carries image_id and nothing ever read it: the file
+        # was reshaped to (n, steps+1) and paired with dataset.parquet purely
+        # by position. Rebuilding one without the other -- which is two
+        # commands, not one -- silently gives every image another image's
+        # zoom path, and every metric stays in range. No sidecar needed here;
+        # the evidence was already in the file.
+        tg_ids = np.asarray(tg["image_id"]).reshape(-1, per)
+        if len(tg_ids) != len(all_ids):
+            raise SystemExit(
+                "targets.parquet holds {:,} images but dataset.parquet holds "
+                "{:,}; they are from different builds. Re-run "
+                "scripts/build_dataset.py, which writes both."
+                .format(len(tg_ids), len(all_ids)))
+        if not (tg_ids == all_ids[:, None]).all():
+            bad = int((tg_ids != all_ids[:, None]).any(1).sum())
+            raise SystemExit(
+                "targets.parquet and dataset.parquet disagree on which image "
+                "is in {:,} of {:,} rows. Every step target would belong to a "
+                "different image than the embedding it is paired with. Re-run "
+                "scripts/build_dataset.py.".format(bad, len(all_ids)))
         tz = np.asarray(tg["tile_z"]).astype(np.int64).reshape(-1, per)
         tx = np.asarray(tg["tile_x"]).astype(np.int64).reshape(-1, per)
         ty = np.asarray(tg["tile_y"]).astype(np.int64).reshape(-1, per)
@@ -147,6 +213,10 @@ class GeoStepDataset(Dataset):
             [[lut[int(k)] for k in row] for row in tk[keep]], dtype=np.int64)
         self.action = act[keep][:, :steps]
         self.tile = np.stack([tz[keep], tx[keep], ty[keep]], axis=-1)
+
+        _check_fetched(done_p, self.tok_row,
+                       np.asarray(idx["z"]).astype(np.int64),
+                       n_neg, split)
 
         # Where inside each step's tile the true point falls, in units of grid
         # cells.  Hard CE cannot tell a neighbouring cell from the wrong
@@ -173,17 +243,78 @@ class GeoStepDataset(Dataset):
             if ext:
                 # neighbours may live past the release: extend the address
                 # tables so nbr index n+i resolves to the extension row i
-                m = np.load(config.bank_meta(ext), allow_pickle=True)
+                m = prov.bank_ext(ext, config.RELEASE)
                 self.all_x16 = np.concatenate(
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(
                     [self.all_y16, m["y16"].astype(self.all_y16.dtype)])
+            # build_knn records five things about how the cache was made and
+            # only one of them was ever checked.  Each of the others is a way
+            # for the wrong neighbours to arrive silently, and none of them
+            # would raise on its own: the arrays are the right dtype and a
+            # plausible shape whatever they were built from.
             if str(z["split_mode"]) != split_mode:
                 raise SystemExit(
                     "knn cache was built on split {!r} but the dataset is {!r}; "
                     "the bank must be that split's train side".format(
                         str(z["split_mode"]), split_mode))
-            self.knn_idx = z["idx"][:, :knn_k]
+            if "split_hash" in z and str(z["split_hash"]) != self.split_hash:
+                # Every kNN cache on disk was built before 2026-09-03, when
+                # split_hash still hashed only each label's first character.
+                # check_split learned to recognise that digest so the 122
+                # checkpoints keep loading; this sibling check did not, and it
+                # refused the entire shipping retrieval path. Recognise it the
+                # same way, and say exactly what the weak digest does not
+                # prove -- it cannot tell a train/test swap from the real
+                # assignment, so it pins the mode and the val positions only.
+                if sp.hash_matches(split_mode, splits,
+                                   z["split_hash"]) == "legacy":
+                    print("note: {} carries the pre-2026-09-03 split digest, "
+                          "which hashed only each label's first character and "
+                          "so cannot distinguish train from test. The bank's "
+                          "train side matches as far as that digest can tell."
+                          .format(knn_file), flush=True)
+                else:
+                    raise SystemExit(
+                        "knn cache was built against split hash {} but the "
+                        "data on disk hashes to {}; dataset.parquet changed "
+                        "since the bank was built, so its train side is no "
+                        "longer that train side. Rebuild it."
+                        .format(str(z["split_hash"]), self.split_hash))
+            if "street_file" in z and str(z["street_file"]) != street_file:
+                raise SystemExit(
+                    "knn cache was built over {!r} but this dataset reads {!r}. "
+                    "Neighbours found in one embedding space do not transfer to "
+                    "another.".format(str(z["street_file"]), street_file))
+            # One query row per *release* image.  Not per row of the street
+            # file: a bank file has its extension rows appended after the
+            # release's, so that length is larger and comparing against it
+            # rejects every legitimate cache.
+            n_q, n_rel = z["idx"].shape[0], len(splits)
+            if n_q != n_rel:
+                raise SystemExit(
+                    "knn cache holds {:,} query rows but the release has {:,} "
+                    "images. Both are indexed by row order in dataset.parquet, "
+                    "so every image would be given another image's neighbours."
+                    .format(n_q, n_rel))
+            have = z["idx"].shape[1]
+            if have < knn_k:
+                raise SystemExit(
+                    "knn cache has {} neighbours per query, {} were asked for. "
+                    "Slicing would silently train on fewer neighbours than the "
+                    "run records.".format(have, knn_k))
+            idx_all = z["idx"][:, :knn_k]
+            # A negative index reads from the end of the address tables and
+            # returns a neighbour that is not the one recorded -- silently,
+            # because the result is a perfectly ordinary row.
+            lo, hi = int(idx_all.min()), int(idx_all.max())
+            if lo < 0 or hi >= len(self.all_x16):
+                raise SystemExit(
+                    "knn cache holds neighbour indices in [{}, {}] but the "
+                    "address tables have {:,} rows; a negative index would "
+                    "read from the end and a large one is out of range."
+                    .format(lo, hi, len(self.all_x16)))
+            self.knn_idx = idx_all
             self.knn_sim = z["sim"][:, :knn_k].astype(np.float32)
 
         self.uv = np.stack([u[keep][:, steps], v[keep][:, steps]], 1)

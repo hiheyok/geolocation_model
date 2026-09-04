@@ -15,8 +15,6 @@ encoder pass, one matmul against the bank, and four map fetches.
 """
 
 import argparse
-import io
-import json
 import sys
 import time
 from pathlib import Path
@@ -29,10 +27,11 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 import tiles as T
-from beam import TokenSource, source_for, search
+from beam import source_for, search
 from embed_street import preprocess
 from evaluate import load_model, street_file_for
 
@@ -60,6 +59,18 @@ def load_everything(tag, dev, bank_gpu):
 
     # the bank is whatever this checkpoint's kNN cache was built from: the
     # split's train side, plus a bank extension if it had one
+    if not ck.get("knn_file"):
+        # A bare ck["knn_file"] made a non-retrieval checkpoint fail with an
+        # incidental KeyError three frames deep. Say what is wrong instead.
+        raise SystemExit(
+            "this checkpoint records no knn_file, so it was trained without "
+            "retrieval; serve.py needs a retrieval arm. Train with --retr or "
+            "point --tag at one that has it.")
+    # Every cache here is addressed by row order, so serving a checkpoint
+    # from another release pairs each image with a different image's
+    # embedding. The evaluator has always checked this; the server did not.
+    from evaluate import check_split
+    check_split(ck, ck.get("split_mode", sp.PRIMARY), "test")
     knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
     if "bank_rows" in knn:
@@ -108,10 +119,27 @@ def load_everything(tag, dev, bank_gpu):
                  street=torch.from_numpy(np.asarray(emb)) if not bank_gpu else None,
                  k=ck.get("retr_k", 16))
     # sf is the checkpoint's own street file, resolved above
-    STATE["enc_scale"] = [1.0, 4.03 if "bal" in sf or "pca768" in sf else 1.0]
+    # Both of these were decided by substrings in the filename: the SigLIP
+    # scale by `"bal" in sf or "pca768" in sf`, and the basis by a hardcoded
+    # name whatever produced the bank. Serving is the one place a wrong answer
+    # reaches a user rather than a report, so it prefers the record and says
+    # which it used.
+    _bank = config.STREET_CACHE / sf
+    _enc = prov.encoder_of(_bank)
+    STATE["enc_scale"] = [1.0, float(_enc["siglip_scale"])
+                          if "siglip_scale" in _enc
+                          else (4.03 if "bal" in sf or "pca768" in sf else 1.0)]
     STATE["pca"] = None
     if STATE["bank"].shape[1] == 768:
-        z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
+        basis = prov.projection_of(_bank)
+        if not basis:
+            basis = "pca768_bank55_pca.npz"
+            print("warning: {} does not record its PCA basis, so {} is "
+                  "assumed. Width was the only thing ever checked, and "
+                  "several bases here share one.".format(sf, basis),
+                  flush=True)
+        print("basis      {}".format(basis), flush=True)
+        z = np.load(config.STREET_CACHE / basis)
         STATE["pca"] = (torch.from_numpy(z["mu"]).to(STATE["dev"]),
                         torch.from_numpy(z["P"]).to(STATE["dev"]))
     print("query     {}-d, siglip x{:.2f}{}".format(
@@ -174,7 +202,9 @@ def _neighbours(q):
         blk = B[lo:lo + step]
         blk = blk if blk.device.type == dev else blk.to(dev, non_blocking=True)
         sims[lo:lo + step] = (qn.to(dev) @ blk.T).float().flatten().cpu()
-    return sims.topk(k)
+    # A request for more neighbours than the bank holds is a RuntimeError
+    # from torch, not a useful answer.
+    return sims.topk(min(k, sims.shape[-1]))
 
 
 @torch.no_grad()

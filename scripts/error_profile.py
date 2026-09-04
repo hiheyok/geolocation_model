@@ -19,11 +19,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 import config
 import splits as sp
-import tile_math as tm
 from baselines import great_circle_km
-from beam import TokenSource, search
+from beam import source_for, search
 from dataset import GeoStepDataset, street_table
-from evaluate import load_model, street_file_for
+from evaluate import check_split, load_model, street_file_for
 
 
 def main():
@@ -37,16 +36,27 @@ def main():
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model, ck, d_street = load_model(a.tag, dev)
+    mode = ck.get("split_mode", sp.PRIMARY)
+    check_split(ck, mode, "test")
     sf = street_file_for(ck, d_street)
     tbl = (street_table(config.STREET_CACHE / sf, dev)
            if ck.get("retr_mode") in ("pos", "dual") else None)
-    ds = GeoStepDataset("test", street_file=sf,
-                        split_mode=ck.get("split_mode", sp.PRIMARY),
+    ds = GeoStepDataset("test", street_file=sf, split_mode=mode,
                         knn_file=ck.get("knn_file"),
-                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0)
-    src = TokenSource(tm.G)
+                        knn_k=ck.get("retr_k", 0) if ck.get("retr") else 0,
+                        cache=ck.get("map_cache"))
+    src = source_for(ck)
 
-    idx = np.arange(min(a.n, len(ds)))
+    # Same seeded random draw as evaluate(), and for the same reason: split
+    # order is the DuckDB join order over the shards, so the head of the file is
+    # geographically biased.  This script decomposes the *tail*, which is
+    # exactly what a biased sample distorts -- and sharing the seed keeps the
+    # profile describing the same images the headline metrics were measured on.
+    if a.n >= len(ds):
+        idx = np.arange(len(ds))
+    else:
+        idx = np.sort(np.random.default_rng(1234).choice(
+            len(ds), a.n, replace=False))
     errs, firstwrong = [], []
     for lo in range(0, len(idx), a.batch):
         sel = idx[lo:lo + a.batch]
