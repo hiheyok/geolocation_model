@@ -21,6 +21,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+import runlog
 import safeio
 
 RUNS = ROOT / "runs"
@@ -29,7 +30,10 @@ LOGS = RUNS / "logs"
 ROW = re.compile(r"agent beam_k=(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)%\s+([\d.]+)%")
 STEPACC = re.compile(r"beam_k (\d+)\s+[\d.]+s\s+step acc\s+(.*)")
 SEL = re.compile(r"sel\s+median\s+([\d.]+) km\s+<25km\s+([\d.]+)%")
-EPOCH = re.compile(r"^ep\s+(\d+)\s+([\d.]+)s")
+# re.M is not optional: without it `^` matches only at the very start of the
+# file, so any log beginning with an attempt header yielded an empty epoch list
+# and a NaN seconds-per-epoch (item 73).
+EPOCH = re.compile(r"^ep\s+(\d+)\s+([\d.]+)s", re.M)
 
 
 def read_evals(tag):
@@ -54,9 +58,15 @@ def read_train(tag):
     if not p.exists():
         return {}
     txt = p.read_text(encoding="utf-8", errors="replace")
+    # One attempt, not the file. A selection curve spliced from two attempts
+    # is not a curve: its best epoch can be an epoch of a run that failed,
+    # and its median seconds-per-epoch averages two different configurations
+    # (item 72).
+    whole, txt = txt, runlog.last_attempt(txt)
     sel = [(float(a), float(b)) for a, b in SEL.findall(txt)]
     eps = [(int(a), float(b)) for a, b in EPOCH.findall(txt)]
     return {"sel": sel, "epochs": eps,
+            "attempts": runlog.attempts(whole),
             "best_km": min((s[0] for s in sel), default=float("nan")),
             "best_ep": (int(np.argmin([s[0] for s in sel])) + 1) if sel else None,
             "secs_per_epoch": (float(np.median([e[1] for e in eps]))

@@ -472,21 +472,21 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed. `marker()` is `MARKS / (name + ".done")` and nothing else, so changed arguments, changed code or a deleted output all leave a stage looking finished.
 
-70. `[~]` **Overnight completion markers are keyed only by stage name.**
+70. `[x]` **Overnight completion markers are keyed only by stage name.**
     Changed arguments, code, release, inputs or deleted/corrupt outputs do not invalidate them.
 
    > **Confirmed.** Confirmed, with lived evidence. The log is opened `"a"` and each attempt appends a header. This is what cost an hour on 2026-09-02: a wait loop grepped the file for `FAIL` and matched a failure from the previous day, killing `fuse-attn-pyr47` at epoch 11 of 12.
 
-71. `[~]` **Retries append to the same log.**
+71. `[x]` **Retries append to the same log.**
     Calibration and reporting can read stale attempts; the calibration path takes the first regex match. The pyr47 log itself contains multiple appended attempts and duplicate successes.
 
    > **Confirmed.** Confirmed; an instance of 71, whose append-only log is the shared cause.
 
-72. `[~]` **Report parsing can mix epochs from separate attempts.**
+72. `[x]` **Report parsing can mix epochs from separate attempts.**
 
    > **Confirmed.** Inspected; an instance of 71.
 
-73. `[~]` **The report epoch regex is not multiline-aware.**
+73. `[x]` **The report epoch regex is not multiline-aware.**
     Logs beginning with an attempt header may produce an empty epoch list and `NaN` seconds-per-epoch.
 
    > **Confirmed.** Confirmed. `state["failed"][name]` is written on failure and never cleared, so a stage that later succeeds still reports as failed in the summary.
@@ -609,8 +609,35 @@ without a legacy fallback in `dataset.py`, so every kNN cache on disk was
 refused and the retrieval path could not build at all.  All three sites that
 compare a split digest now go through one `splits.hash_matches`.
 
+## Closed 2026-09-04: the runner's marker and log design
+
+Items **70, 71, 72 and 73** were the second structural group, and one design:
+a stage was identified by its name alone and its log was append-only across
+days, so both files said things about work a *different* run had done.  This
+is the pair that cost an hour on 2026-09-02, when a wait loop grepped a
+training log for `FAIL`, matched a failure appended the previous day, and
+killed `fuse-attn-pyr47` at epoch 11 of 12.
+
+`src/runlog.py` holds both conventions: read the last attempt rather than the
+file, and write a stage's identity into its marker rather than treating the
+filename as the record.
+
+| item | what closed it |
+|---|---|
+| 70 | the marker holds the stage's argv and release; a changed command re-runs. A marker predating the stamp reads as *unknown*, not as a mismatch -- all 212 on disk are bare durations, and reading those as mismatches would re-run a finished queue |
+| 71 | the previous run's log is archived to `<stage>.prev.log` before the first attempt, so one file holds one run. Retries within a run still append, which is what the attempt headers are for |
+| 72 | `report.read_train` and the calibration parser both read the last attempt. The calibration one took `findall(...)[0]` over the whole file, which after a retry is the timing of the run that *failed* |
+| 73 | `re.M` on the epoch regex |
+
+**Measured on the artifacts on disk, not argued.**  47 of 200 logs parsed to
+zero epochs under the non-multiline regex, so those report rows all carried a
+NaN seconds-per-epoch.  Two training logs were genuinely spliced --
+`train-d768-b350-e2-drop70-sink4` and `gm_bias` each show four epochs across
+the file and two in the last attempt -- so their best-epoch selection did mix
+attempts.  The other sixteen multi-attempt logs are non-training stages with
+no epoch lines, so item 72's splice affected two arms, not eighteen.
+
 **Still open in this file:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49,
-60, 61, 64, 67, 69, 70, 71, 72, 73.  #70-73 are the runner's marker and log
-design, which is the one remaining structural group.  Seven more are listed in
-`docs/STATE.md` as needing a re-baseline decision before they can be touched
-at all.
+60, 61, 64, 67, 69.  No structural groups remain -- these are eighteen
+independent items.  Seven more are listed in `docs/STATE.md` as needing a
+re-baseline decision before they can be touched at all.

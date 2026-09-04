@@ -4,7 +4,7 @@ Read this first. `docs/REVIEW.md` and `docs/REVIEW2.md` hold the two Codex
 reviews with every item marked; `docs/BACKLOG.md` the code and performance
 work; `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings
 are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
-**257 tests pass. Nothing is running. Tile server is up.**
+**277 tests pass. Nothing is running. Tile server is up.**
 
 ---
 
@@ -112,7 +112,7 @@ corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
 
 ## 4. Reviews
 
-`docs/REVIEW.md` — 86 items: **48 fixed, 8 refuted, 7 deferred, 22 open, 1
+`docs/REVIEW.md` — 86 items: **52 fixed, 8 refuted, 7 deferred, 18 open, 1
 forced a retraction.**
 `docs/REVIEW2.md` — 22 items: **all 22 fixed.**
 
@@ -123,7 +123,7 @@ so train and test were indistinguishable and the bootstrap row-parity guarantee
 was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
 
 **Still open, REVIEW.md:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49, 60,
-61, 64, 67, 69, 70, 71, 72, 73.
+61, 64, 67, 69 — eighteen independent items, no structural groups left.
 **Still open, REVIEW2.md:** none.
 
 The last eight of round two closed on 2026-09-04, and each was checked by
@@ -147,8 +147,13 @@ legacy fallback in `dataset.py`, so every kNN cache on disk was refused and the
 shipping retrieval path could not build at all. All three sites comparing a
 split digest now go through one `splits.hash_matches`.
 
-**#70–73** is the runner's marker and log design, and is now the only
-structural group left.
+**#70–73 closed the same day**, and it was the other structural group: a
+stage identified by its name alone, and a log appended to across days. Both
+made a file describe work a different run did — the pair that killed
+`fuse-attn-pyr47` at epoch 11 of 12. `src/runlog.py` holds both conventions.
+Measured rather than argued: 47 of 200 logs had been parsing to zero epochs,
+so those report rows all carried a NaN seconds-per-epoch, and two training
+logs were genuinely spliced across attempts.
 
 ---
 
