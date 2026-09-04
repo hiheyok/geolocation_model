@@ -17,6 +17,50 @@ OSV_RELEASE=s10 py -3.13 -m pytest -q
 All 111 Python files also compile. Passing tests do not cover the failure paths
 below. Findings are ordered by impact, not by file.
 
+> **Triage, 2026-09-04 13:45.** Read this before working the list.
+>
+> **1 fixed: #20** (`[x]` below). It guards the KartaView benchmark, which is
+> the selection benchmark and which `seqfix3` is about to measure against, so
+> it could not wait.
+>
+> **#20 was verified latent, not active, for everything published.** All twelve
+> `runs/hr_*_n5k.npz` exports were checked directly and share **exactly the
+> same 5,000 image ids**; the manifest has not grown since 2026-09-02, and
+> today's hash rule reproduces the published cohort 5,000/5,000. Every KartaView
+> comparison on record is therefore on one cohort and "select on KartaView"
+> stands. The cohort is now frozen as
+> `E:/data/kartaview_hr/cohort_seed0_n5000.json`, digest `14680b9ed911`,
+> replayed by every later run and exported into each npz — pinning what was
+> already true rather than changing it. The false claim in the source comment
+> ("stable as the manifest grows") is corrected; hashing fixes the *ordering*,
+> not the *membership*.
+>
+> **#15 checked, contained.** Six checkpoints carry `soft != 0`
+> (`soft0.25`, `soft0.5`, `soft1.0`, `soft_fine`, `soft_fine2`, `soft_grad`);
+> none carry `sink_w != 1`. They are the archived soft-label arms, already a
+> recorded negative result. Teacher-forced accuracies are unaffected, so the
+> conclusion stands — but any `summary_table` loss column printed for those six
+> was hard CE, not their objective.
+>
+> **Everything else is latent.** Each remaining item needs an interruption, a
+> rename, a swap, or a rebuild that has not happened. None of them says a
+> current number is wrong. That is the opposite of the same-sequence leak and
+> of round three's #3, both of which were active.
+>
+> **Ordering constraint.** `scripts/seqfix3.py` is training, and STATE.md §11
+> forbids editing code a running chain has not finished importing — that rule
+> exists because doing so voided the previous clean-bank result. Items whose
+> files that chain does not touch (3, 4, 5, 8, 11, 12, 13, 15, 17, 21) can be
+> worked while it runs; the rest (1, 2, 6, 7, 9, 10, 14, 16, 18, 19, 22) must
+> wait for it to finish, because they touch `train.py`, `dataset.py`,
+> `bootstrap.py`, `runlog.py` or `eval_highres.py`.
+>
+> **#6 and #7 are corrections to my round-three fix.** I made stage
+> input/output discovery generic and rejected per-stage declaration as "a big
+> refactor". The reviewer is right that generic discovery covers almost none of
+> the real stages: `build_knn` records no outputs at all, so its marker still
+> survives a deleted cache. The refactor is the fix.
+
 ## High severity
 
 ### 1. A k-NN cache can attach one extension's coordinates to another extension's embeddings
@@ -444,7 +488,7 @@ dataset while retaining cache files and require resume and consumption to fail.
 
 ## Medium severity
 
-### 20. The external evaluator's hash-ranked sample is not stable as the manifest grows
+### 20. `[x]` The external evaluator's hash-ranked sample is not stable as the manifest grows
 
 [`eval_highres.py:204-212`](../scripts/eval_highres.py#L204) replaced a seeded
 permutation with the `n` smallest CRC32 values and states that membership now
