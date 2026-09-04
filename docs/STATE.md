@@ -1,12 +1,12 @@
-# Live state — updated 2026-09-04 13:35
+# Live state — updated 2026-09-04 16:20
 
-Read this first. `docs/REVIEW.md`, `REVIEW2.md` and `REVIEW3.md` hold three
+Read this first. `docs/REVIEW.md` through `REVIEW4.md` hold four
 Codex reviews; `docs/BACKLOG.md` the code and performance work;
 `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings are in
 the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
-**355 tests pass. REVIEW3 is closed (§4). The clean-bank result from
-`seqfix2.py` is VOID and re-running as `seqfix3.py` — read §7 before citing
-anything about a clean-trained arm. Tile server up.**
+**383 tests pass. REVIEW3 closed; REVIEW4 arrived with 22 more, 7 fixed (§4).
+§7 is ANSWERED: training against the leaking bank *helped*, so 57.5% is the
+honest number and not a lower bound. Tile server up.**
 
 ---
 
@@ -69,11 +69,12 @@ What is true: among arms differing only slightly, the benchmark cannot separate
 them, and it never could. Best on OSV-5M is `d1536-b350-e6-drop30`; best
 externally is `d768-b350-e6-drop70`. That split is unchanged by the fix.
 
-**Caveat, both directions.** These arms were *trained* against the leaky cache.
-57.5% is a **lower bound** on a cleanly-trained arm — one that learned to lean
-on near-duplicates may be worse at using honest neighbours. It is a **sound**
-bound on how much of the published number was the leak. §7 is measuring the
-difference right now.
+**57.5% is the honest number, not a bound.** These arms were *trained* against
+the leaky cache, and I expected that to make 57.5% a floor — a model that
+learned to lean on near-duplicates should be worse at using honest neighbours.
+**Measured, and it is the other way round** (§7): retraining the ladder against
+the clean bank scores 53.5–54.6%, separated. Training against the leak helped.
+The "lower bound" framing is retracted.
 
 **KartaView is unaffected** (no same-drive frames in the bank) and is the
 selection benchmark. Full table, every row on the corrected protocol —
@@ -83,7 +84,8 @@ the corpus:
 | arm | `<25 km` | median |
 |---|---|---|
 | `d768-b350-e6-drop90` | 14.0% | 390.0 km |
-| **`clean-drop70-e6`** (clean bank, but see §7) | **13.5%** | **420.6 km** |
+| **`clean2-drop70-e6`** (clean bank, §7) | **13.6%** | **420.0 km** |
+| `clean-drop70-e6` (clean bank, confounded, §7) | 13.5% | 420.6 km |
 | `d768-b350-e6-drop70` (shipping) | 13.4% | 435.7 km |
 | `d1536-b350-e6-drop70` | 12.8% | 467.4 km |
 | `d768-b350-e6-drop50` | 12.6% | 468.1 km |
@@ -96,14 +98,11 @@ the corpus:
 | `d1536-b350-e6` | 11.2% | 532.5 km |
 | `d768-b350-e6-drop10` | 11.1% | 515.9 km |
 
-**The two benchmarks disagree in sign about the clean-trained arm.** Against
-`wd29-fix-e6`, which it is matched to, `clean-drop70-e6` is **−2.5 to −4.6 pp
-on OSV-5M** and **+1.2 pp with a 42 km better median on KartaView**. KartaView
-is the benchmark the leak never touched. The reading that fits: training
-against a leaking bank taught the model to lean on near-duplicate neighbours,
-which still partly pays on OSV-5M and does not transfer to external imagery at
-all. **Not yet a claim** — the checkpoint carries the §7 confound, it is a
-point estimate at roughly 1.8 SE, and no paired interval exists (below).
+**On this benchmark the clean-trained arm does not win either.** It ties the
+shipping arm at `<25 km` (13.6% vs 13.4%) and is clearly worse at `<1 km`
+(1.0% vs 2.1%). Its visible edge is only over `wd29-fix-e6`, which is a weaker
+arm than the shipping one to begin with — so the sign disagreement I read into
+an earlier version of this table was mostly a choice of comparator. See §7.
 
 **The `runs/hr_*.npz` exports are all from the SUPERSEDED protocol** — written
 09-02, searching all 3,500,000 bank rows. The `hrfix-*` re-runs on 09-03
@@ -111,9 +110,9 @@ excluded val/test and are the numbers above, but they exported no per-image
 errors. So **no paired KartaView interval can be computed for any arm on
 record**, and any bootstrap mixing an `hr_*.npz` with a current run is
 comparing across protocols. I made exactly that mistake once; the `<1 km`
-"separated" result it produced was an artifact. Two arms need re-exporting
-under the corrected protocol before the §7 comparison can carry an interval:
-`d768-b350-e6-drop70` and `wd29-fix-e6`, ~16 min each.
+"separated" result it produced was an artifact. `scripts/hr_pairs.py` is
+re-exporting `wd29-fix-e6` and `d768-b350-e6-drop70` at the corrected protocol
+so the §7 KartaView comparison can carry a paired interval.
 
 Note also `hrfix-b265.log` (2,750,000 rows) and `hrfix-b350.log` (3,500,000)
 kept the old bank despite the name; their 12.1% / 11.6% are not on this
@@ -150,6 +149,13 @@ clause would have been a second bug.
 both need a re-baseline decision, §5).
 `REVIEW2.md` 22 items: **all 22 fixed.**
 `REVIEW3.md` 10 items: **all 10 fixed**, commit `4fbe408`. Tests 321 → 355.
+`REVIEW4.md` 22 items: **7 fixed** (#3, #4, #5, #11, #12, #17, #20), 15 open.
+Its own triage header says which. Everything still open is in a file the
+clean-bank chain was importing; that chain is finished now, so the block is
+workable. #6 and #7 are the reviewer correcting my round-three marker fix:
+generic argv-based input/output discovery covers almost no real stage
+(`build_knn` records no outputs at all), and per-stage declaration is the fix I
+rejected as too large.
 
 ### REVIEW3 — closed 2026-09-04, two of them defects in my own work that day
 
@@ -271,57 +277,72 @@ the first thing to test for.
 
 ---
 
-## 7. The clean-bank experiment — first attempt VOID, re-running
+## 7. ANSWERED: training against the leaking bank helped
 
-`scripts/seqfix2.py` (11:53) finished stages 1–3 correctly and they stand:
+The question §2 left open — every arm on record was *trained* against a bank
+that served same-drive frames, so what does an arm trained against a clean one
+score? Measured twice, and the second run is the one that counts.
 
-1. ✅ rebuild `pool_bal_bank70` kNN + verify — 0 same-sequence over 32 ranks
-2. ✅ rebuild `pca768_bank55` kNN + verify — 0 over 32 ranks
-3. ✅ `seqfix2-boot-all` → `runs/BOOTSTRAP_seqfix_all.md` (the §2 eight-arm table)
+`clean2-drop70-e2/e4/e6` (`scripts/seqfix3.py`) retrained the shipping ladder
+against the rebuilt cache at `--seed 0` with `--neg-random`, differing from
+`wd29-fix-e6` in **nothing but the bank**: same seed, schedule, width, corpus,
+weight-decay rule and negative draw.
 
-Stages 4–6 produced `clean-drop70-e2/e4/e6` and
-`runs/BOOTSTRAP_cleantrain.md`, which reads −2.5 to −4.8 pp against both
-reference arms, separated. **Do not cite it.**
+**OSV-5M**, 5,000 paired test images, every arm scored against the clean bank:
 
-### Why it is void — my own edit, mid-ladder
-
-| rung | written | `neg_random` | trained with |
+| arm | trained against | `<25 km` | median |
 |---|---|---|---|
-| `clean-drop70-e2` | 12:33:37 | `None` | old code, OS-entropy negatives |
-| `clean-drop70-e4` | 12:47:25 | `False` | **new code, seeded negatives** |
-| `clean-drop70-e6` | 13:28:15 | `False` | new code |
+| `d768-b350-e6-drop70` | leaky | **57.5%** | 15.4 km |
+| `wd29-fix-e6` | leaky | 57.3% | 15.1 km |
+| `clean2-drop70-e4` | clean | 54.6% | 18.7 km |
+| `clean2-drop70-e2` | clean | 54.4% | 18.6 km |
+| `clean2-drop70-e6` | clean | 53.5% | 19.8 km |
 
-I committed REVIEW3 #2 (seed the sink negatives) to `train.py` at **12:32:53**.
-`train-clean-e4` launched at **12:33:38**. Each stage is a fresh subprocess, so
-the edit landed on rungs 2 and 3 and not on rung 1.
+Every clean-vs-leaky contrast is **separated**: −2.0 to −3.8 pp at the clean
+ladder's best rung, −2.8 to −4.9 pp at the matched e6.
 
-This is not cosmetic. Seeded negatives are a pure function of
-(split, seed, index), so an image sees the **same four off-path tiles every
-epoch** instead of fresh ones — the tradeoff named in `GeoStepDataset.neg_rng`.
-Over e4 and e6 the sink class saw 1.6M distinct negatives repeated four times
-where every reference arm saw 6.4M distinct. That plausibly explains both the
-ladder's decline (54.65% at e2/e4 → 54.10% at e6) and the deficit. So
-`clean-drop70-e6` differs from `wd29-fix-e6` in **two** ways, and the question
-needed one.
+**KartaView**, corrected protocol, frozen cohort `14680b9ed911`:
 
-### The re-run — `scripts/seqfix3.py`
+| arm | `<1 km` | `<25 km` | median |
+|---|---|---|---|
+| `d768-b350-e6-drop70` | 2.1% | 13.4% | 435.7 km |
+| `clean2-drop70-e6` | 1.0% | **13.6%** | 420.0 km |
+| `wd29-fix-e6` | 1.7% | 12.3% | 462.0 km |
 
-Passes `--neg-random`, which is what every arm on record used, making the bank
-the only difference again. Trains `clean2-drop70-e2/e4/e6`, then bootstraps
-**all three rungs** against `wd29-fix-e6` and `d768-b350-e6-drop70`, then
-KartaView on e6.
+The external set does not rescue it: the clean arm ties the shipping arm at
+`<25 km` and is clearly worse at `<1 km`. Its apparent +1.3 pp is only against
+`wd29-fix-e6`, which is a weaker arm than the shipping one to begin with.
+`scripts/hr_pairs.py` is re-exporting both references so this can carry a
+paired interval rather than three point estimates.
 
-Bootstrapping the whole ladder is deliberate: the first ladder peaked at e2 and
-declined by e6, so reporting only e6 would understate a clean-trained arm even
-with the confound gone — and if that shape survives, it is itself the result,
-since every reference arm is an e6.
+### What this means
 
-    OSV_RELEASE=s10 py scripts/seqfix3.py 4
+**57.5% is the honest number for the shipping arm, and it is NOT a lower
+bound.** §2 said the opposite and that framing is retracted — an arm trained
+on a clean bank scores *lower*, not higher.
 
-~81 min of training + ~45 min of evaluation. Markers make it resumable.
-**Wait for `seqfix2-hr-clean` to finish before starting it** — never stack GPU
-jobs (§10). `clean-drop70-*` are kept, not deleted; they are a real measurement
-of a differently-trained arm, just not an answer to this question.
+A plausible mechanism, untested: near-duplicate neighbours are a strong,
+low-noise retrieval signal that teaches the model to *use* the prior, whereas
+the clean bank's noisier neighbours teach it to lean on retrieval less. The
+leak acted as a curriculum. That is a hypothesis; the table is the measurement.
+
+The clean ladder peaks at **2 epochs** and declines by 6 — in the confounded
+run and the corrected one alike — so the reference arms are being compared
+against a clean arm past its own peak, and it still loses.
+
+### The first attempt, and what voiding it was worth
+
+`clean-drop70-e2/e4/e6` was void because I committed the sink-negative seeding
+change to `train.py` at 12:32:53 and `train-clean-e4` launched at 12:33:38,
+so the ladder's rungs were not the same arm (§11).
+
+**The confound turned out to be immaterial.** Confounded `clean-drop70-e6`
+measured −2.5 to −4.6 pp against `wd29-fix-e6`; corrected `clean2-drop70-e6`
+measures −2.8 to −4.9 pp. Same conclusion, nearly the same interval. Voiding it
+was still right — the size of a confound is not knowable before it is removed,
+and a result defended by "it probably did not matter" is not a result — but the
+honest record is that the re-run reproduced the original rather than overturning
+it. The `clean-drop70-*` checkpoints are kept.
 
 ---
 
