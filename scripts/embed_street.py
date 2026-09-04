@@ -32,6 +32,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 
 EMB = config.STREET_CACHE / "embeddings.f16.npy"
 EMB_IDS = config.STREET_CACHE / "image_ids.i64.npy"
@@ -174,6 +175,14 @@ def main():
     # a bank extension is not the release: do not overwrite its id map
     if not a.parquet:
         np.save(EMB_IDS, image_ids)
+    # Record the rows this file describes, beside the file. `image_ids.i64.npy`
+    # has existed for a while and nothing ever read it -- and it is a single
+    # global path, so it says nothing about which of the many caches in this
+    # directory it belongs to.
+    prov.write(out_path, image_ids, release=config.RELEASE,
+               row_space=("the release" if not a.parquet
+                          else "the rows of " + Path(a.parquet).name),
+               model=a.model, crops=a.crops, size=a.size)
     if a.crops > 1:
         print("crops      {} horizontal -> embedding dim {}"
               .format(a.crops, dim * a.crops), flush=True)

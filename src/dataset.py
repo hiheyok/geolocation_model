@@ -18,6 +18,7 @@ from torch.utils.data import Dataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 
@@ -150,11 +151,19 @@ class GeoStepDataset(Dataset):
         self.lon = np.asarray(ds["lon"], dtype=np.float64)[keep]
         self.country = np.asarray(ds["country"].to_pylist(), dtype=object)[keep]
 
-        # street embeddings: row order matches dataset.parquet
+        # street embeddings: row order matches dataset.parquet -- asserted,
+        # until now, by nothing at all. The digest is computed once here and
+        # reused for every artifact checked below; it costs 2 ms at 500k rows.
+        self.rows_digest = prov.rows_digest(all_ids)
         self._street_path = config.STREET_CACHE / street_file
         self._tokens_path, index_p, done_p = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
+        # A bank extension holds no release rows and is addressed separately,
+        # so only a full-length cache is claiming to be this release's rows.
+        if len(self.street) == len(all_ids):
+            prov.check(self._street_path, all_ids, street_file,
+                       digest=self.rows_digest)
 
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
@@ -170,6 +179,26 @@ class GeoStepDataset(Dataset):
         # targets, reshaped to [n_images_total, steps+1]
         tg = pq.read_table(config.TARGETS_PARQUET)
         per = steps + 1
+        # targets.parquet carries image_id and nothing ever read it: the file
+        # was reshaped to (n, steps+1) and paired with dataset.parquet purely
+        # by position. Rebuilding one without the other -- which is two
+        # commands, not one -- silently gives every image another image's
+        # zoom path, and every metric stays in range. No sidecar needed here;
+        # the evidence was already in the file.
+        tg_ids = np.asarray(tg["image_id"]).reshape(-1, per)
+        if len(tg_ids) != len(all_ids):
+            raise SystemExit(
+                "targets.parquet holds {:,} images but dataset.parquet holds "
+                "{:,}; they are from different builds. Re-run "
+                "scripts/build_dataset.py, which writes both."
+                .format(len(tg_ids), len(all_ids)))
+        if not (tg_ids == all_ids[:, None]).all():
+            bad = int((tg_ids != all_ids[:, None]).any(1).sum())
+            raise SystemExit(
+                "targets.parquet and dataset.parquet disagree on which image "
+                "is in {:,} of {:,} rows. Every step target would belong to a "
+                "different image than the embedding it is paired with. Re-run "
+                "scripts/build_dataset.py.".format(bad, len(all_ids)))
         tz = np.asarray(tg["tile_z"]).astype(np.int64).reshape(-1, per)
         tx = np.asarray(tg["tile_x"]).astype(np.int64).reshape(-1, per)
         ty = np.asarray(tg["tile_y"]).astype(np.int64).reshape(-1, per)

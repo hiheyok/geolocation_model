@@ -1,0 +1,122 @@
+"""What proves two row-addressed files describe the same ordered rows.
+
+Nearly every artifact here is addressed by row position: street embeddings,
+targets, bank extensions, PCA bases, pooled projections.  Row *i* of one is
+paired with row *i* of another with nothing checking that they came from the
+same build, and the failure that produces is the worst shape this project has:
+every array is the right dtype and a plausible shape, every metric comes back
+in a believable range, and each image has been scored against a different
+image's embedding.  It cannot fail loudly, because there is nothing to fail on.
+
+The review calls this one issue and it is right -- items 40, 43, 44, 46, 47, 62,
+63 and 66 are the same hole seen from eight places.  So the fix is one thing: a
+sidecar beside each artifact naming the ordered rows it describes.
+
+Three deliberate choices.
+
+**Digest the ids, do not store them.** 500,000 int64 ids hash in 2 ms and the
+sidecar stays under a kilobyte, so the check is free enough to run on every
+construction rather than behind a flag nobody sets.  Storing them again would
+just be a second artifact to keep in step with the first.
+
+**Absent is a warning, mismatched is a refusal.** Every artifact on disk today
+predates this, and refusing them would strand a corpus that took days of GPU
+time to build.  `scripts/backfill_prov.py` stamps them with the alignment as it
+stands, which detects drift from that point forward and proves nothing about
+what came before -- and says so, in the sidecar, in the `basis` field.
+
+**The dataset parquet is the authority.** Its `image_id` column defines row
+order for the release; every other artifact is checked against it, never
+against another derived artifact.  A chain of pairwise checks can be internally
+consistent and collectively wrong.
+"""
+
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+
+VERSION = 1
+
+
+def rows_digest(ids):
+    """A 12-hex fingerprint of an ordered id sequence.
+
+    Order-sensitive by construction: this exists to catch a reordering, which
+    a set-based check (the one `build_knn` had) passes.  Integer ids are
+    normalised to int64, so a column read back as int32 does not read as a
+    different build; the external corpora key on strings instead, and those
+    are hashed as NUL-joined UTF-8 rather than by their numpy dtype, whose
+    width changes with the longest id in the array.
+    """
+    a = np.asarray(ids)
+    h = hashlib.sha256()
+    if a.dtype.kind in "iu":
+        a = np.ascontiguousarray(a.astype(np.int64))
+        h.update(b"prov%d|i|%d|" % (VERSION, a.size))
+        h.update(a.tobytes())
+    else:
+        h.update(b"prov%d|s|%d|" % (VERSION, a.size))
+        h.update(chr(0).join(str(x) for x in a.tolist()).encode("utf-8"))
+    return h.hexdigest()[:12]
+
+
+def sidecar(path):
+    return Path(str(path) + ".prov.json")
+
+
+def write(path, ids, basis="built", **extra):
+    """Record what rows an artifact describes, atomically.
+
+    `basis` is the honest part: "built" means this was written by the process
+    that produced the file, so the digest is a fact about it; "observed" means
+    it was backfilled onto an existing file and only asserts the alignment as
+    of that day.
+    """
+    import safeio
+
+    rec = {"version": VERSION, "rows": int(len(ids)),
+           "rows_digest": rows_digest(ids), "basis": basis}
+    rec.update(extra)
+    safeio.write_text(sidecar(path), json.dumps(rec, indent=1, sort_keys=True))
+    return rec
+
+
+def read(path):
+    p = sidecar(path)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def check(path, ids, what=None, digest=None):
+    """Refuse an artifact whose rows are not the rows given.
+
+    Returns True when a sidecar was present and matched, False when there was
+    none to check -- so a caller can count how much of a build is actually
+    covered rather than assuming a silent pass means a verified one.
+    """
+    what = what or Path(path).name
+    rec = read(path)
+    if rec is None:
+        print("warning: {} has no provenance sidecar, so nothing proves its "
+              "rows are this release's rows in this order (run "
+              "scripts/backfill_prov.py)".format(what), flush=True)
+        return False
+    want = digest if digest is not None else rows_digest(ids)
+    if rec.get("rows") != len(ids) or rec.get("rows_digest") != want:
+        raise SystemExit(
+            "{} describes {:,} rows with digest {}, but the dataset it is "
+            "being paired with has {:,} rows with digest {}. Row i of one is "
+            "not row i of the other, and nothing downstream would notice: "
+            "every metric would come back in a believable range with each "
+            "image scored against another image's data. Rebuild it, or "
+            "re-run scripts/backfill_prov.py if you are certain the file is "
+            "correct and only the sidecar is stale."
+            .format(what, rec.get("rows", -1), rec.get("rows_digest"),
+                    len(ids), want))
+    return True
