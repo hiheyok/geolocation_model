@@ -259,10 +259,19 @@ def main():
     # that pools arms trained under different rules without saying so is how a
     # protocol change gets read as a result, so it is stated whenever the arms
     # disagree.
-    rules = {t: ("legacy substring" if torch.load(
-        config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
-        weights_only=False).get("wd_legacy") else "by module type")
-        for t in tags}
+    # A checkpoint with no `wd_legacy` field was trained BEFORE the flag
+    # existed, which means it was trained under the legacy substring rule --
+    # so a missing field is "legacy", not "by module type". Reading it as
+    # falsy labelled all 122 existing arms as fixed, in the very table added
+    # to stop the rule being misread.
+    def _rule(t):
+        v = torch.load(config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
+                       weights_only=False).get("wd_legacy")
+        if v is None:
+            return "legacy substring (predates the flag)"
+        return "legacy substring" if v else "by module type"
+
+    rules = {t: _rule(t) for t in tags}
     if len(set(rules.values())) > 1:
         L.append("**Weight-decay grouping differs between these arms.** "
                  "The substring rule exempted the learned retrieval keys "

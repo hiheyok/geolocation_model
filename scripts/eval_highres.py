@@ -369,8 +369,19 @@ def main():
     print("Compare against this checkpoint's own row in the matching "
           "BOOTSTRAP_*.md. Do not hardcode it here: that printed one "
           "arm's OSV-5M number under another arm's name.")
-    print("A gap here is domain shift, not overfitting: these images are not in "
-          "the bank\nand share no sequence with anything in it.")
+    # This used to end "a gap here is domain shift, not overfitting". Half of
+    # that reading is now known to be wrong: on 2026-09-04 the OSV-5M side was
+    # found to serve same-sequence frames as neighbours (41.6% of test queries
+    # had a same-drive top-1, at a median 0.31 km), so a large part of the gap
+    # is the OSV-5M number being inflated rather than this one being depressed.
+    # The clause that IS still true is the one about these images.
+    print("These images are not in the bank and share no sequence with "
+          "anything in it,")
+    print("so this number carries no same-sequence leakage. Until the kNN "
+          "cache is rebuilt")
+    print("with the fix from review item 61, the OSV-5M side does, and the "
+          "gap between")
+    print("them is not purely domain shift.")
 
 
 if __name__ == "__main__":

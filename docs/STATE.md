@@ -165,10 +165,14 @@ logs were genuinely spliced across attempts.
 ## 5. Needs your decision — do not fix these silently
 
 Eight items change what a trained arm *is*, so fixing any makes future arms
-incomparable with all 122 checkpoints on file. Each needs a re-baseline. **#29
-is done and under measurement; #24 joined the list on 2026-09-04; seven remain.**
+incomparable with all 122 checkpoints on file. Each needs a re-baseline.
+**#29 is fixed AND measured — it changes nothing, so no re-baseline is needed
+and the 122 checkpoints stay comparable (§6). #24 joined the list on
+2026-09-04. Seven remain.**
 
-* **#29 weight decay — fixed 2026-09-04, being measured now.** The rule was
+* **#29 weight decay — CLOSED 2026-09-04. Fixed, measured, no effect (§6).**
+  Kept here for the record because the enumeration is what made the fix safe.
+  The rule was
   `"pos" in name`. Enumerated rather than assumed, and the line above was
   wrong: it caught **three** ndim-2 tensors, not two. Two are
   `retr.q_pos.weight` and `retr.k_pos.weight` — `nn.Linear` projections, the
@@ -180,8 +184,8 @@ is done and under measurement; #24 joined the list on 2026-09-04; seven remain.*
   (retiring the `"geo."` clause), `ndim <= 1` covers the norms, biases and the
   `retr.w_pos` scalar. One other change: `geo.q_geo`, a dense Linear the geo
   clause also exempted, now decays — 8,192 parameters, geo arms only.
-  `--wd-legacy` restores the old rule so both sides can be run fresh at one
-  seed; see §6.
+  `--wd-legacy` restores the old rule. Both sides were run fresh at one seed;
+  every contrast is inside noise on both benchmarks (§6).
 * **#28 `quality()`** sees the unmasked top-1 similarity even when
   `--retr-drop` hid that neighbour.
 * **#27 `--save-opt`** writes optimizer state nothing loads; scheduler and RNG
@@ -205,27 +209,51 @@ is done and under measurement; #24 joined the list on 2026-09-04; seven remain.*
 
 ---
 
-## 6. Running now: the #29 re-baseline
+## 6. #29, answered: the fix is right and changes nothing
 
-`scripts/wd29.py`, launched 2026-09-04 00:45, ~3 h of GPU plus evaluation.
-Two full d768/3.50M/p=0.7 ladders — e2 -> e4 -> e6, two epochs a rung with
-`--init` between, exactly how `d768-b350-e6-drop70` was built — one with the
-fixed grouping and one with `--wd-legacy`, **both at `--seed 0`**.
+Ran 2026-09-04, 00:45–03:50. Two full d768/3.50M/p=0.7 ladders (e2 → e4 → e6,
+two epochs a rung with `--init`, exactly how the shipping arm was built), one
+with the corrected weight-decay grouping and one with `--wd-legacy`, **both at
+`--seed 0`**. All nine stages succeeded.
 
-Both sides are trained fresh on purpose. Every one of the 122 checkpoints
-predates `--seed`, so scoring a new seeded arm against the shipping one would
-differ in the seed as well as the rule — and the seed is not small here: two
-seeds of one configuration differ by 18 km on the median. Pairing a seed
-difference with a treatment difference is exactly the mistake the corpus
-caveat made, where the error turned out to be correlated with the treatment.
+**Every contrast is inside noise, on both benchmarks, at every threshold.**
 
-Then a paired bootstrap over `wd29-fix-e6`, `wd29-legacy-e6` and the shipping
-arm on the sequence benchmark, plus KartaView at 5,000. `bootstrap` now labels
-any table whose arms disagree on the grouping rule. Read `<25 km`, not the
-median — the median swings 300 km between epochs.
+OSV-5M, paired bootstrap, 5,000 test images:
 
-Outputs: `runs/BOOTSTRAP_wd29.md`, `runs/wd29_fix.npz`, `runs/wd29_legacy.npz`,
-logs in `runs/logs/wd29-*.log`, runner log `runs/logs/wd29_runner.log`.
+| contrast | median | | `<25 km` | |
+|---|---|---|---|---|
+| fix vs legacy | [−0.0, +0.2] km | inside noise | [−1.08, +0.10] pp | inside noise |
+
+KartaView, paired, 5,000 images:
+
+| | fix | legacy | diff |
+|---|---|---|---|
+| `<1 km` | 1.7% | 1.5% | −0.18 pp [−0.38, +0.02] |
+| `<25 km` | 12.3% | 12.4% | +0.16 pp [−0.40, +0.72] |
+| `<200 km` | 32.4% | 32.1% | −0.30 pp [−1.14, +0.52] |
+| median | 462.0 km | 466.2 km | +4.1 km [−13.0, +20.4] |
+
+The defect was real — the substring exempted the learned retrieval keys, which
+are `nn.Linear` — but correcting it moves nothing. **#29 was the item flagged
+as most likely to have moved a published result. It did not.** No re-baseline
+is needed; the 122 checkpoints stay comparable.
+
+**Two things the paired design caught that the obvious comparison would not.**
+
+The selection set pointed the *wrong way*, monotonically: fix beat legacy by
++0.15 / +0.30 / +0.55 pp across the three rungs, and fix-e6 read 0.7475 against
+the shipping arm's 0.7355. On the real 5,000-image test set fix-e6 is 74.9% and
+the shipping arm 75.2%. The 2,000-image set picks checkpoints; it does not
+measure them, and here it produced a clean monotone trend out of noise.
+
+And **the seed is the larger effect**: both wd29 arms are separated *worse*
+than the shipping arm on the OSV-5M median ([+0.2, +0.6] and [+0.1, +0.4] km),
+differing from it only in the seed. Everything the naive comparison would have
+credited to the weight-decay rule was the seed — which is exactly the confound
+the two-fresh-ladder design existed to separate.
+
+Artifacts: `runs/BOOTSTRAP_wd29.md`, `runs/wd29_fix.npz`, `runs/wd29_legacy.npz`,
+`scripts/wd29.py`, logs `runs/logs/*wd29*`.
 
 ---
 
