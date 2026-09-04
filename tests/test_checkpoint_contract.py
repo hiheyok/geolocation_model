@@ -187,6 +187,12 @@ def saved_fields():
 PROVENANCE = {
     "g", "steps", "epoch", "epochs_total", "val_loss", "val_km", "val_hit",
     "select", "sel_n", "sel_k", "init_from", "soft", "retr_drop", "model",
+    # Training settings, recorded so an arm can be explained and reproduced.
+    # Nothing reconstructs behaviour from them -- the weights already encode
+    # the result -- but without them two arms that differ only in learning
+    # rate are indistinguishable from their checkpoints.
+    "lr", "wd", "warmup", "batch", "limit", "epochs", "smooth", "sink_w",
+    "emb_drop", "emb_noise", "mem_drop", "val_n", "sel_score_steps",
 }
 
 # Orphans that are known and recorded, so a NEW one still fails the test.

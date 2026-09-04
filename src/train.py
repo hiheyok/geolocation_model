@@ -529,7 +529,19 @@ def main():
                   "opt": opt.state_dict() if a.save_opt else None,
                   "epoch": ep, "val_loss": mva["loss"],
                   "val_km": km, "val_hit": hit, "select": a.select,
-                  "sel_n": a.sel_n, "sel_k": a.sel_k}
+                  "sel_n": a.sel_n, "sel_k": a.sel_k,
+                  # Result-defining settings that used to live only in the
+                  # runner's argv. Two arms trained at different learning
+                  # rates were indistinguishable from their checkpoints, so
+                  # nothing could tell you why they differed -- and the
+                  # runner's log is the only other record, which is
+                  # append-only and reused across attempts.
+                  "lr": a.lr, "wd": a.wd, "warmup": a.warmup,
+                  "batch": a.batch, "limit": a.limit, "epochs": a.epochs,
+                  "smooth": a.smooth, "sink_w": a.sink_w,
+                  "emb_drop": a.emb_drop, "emb_noise": a.emb_noise,
+                  "mem_drop": a.mem_drop, "val_n": a.val_n,
+                  "sel_score_steps": a.sel_score_steps}
             safeio.save_torch(ck, config.CHECKPOINTS / (a.tag + ".pt"))
     if best == float("inf"):
         raise SystemExit(

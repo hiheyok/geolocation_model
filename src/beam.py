@@ -38,7 +38,7 @@ class TokenSource:
     """Cached token grids with a live fallback to the tile server."""
 
     def __init__(self, grid=tm.G, cache=None, client=None, threads=16, sub=1):
-        tokens_p, index_p, _ = config.map_files(cache)
+        tokens_p, index_p, done_p = config.map_files(cache)
         self.grid = grid
         self.sub = int(sub)
         self.tokens = np.load(tokens_p, mmap_mode="r")
@@ -54,7 +54,23 @@ class TokenSource:
         k = tm.tile_key(np.asarray(idx["z"]).astype(np.int64),
                         np.asarray(idx["x"]).astype(np.int64),
                         np.asarray(idx["y"]).astype(np.int64))
-        self.lut = dict(zip(k.tolist(), np.asarray(idx["row"]).astype(np.int64).tolist()))
+        rows = np.asarray(idx["row"]).astype(np.int64)
+        # Drop rows the cache never actually fetched. An unfetched row is the
+        # memmap's zero fill, which is a legal token histogram, so keeping it
+        # in the lookup means beam search silently scores a blank map instead
+        # of a tile -- the same defect dataset.py refuses outright. Here the
+        # better answer is a miss, not an error: there is already a live
+        # fallback, so an incomplete cache degrades to slower and correct.
+        if done_p.exists():
+            done = np.load(done_p)
+            if len(done) >= rows.max(initial=-1) + 1:
+                ok = done[rows] == 1
+                if not ok.all():
+                    print("map cache: {:,} of {:,} indexed tiles were never "
+                          "fetched; they will be fetched live"
+                          .format(int((~ok).sum()), len(rows)), flush=True)
+                k, rows = k[ok], rows[ok]
+        self.lut = dict(zip(k.tolist(), rows.tolist()))
         self.client = client or T.TileClient(config.TILE_SERVER)
         self.pool = ThreadPoolExecutor(max_workers=threads)
         self.live = {}

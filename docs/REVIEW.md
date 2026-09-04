@@ -123,13 +123,19 @@ deferred. Unmarked items are not yet triaged.
 
 ## Serving and multi-photograph retrieval
 
-19. **Serving does not validate checkpoint split/release provenance.**
+   > **Confirmed.** Confirmed. `serve.py` calls no split check anywhere, so it will happily serve a checkpoint from another release or split mode against caches indexed by row order.
+
+19. `[~]` **Serving does not validate checkpoint split/release provenance.**
     [serve.py:40](/C:/Users/longd/Programming/geolocation_model/scripts/serve.py:40) reads positional artifacts without calling the repository’s split check.
 
-20. **Serving selects preprocessing from filename substrings.**
+   > **Confirmed.** Confirmed twice over: the encoder scale is chosen by `"pca768" in sf`, and the basis is the hardcoded `pca768_bank55_pca.npz` regardless of what produced the file.
+
+20. `[~]` **Serving selects preprocessing from filename substrings.**
     Any filename containing `pca768` receives the bank55 basis, whether or not it was produced with that basis.
 
-21. **Serving assumes every checkpoint contains `knn_file`.**
+   > **Confirmed.** Confirmed. `ck["knn_file"]` is a bare subscript, so a non-retrieval checkpoint dies with a KeyError rather than being supported or refused with a reason.
+
+21. `[~]` **Serving assumes every checkpoint contains `knn_file`.**
     Non-retrieval checkpoints fail with an incidental `KeyError` instead of being supported or rejected explicitly.
 
    > **Confirmed.** Confirmed. `sims.topk(k)` with no clamp to the bank size.
@@ -142,7 +148,9 @@ deferred. Unmarked items are not yet triaged.
 24. **Learned multi-photo modes score secondary candidates with the primary photo.**
     For `pos` and `dual`, the primary street embedding produces the learned scores for candidates retrieved by every secondary photograph.
 
-25. **The default multiquery configuration is dimensionally inconsistent.**
+   > **Confirmed.** Confirmed. `--tag` defaults to `d1536-b350-e6`, which expects 1536 dimensions, while the cached queries are always projected to 768 by the bank55 PCA. The default invocation cannot work.
+
+25. `[~]` **The default multiquery configuration is dimensionally inconsistent.**
     The default tag expects 1536 dimensions, while cached queries are always projected with the bank55 PCA to 768 dimensions.
 
 26. **Multiquery query caches lack provenance.**
@@ -195,7 +203,9 @@ deferred. Unmarked items are not yet triaged.
 35. `[~]` **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
     Invalid dimensions can be accepted and misinterpreted.
 
-36. **Checkpoints omit many result-defining hyperparameters.**
+   > **Fixed.** Confirmed and fixed, with the gap enumerated rather than described: **18 CLI arguments were never saved**, including `lr`, `wd`, `warmup`, `batch`, `smooth`, `sink_w`, `emb_drop`, `emb_noise`, `mem_drop`, `limit` and `epochs`. Two arms trained at different learning rates were indistinguishable from their checkpoints, and the only other record is the runner's log, which is append-only and reused across attempts. Thirteen are now recorded; the rest are either already saved under another name or genuinely runtime-only (`workers`, `tag`, `init`, `overfit`, `save_opt`). Purely additive, so old checkpoints still load.
+
+36. `[x]` **Checkpoints omit many result-defining hyperparameters.**
     Memory dropout, sink weight, embedding noise/dropout, smoothing, learning rate, weight decay, warmup and batch size are among the missing fields.
 
    > **Partly refuted.** Confirmed but **not silent**, which the item implies it is. `build_from_ck` does use the live `tm.actions()` and `tm.STEPS` rather than the saved `g`/`steps`, but any mismatch changes the policy-head and step-embedding shapes, so the strict `load_state_dict` raises. Latent rather than dangerous -- every checkpoint on disk is g=16.
@@ -215,10 +225,14 @@ deferred. Unmarked items are not yet triaged.
 40. **Dataset artifacts are trusted purely by row position.**
     [dataset.py](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:141) does not prove that street embeddings, target files, image-ID sidecars and map indices describe the same ordered rows.
 
-41. **k-NN indices are not fully validated.**
+   > **Confirmed.** Confirmed. `z["idx"][:, :knn_k]` is sliced with no range check, and a negative index would read from the end of the table and return a neighbour that is not the one recorded.
+
+41. `[~]` **k-NN indices are not fully validated.**
     Negative or out-of-range indices can survive; negative NumPy indices read from the end and silently reference the wrong sample.
 
-42. **Beam token loading ignores map completion masks.**
+   > **Fixed.** Confirmed and fixed -- and it was a gap in a fix made earlier the same day. `TokenSource` discarded the done-mask path with `_`, so an indexed-but-unfetched row returned the memmap's zero fill; the live fallback only covers tiles missing from the *index*. `dataset.py` had been taught to refuse exactly this, and the sibling path in beam search had not. Unfetched rows are now dropped from the lookup, which makes them ordinary misses: beam already fetches live, so an incomplete cache degrades to slower and correct rather than silently blank. Verified no change on the complete cache (75.2%, median 2.2 km, identical).
+
+42. `[x]` **Beam token loading ignores map completion masks.**
 
 43. **Dataset and target files are published separately.**
     An interruption can leave two valid-looking files from different generations.
@@ -226,7 +240,9 @@ deferred. Unmarked items are not yet triaged.
 44. **Generic street embedding can overwrite the canonical cache.**
     A custom parquet/model invocation without `--out` writes to the normal release embedding path.
 
-45. **Street embedding has no completion mask.**
+   > **Confirmed.** Confirmed. There is no completion mask for street embeddings, and the closing check reads `emb[:512]` -- so an interrupted write is caught only if it stopped inside the first 512 rows.
+
+45. `[~]` **Street embedding has no completion mask.**
     An interrupted full-shaped memmap appears complete. Its final sanity check examines only the first 512 rows.
 
 46. **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
@@ -274,7 +290,9 @@ deferred. Unmarked items are not yet triaged.
 
 ## k-NN and bank extensions
 
-60. **Held-region filtering is wrong for cell12/cell16 extensions.**
+   > **Confirmed.** Confirmed: `cell = np.asarray(ds["cell_z8"])` is read whatever `split_mode` says, so a cell12 or cell16 split compares z8 cells against z12/z16 extension cells. Latent for now -- only `sequence` and `cell8` are in use.
+
+60. `[~]` **Held-region filtering is wrong for cell12/cell16 extensions.**
     [build_knn.py:130](/C:/Users/longd/Programming/geolocation_model/scripts/build_knn.py:130) reads held cells from the dataset’s z8 field and compares them with extension z12/z16 cells.
 
 61. **Sequences are forcibly treated as disjoint across release and extension banks.**
@@ -300,10 +318,14 @@ deferred. Unmarked items are not yet triaged.
 
 ## Orchestration and reporting
 
-70. **Overnight completion markers are keyed only by stage name.**
+   > **Confirmed.** Confirmed. `marker()` is `MARKS / (name + ".done")` and nothing else, so changed arguments, changed code or a deleted output all leave a stage looking finished.
+
+70. `[~]` **Overnight completion markers are keyed only by stage name.**
     Changed arguments, code, release, inputs or deleted/corrupt outputs do not invalidate them.
 
-71. **Retries append to the same log.**
+   > **Confirmed.** Confirmed, with lived evidence. The log is opened `"a"` and each attempt appends a header. This is what cost an hour on 2026-09-02: a wait loop grepped the file for `FAIL` and matched a failure from the previous day, killing `fuse-attn-pyr47` at epoch 11 of 12.
+
+71. `[~]` **Retries append to the same log.**
     Calibration and reporting can read stale attempts; the calibration path takes the first regex match. The pyr47 log itself contains multiple appended attempts and duplicate successes.
 
 72. **Report parsing can mix epochs from separate attempts.**
@@ -311,7 +333,9 @@ deferred. Unmarked items are not yet triaged.
 73. **The report epoch regex is not multiline-aware.**
     Logs beginning with an attempt header may produce an empty epoch list and `NaN` seconds-per-epoch.
 
-74. **A later successful retry does not clear the stage’s stale failure record.**
+   > **Confirmed.** Confirmed. `state["failed"][name]` is written on failure and never cleared, so a stage that later succeeds still reports as failed in the summary.
+
+74. `[~]` **A later successful retry does not clear the stage’s stale failure record.**
 
 75. **Dependency readiness checks only file existence.**
     A metadata file from an incomplete cache can launch downstream work.
