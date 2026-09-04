@@ -218,32 +218,42 @@ def main():
     # frames that would be dropped afterwards.
     seq_count = Counter(r["sequence_id"] for r in have.values())
     per_seed = Counter()
-    picked = []
-    for i, d in cand:
-        if len(picked) >= a.n - len(have):
-            break
-        pid = str(d.get("id"))
-        if pid in have:
-            continue
+
+    def eligible(d):
+        """Everything decidable before any bytes move."""
         if (d.get("projection") or "PLANE") != "PLANE":
-            continue
-        try:
-            if float(d.get("gps_accuracy") or 99) > a.max_gps_err:
-                continue
-        except Exception:
-            continue
-        sid = str(d.get("sequence_id"))
-        if seq_count[sid] >= a.per_sequence or per_seed[i] >= a.per_seed:
-            continue
+            return False
         if not d.get("name"):
-            continue
-        seq_count[sid] += 1
-        per_seed[i] += 1
-        have[pid] = None
-        picked.append((i, d))
-    print("phase 2: downloading {:,} of them across {:,} sequences"
-          .format(len(picked), len({str(d.get("sequence_id")) for _, d in picked})),
-          flush=True)
+            return False
+        try:
+            return float(d.get("gps_accuracy") or 99) <= a.max_gps_err
+        except (TypeError, ValueError):
+            return False
+
+    def select(budget, tried):
+        """Fill `budget` slots from the candidates nobody has tried yet.
+
+        Counters are provisional inside a round and committed only by a
+        successful download, which is the whole point of item 67: the cap used
+        to be spent here, so a frame that then failed to fetch or arrived
+        undersized still consumed its sequence's slot and suppressed a later
+        valid candidate. The filtering still happens before downloading -- no
+        bytes are wasted -- it is the *accounting* that moves.
+        """
+        pseq, pseed, out_ = Counter(seq_count), Counter(per_seed), []
+        for i, d in cand:
+            if len(out_) >= budget:
+                break
+            pid = str(d.get("id"))
+            if pid in have or pid in tried or not eligible(d):
+                continue
+            sid = str(d.get("sequence_id"))
+            if pseq[sid] >= a.per_sequence or pseed[i] >= a.per_seed:
+                continue
+            pseq[sid] += 1
+            pseed[i] += 1
+            out_.append((i, d))
+        return out_
 
     lock = threading.Lock()
     fh = man_p.open("a", encoding="utf-8")
@@ -281,20 +291,38 @@ def main():
                 "gps_accuracy": float(d.get("gps_accuracy") or -1),
                 "shot_date": d.get("shot_date"), "file": p.name}
 
-    n_done = 0
+    n_done, tried, ROUNDS = 0, set(), 3
     with ThreadPoolExecutor(a.workers) as pool:
-        for rec in pool.map(grab, picked):
-            n_done += 1
-            if rec:
-                with lock:
-                    fh.write(json.dumps(rec) + "\n")
-                    kept.append(rec)
-            if n_done % 500 == 0:
-                el = time.time() - t0
-                fh.flush()
-                print("  {:,}/{:,} downloaded   {:,} kept   {:.0f}s   "
-                      "{:.1f} img/s".format(n_done, len(picked), len(kept), el,
-                                            n_done / max(el, 1)), flush=True)
+        for rnd in range(1, ROUNDS + 1):
+            picked = select(a.n - len(kept), tried)
+            if not picked:
+                break
+            tried.update(str(d.get("id")) for _, d in picked)
+            print("phase 2 round {}: downloading {:,} across {:,} sequences"
+                  .format(rnd, len(picked),
+                          len({str(d.get("sequence_id")) for _, d in picked})),
+                  flush=True)
+            for (i, d), rec in zip(picked, pool.map(grab, picked)):
+                n_done += 1
+                if rec:
+                    # Commit the slot only now, when an image actually landed.
+                    with lock:
+                        seq_count[rec["sequence_id"]] += 1
+                        per_seed[i] += 1
+                        have[rec["id"]] = rec
+                        fh.write(json.dumps(rec) + "\n")
+                        kept.append(rec)
+                if n_done % 500 == 0:
+                    el = time.time() - t0
+                    fh.flush()
+                    print("  {:,} attempted   {:,} kept   {:.0f}s   "
+                          "{:.1f} img/s".format(n_done, len(kept), el,
+                                                n_done / max(el, 1)), flush=True)
+            if len(kept) >= a.n:
+                break
+            print("  round {} left {:,} of {:,} slots unfilled; the freed "
+                  "quota goes back to the pool".format(
+                      rnd, a.n - len(kept), a.n), flush=True)
     fh.close()
     small = small[0]
 

@@ -235,6 +235,14 @@ def main():
             print("  {}/{} seeds   {:,} images   {:.0f}s".format(
                 n + 1, len(pick), len(rows), time.time() - t0), flush=True)
 
+    # The cap was tested once per seed and each seed appends up to --per-seed
+    # rows, so the total overshot by up to per_seed - 1 (item 69). Trim, and
+    # say so rather than quietly returning a different number than asked for.
+    if len(rows) > a.max_images:
+        print("trimming {:,} -> {:,}: the last seed's batch crossed "
+              "--max-images".format(len(rows), a.max_images), flush=True)
+        rows = rows[:a.max_images]
+
     man = out / "manifest.jsonl"
     with open(man, "w", encoding="utf-8") as fh:
         for r in rows:

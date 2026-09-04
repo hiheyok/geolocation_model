@@ -271,6 +271,18 @@ def main():
     # sampling images first and grouping second manufactures a false plateau.
     recs = [json.loads(l) for l in
             (Path(a.data) / "manifest.jsonl").open(encoding="utf-8")]
+    # Same gate as eval_highres. Groups are formed from the whole manifest, so
+    # a blocked image has to go before grouping or it can anchor a group.
+    _block, _screened = prov.leak_blocklist(a.data)
+    if _block:
+        _before = len(recs)
+        recs = [r for r in recs if str(r["id"]) not in _block]
+        print("leak screen dropped {:,} of {:,} images with burned-in "
+              "coordinates".format(_before - len(recs), _before), flush=True)
+    elif not _screened:
+        print("leak screen: no blocklist at {} -- nothing has been screened, "
+              "which is not the same as nothing leaking".format(a.data),
+              flush=True)
     mlat = np.array([r["lat"] for r in recs], np.float64)
     mlon = np.array([r["lon"] for r in recs], np.float64)
     mseq = np.array([str(r.get("sequence_id", r["id"])) for r in recs])

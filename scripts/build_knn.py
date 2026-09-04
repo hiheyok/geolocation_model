@@ -259,6 +259,27 @@ def main():
     idx_out = bank_rows[best_j.numpy()]
     sim_out = best_s.numpy()
 
+    # Excluded rows are masked to -2.0 rather than removed, so a query with
+    # fewer than k legal neighbours in the bank keeps the placeholders and
+    # they reach the cache as ordinary neighbours with an ordinary index
+    # (item 64). Their weight is near zero -- `score = sim/tau + ...` with
+    # tau ~ 0.07 makes -2.0 worth exp(-29) against a real 0.9 -- but "near
+    # zero" is not "absent", and the index still points at an excluded row.
+    #
+    # Fail rather than emit them. With a 3.4M-row bank this cannot happen
+    # short of a pathological query, and if it ever does the operator should
+    # lower --k rather than train on rows the exclusion meant to remove. The
+    # caches on disk hold none: min similarity is 0.340.
+    short = sim_out <= -1.99
+    if short.any():
+        rows_hit = int(short.any(1).sum())
+        raise SystemExit(
+            "{:,} of {:,} queries have fewer than k={} legal neighbours, so "
+            "{:,} slots would carry an excluded row at similarity -2.0. Lower "
+            "--k, or widen the bank. (This became reachable when same-sequence "
+            "exclusion started applying across the corpus boundary.)"
+            .format(rows_hit, len(sim_out), a.k, int(short.sum())))
+
     out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit,
                      a.bank_ext)
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),

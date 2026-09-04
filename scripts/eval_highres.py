@@ -182,6 +182,25 @@ def main():
     for line in (Path(a.data) / "manifest.jsonl").open(encoding="utf-8"):
         r = json.loads(line)
         recs[r["id"]] = r
+    # Drop what the leak screen found. An image with its own coordinates
+    # burned in is not a geolocation test, it is an OCR test, and until now
+    # the blocklist was written and never read (item 14).
+    _block, _screened = prov.leak_blocklist(a.data)
+    if _block:
+        _before = len(recs)
+        recs = {i: r for i, r in recs.items() if str(i) not in _block}
+        print("leak screen dropped {:,} of {:,} images with burned-in "
+              "coordinates ({:,} screened)".format(_before - len(recs),
+                                                   _before, _screened),
+              flush=True)
+    elif _screened:
+        print("leak screen: {:,} images screened, none blocked"
+              .format(_screened), flush=True)
+    else:
+        print("leak screen: no blocklist at {} -- nothing has been screened, "
+              "which is not the same as nothing leaking "
+              "(scripts/screen_leak.py --write-blocklist)".format(a.data),
+              flush=True)
     ids = sorted(recs)
     # Pick by hashing the id, not by permuting the manifest. The harvest grew
     # 18,812 -> 47,646 overnight and `permutation(len(ids))[:n]` silently

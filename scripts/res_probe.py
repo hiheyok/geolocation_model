@@ -191,7 +191,28 @@ def main():
         buf = {x: [] for x in arms}
         idx = []
 
-    for i, v in pool.map(load, range(len(recs))):
+    def bounded(items, ahead):
+        """Keep at most `ahead` decodes in flight.
+
+        `pool.map` submits every task immediately and buffers every result, so
+        a probe over 47,646 images held tens of thousands of decoded variant
+        stacks at once -- each one several MB (item 18). The same windowed
+        generator the caches use.
+        """
+        from collections import deque
+        q, it = deque(), iter(items)
+        def top_up():
+            while len(q) < ahead:
+                nxt = next(it, None)
+                if nxt is None:
+                    return
+                q.append(pool.submit(load, nxt))
+        top_up()
+        while q:
+            yield q.popleft().result()
+            top_up()
+
+    for i, v in bounded(range(len(recs)), 4 * a.workers):
         if v is None:
             bad += 1
             continue

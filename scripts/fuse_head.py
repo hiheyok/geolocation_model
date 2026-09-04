@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import provenance as prov
 import safeio
 import splits as sp
 from tile_pool import l2, paired
@@ -544,8 +545,10 @@ def main():
             Y = Fc @ (Fc.T @ Y)
         Q, _ = np.linalg.qr(Y)
         _, _, Vt = np.linalg.svd(Q.T @ Fc, full_matrices=False)
+        _basis.update(mu=mu, P=Vt[:d].T)
         return (X - mu) @ Vt[:d].T
 
+    _basis = {}
     # Fit on TRAIN rows only. Fitting over every row lets the basis be
     # chosen with the test queries in hand, which flatters the arm that uses
     # it -- and that arm was the one reporting the best median.
@@ -566,6 +569,20 @@ def main():
         safeio.save_torch({"state": model.state_dict(), "d": a.d, "tau": a.tau,
                     "pos_km": a.pos_km, "seed": a.seed,
                     "n_rows": int(len(X))}, str(stem) + "_head.pt")
+        # Without the PCA mean and basis the export is a set of vectors nobody
+        # can join: a new query runs through the head and then has nowhere to
+        # land, because the final projection was fitted here and discarded
+        # (item 5). Saved in the same shape project_street writes, so the same
+        # loader reads both.
+        if _basis:
+            np.savez(str(stem) + "_pca.npz", mu=_basis["mu"], P=_basis["P"],
+                     src=a.export, dim=combo_eq.shape[1])
+            prov.write(Path(str(stem) + ".f16.npy"),
+                       sel if a.tokens == "osv" else np.arange(len(X)),
+                       release=config.RELEASE,
+                       projection=a.export + "_pca.npz",
+                       row_space=("rows of the release" if a.tokens == "osv"
+                                  else "rows of " + a.pyr_stem))
         print("")
         print("exported {}.f16.npy  {} x {}   (+ _rows.i64.npy, _head.pt)"
               .format(a.export, len(X), combo_eq.shape[1]),

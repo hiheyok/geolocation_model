@@ -270,3 +270,24 @@ def test_the_projection_is_read_from_the_record(tmp_path):
     assert prov.projection_of(p) is None
     prov.write(p, np.arange(4), projection="pca768_bank55_pca.npz")
     assert prov.projection_of(p) == "pca768_bank55_pca.npz"
+
+
+def test_the_leak_blocklist_reads_back_the_ids_it_blocks(tmp_path):
+    """Written since the screen existed and read by nothing (item 14): a
+    dashcam frame with its GPS printed across it stayed in the evaluation set,
+    where the model can read the answer off the image."""
+    import json as _json
+    (tmp_path / "leak_blocklist.json").write_text(_json.dumps(
+        {"screened": 2000, "detail": [{"id": "a", "km": 0.01},
+                                      {"id": "b", "km": 0.02}]}))
+    ids, screened = prov.leak_blocklist(tmp_path)
+    assert ids == {"a", "b"} and screened == 2000
+
+
+def test_no_blocklist_reports_nothing_screened_not_nothing_leaking(tmp_path):
+    assert prov.leak_blocklist(tmp_path) == (set(), 0)
+
+
+def test_a_corrupt_blocklist_does_not_take_the_evaluator_down(tmp_path):
+    (tmp_path / "leak_blocklist.json").write_text("{truncated")
+    assert prov.leak_blocklist(tmp_path) == (set(), 0)

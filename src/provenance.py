@@ -201,6 +201,30 @@ def projection_of(path):
     return (read(path) or {}).get("projection") or None
 
 
+def leak_blocklist(root):
+    """Image ids `screen_leak.py` found with their own coordinates burned in.
+
+    Written since the screen existed and read by nothing (item 14), so a
+    dashcam frame with its GPS printed across it stayed in the evaluation set
+    and the model could read the answer off the image. 1.45% of OSV-5M frames
+    carry such an overlay and are worth +1.3 pp if exploited, so the size of
+    the hole is known even where the count here is small.
+
+    Returns a set of ids, empty when no screen has run. Empty is the honest
+    answer -- it means nothing was screened, not that nothing leaks, and the
+    callers say which.
+    """
+    p = Path(root) / "leak_blocklist.json"
+    if not p.exists():
+        return set(), 0
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return set(), 0
+    return ({str(e["id"]) for e in d.get("detail", []) if "id" in e},
+            int(d.get("screened", 0)))
+
+
 def encoder_of(path):
     """What encoder produced an embedding cache, as far as its sidecar says."""
     rec = read(path) or {}

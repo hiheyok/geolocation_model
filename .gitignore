@@ -39,3 +39,22 @@ runs/state.json
 # bank-only shard metadata that build_bank_ext.py regenerates in under a
 # minute. dataset.parquet above is the thing worth tracking.
 data/processed/*/bank_ext*.parquet
+
+# Exported per-image error arrays and probe outputs. Derived: bootstrap.py and
+# eval_highres.py --export regenerate them, and they are ~236 KB each with one
+# per arm per protocol, so they accumulate faster than any of them is read.
+# The BOOTSTRAP_*.md next to them ARE tracked -- those are the results of
+# record; these are the arrays the results were computed from.
+runs/*.npz
+runs/errs_prebug/
+
+# Atomic-write leftovers. safeio writes <name>.tmp<pid> and renames; a crash
+# between the two leaves the temp behind, and pyramid_cache's grow path uses
+# .grow.npy. Never worth committing, and easy to sweep up by accident.
+*.tmp[0-9]*
+*.grow.npy
+*.part
+
+# Tooling scratch.
+.pytest_cache/
+.claude/
