@@ -102,7 +102,7 @@ def main():
     ap.add_argument("--batch", type=int, default=32,
                     help="images per forward pass; tiles per forward is this "
                          "times the grid size. Measured flat from 8 to 64 on a "
-                         "3070 -- 18.1-18.5 ms an image, the forward being 96% "
+                         "3070 -- 18.1-18.5 ms an image, the forward being 96%% "
                          "of the pipeline -- and 2x worse at 96. Spare VRAM is "
                          "idle capacity here, not headroom: the card is compute "
                          "saturated at batch 8 and a bigger batch buys nothing.")

@@ -165,3 +165,44 @@ def test_a_checkpoint_predating_the_stamp_warns_but_loads(capsys):
 def config_release():
     import config
     return config.RELEASE
+
+
+# --- one three-way comparison, used by all three artifact families ----------
+#
+# Checkpoints, kNN caches and bootstrap provenance each store a split digest,
+# and each needs the same answer.  Getting it separately in three places is how
+# the kNN cache came to refuse the entire shipping retrieval path while
+# check_split accepted the very same checkpoints.
+
+LABELS = np.array(["train"] * 6 + ["val"] * 2 + ["test"] * 2, dtype=object)
+
+
+def test_the_current_digest_reads_as_exact():
+    assert sp.hash_matches("sequence", LABELS,
+                           sp.split_hash("sequence", LABELS)) == "exact"
+
+
+def test_the_pre_fix_digest_reads_as_legacy_not_as_a_pass():
+    """A real answer, not a pass: it means the assignment agrees as far as a
+    digest that cannot see a train/test swap can tell."""
+    assert sp.hash_matches("sequence", LABELS,
+                           sp.split_hash_legacy("sequence", LABELS)) == "legacy"
+
+
+def test_a_train_test_swap_still_reads_as_legacy_which_is_the_known_limit():
+    """The weak digest cannot distinguish this, and pretending otherwise would
+    be worse than recording the limit."""
+    swapped = np.where(LABELS == "train", "test",
+                       np.where(LABELS == "test", "train", LABELS))
+    assert sp.hash_matches("sequence", swapped,
+                           sp.split_hash_legacy("sequence", LABELS)) == "legacy"
+    assert sp.hash_matches("sequence", swapped,
+                           sp.split_hash("sequence", LABELS)) is None
+
+
+def test_an_unrelated_digest_matches_nothing():
+    assert sp.hash_matches("sequence", LABELS, "000000000000") is None
+
+
+def test_a_missing_digest_matches_nothing():
+    assert sp.hash_matches("sequence", LABELS, None) is None

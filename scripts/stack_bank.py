@@ -13,9 +13,11 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 
 
 def main():
@@ -56,6 +58,34 @@ def main():
     if zeros:
         raise SystemExit("{:,} all-zero rows -- an embedding pass did not "
                          "finish".format(zeros))
+
+    # Record the composed row space. Until now the merge was checked by total
+    # length only, and every wrong order satisfies that too: an extension
+    # stacked under the wrong base, or two extensions swapped, produces a file
+    # of exactly the right shape. The digest of release-then-extension is the
+    # thing that distinguishes them (item 66).
+    ids = pq.read_table(config.DATASET_PARQUET, columns=["image_id"])
+    base_ids = np.asarray(ids["image_id"])
+    if len(base_ids) != n:
+        raise SystemExit(
+            "--base {} has {:,} rows but the release has {:,}; a stacked bank "
+            "puts the release first, so this is not one".format(
+                a.base, n, len(base_ids)))
+    stem = prov.ext_stem_for(a.ext)
+    if stem is None:
+        raise SystemExit(
+            "no metadata found for extension {!r}; it names the ids the "
+            "second half of this file holds, and without it the stack cannot "
+            "say what its rows are".format(a.ext))
+    ext_ids = prov.bank_ext(stem, config.RELEASE)["image_id"]
+    if len(ext_ids) != m:
+        raise SystemExit(
+            "{} describes {:,} images but {} holds {:,} rows".format(
+                config.bank_meta(stem).name, len(ext_ids), a.ext, m))
+    prov.write(out, np.concatenate([base_ids, ext_ids]),
+               release=config.RELEASE,
+               row_space="release ++ {}".format(config.bank_meta(stem).name),
+               base=a.base, ext=a.ext)
 
     print("\nwrote {}  {:.2f} GB   rows 0..{:,} release, {:,}..{:,} bank-only"
           .format(out.name, out.stat().st_size / 1e9, n - 1, n, n + m - 1))

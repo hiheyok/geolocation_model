@@ -62,6 +62,66 @@ def rows_digest(ids):
     return h.hexdigest()[:12]
 
 
+def bank_ext(stem, release):
+    """Load a bank extension's metadata, refusing one from another release.
+
+    The extension records the release it was harvested against and nothing
+    ever read it (item 62). It matters because the *release* half of a stacked
+    bank is addressed by row order in that release's dataset.parquet: pair an
+    s01 extension with an s10 release and rows 0..n are one corpus while rows
+    n.. are another, with a single coherent index space over the two and no
+    way for anything downstream to notice.
+    """
+    import config
+
+    p = config.bank_meta(stem)
+    if not p.exists():
+        raise SystemExit("bank extension {!r} has no metadata at {}"
+                         .format(stem, p))
+    m = np.load(p, allow_pickle=True)
+    got = str(m["release"]) if "release" in m.files else None
+    if got is None:
+        print("warning: {} predates the release field, so nothing proves this "
+              "extension was harvested against {!r}".format(p.name, release),
+              flush=True)
+    elif got != release:
+        raise SystemExit(
+            "{} was harvested against release {!r} but the run is {!r}. The "
+            "release half of a stacked bank is addressed by row order in that "
+            "release's dataset.parquet, so combining them gives one index "
+            "space over two different corpora.".format(p.name, got, release))
+    return m
+
+
+def ext_stem_for(name):
+    """`bank_ext_dual` -> `bank_ext`; `bank_ext70_pool` -> `bank_ext70`.
+
+    The extension's embeddings are written one file per encoder scheme and all
+    of them share a single metadata file, so the encoder suffix has to come
+    off before the metadata can be found.
+    """
+    import config
+
+    parts = name.split("_")
+    for cut in range(len(parts), 0, -1):
+        stem = "_".join(parts[:cut])
+        if config.bank_meta(stem).exists():
+            return stem
+    return None
+
+
+def check_stack(path, parts, what=None):
+    """Verify a stacked artifact's rows are these parts *in this order*.
+
+    Item 66: the merge checked the total length, which every wrong order also
+    satisfies. Concatenating the parts and digesting the result is the check
+    that distinguishes them, and it is the same digest the sidecar already
+    holds.
+    """
+    ids = np.concatenate([np.asarray(p) for p in parts])
+    return check(path, ids, what)
+
+
 def sidecar(path):
     return Path(str(path) + ".prov.json")
 

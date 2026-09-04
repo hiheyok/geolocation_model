@@ -243,7 +243,7 @@ class GeoStepDataset(Dataset):
             if ext:
                 # neighbours may live past the release: extend the address
                 # tables so nbr index n+i resolves to the extension row i
-                m = np.load(config.bank_meta(ext), allow_pickle=True)
+                m = prov.bank_ext(ext, config.RELEASE)
                 self.all_x16 = np.concatenate(
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(
@@ -259,11 +259,28 @@ class GeoStepDataset(Dataset):
                     "the bank must be that split's train side".format(
                         str(z["split_mode"]), split_mode))
             if "split_hash" in z and str(z["split_hash"]) != self.split_hash:
-                raise SystemExit(
-                    "knn cache was built against split hash {} but the data on "
-                    "disk hashes to {}; dataset.parquet changed since the bank "
-                    "was built, so its train side is no longer that train side. "
-                    "Rebuild it.".format(str(z["split_hash"]), self.split_hash))
+                # Every kNN cache on disk was built before 2026-09-03, when
+                # split_hash still hashed only each label's first character.
+                # check_split learned to recognise that digest so the 122
+                # checkpoints keep loading; this sibling check did not, and it
+                # refused the entire shipping retrieval path. Recognise it the
+                # same way, and say exactly what the weak digest does not
+                # prove -- it cannot tell a train/test swap from the real
+                # assignment, so it pins the mode and the val positions only.
+                if sp.hash_matches(split_mode, splits,
+                                   z["split_hash"]) == "legacy":
+                    print("note: {} carries the pre-2026-09-03 split digest, "
+                          "which hashed only each label's first character and "
+                          "so cannot distinguish train from test. The bank's "
+                          "train side matches as far as that digest can tell."
+                          .format(knn_file), flush=True)
+                else:
+                    raise SystemExit(
+                        "knn cache was built against split hash {} but the "
+                        "data on disk hashes to {}; dataset.parquet changed "
+                        "since the bank was built, so its train side is no "
+                        "longer that train side. Rebuild it."
+                        .format(str(z["split_hash"]), self.split_hash))
             if "street_file" in z and str(z["street_file"]) != street_file:
                 raise SystemExit(
                     "knn cache was built over {!r} but this dataset reads {!r}. "

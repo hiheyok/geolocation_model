@@ -125,6 +125,24 @@ def main():
     ap.set_defaults(preload=True)
     a = ap.parse_args()
 
+    # The default output is the release's canonical embedding cache, which is
+    # what every arm on record was trained against. A run that embeds a
+    # different image list, a different encoder or a different geometry is not
+    # that cache, and without --out it overwrote it in place -- leaving a file
+    # of the right name, the right length and the wrong contents.
+    custom = [f for f, v in (("--parquet", a.parquet),
+                             ("--crops > 1", a.crops > 1),
+                             ("--patch-grid", a.patch_grid),
+                             ("--size != 224", a.size != 224),
+                             ("--model", a.model != ap.get_default("model")))
+              if v]
+    if not a.out and custom:
+        raise SystemExit(
+            "this run differs from the canonical cache ({}) but has no --out, "
+            "so it would overwrite {} -- the file every checkpoint on record "
+            "was trained against. Name it: --out <stem>."
+            .format(", ".join(custom), EMB.name))
+
     ds = pq.read_table(config.PROCESSED / a.parquet if a.parquet
                        else config.DATASET_PARQUET)
     image_ids = np.asarray(ds["image_id"])

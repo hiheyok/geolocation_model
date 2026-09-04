@@ -138,6 +138,31 @@ def split_hash(mode, labels):
     return _digest(mode, labels, False)
 
 
+def hash_matches(mode, labels, want):
+    """How a recorded digest relates to these labels: "exact", "legacy", None.
+
+    Three artifact families store a split digest -- checkpoints, kNN caches and
+    bootstrap provenance -- and all three were written before 2026-09-03, when
+    the digest hashed only each label's first character and so could not tell
+    train from test. Each of them needs the same three-way answer, and getting
+    it separately in three places is how the kNN cache ended up refusing the
+    entire shipping retrieval path while `check_split` accepted the very same
+    checkpoints.
+
+    "legacy" is a real answer, not a pass: it means the assignment agrees as
+    far as a digest that cannot see a train/test swap can tell. Callers say so
+    out loud rather than treating it as "exact".
+    """
+    if want is None:
+        return None
+    want = str(want)
+    if want == split_hash(mode, labels):
+        return "exact"
+    if want == split_hash_legacy(mode, labels):
+        return "legacy"
+    return None
+
+
 def read(table, mode):
     """Labels and hash for one mode out of an already-loaded parquet table."""
     col = column(mode)

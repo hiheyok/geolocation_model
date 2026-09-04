@@ -28,6 +28,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 
@@ -56,7 +57,7 @@ def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
         rows = rows[np.sort(keep)]
     if not ext_stem:
         return rows, None
-    m = np.load(config.bank_meta(ext_stem), allow_pickle=True)
+    m = prov.bank_ext(ext_stem, config.RELEASE)
     n_rel = len(labels)
     keep = np.ones(len(m["x16"]), dtype=bool)
     zc = sp.MODES[mode]
@@ -117,13 +118,19 @@ def main():
     # release rows, so a neighbour index addresses both spaces uniformly.
     ext_n = 0
     if a.bank_ext:
-        m = np.load(config.bank_meta(a.bank_ext), allow_pickle=True)
+        m = prov.bank_ext(a.bank_ext, config.RELEASE)
         ext_n = len(m["x16"])
         if emb.shape[0] < n_rel + ext_n:
             raise SystemExit(
                 "{} has {:,} rows but the release has {:,} and the extension "
                 "{:,}; run scripts/stack_bank.py first".format(
                     a.street_file, emb.shape[0], n_rel, ext_n))
+        # Length was the only thing ever checked, and every wrong order
+        # satisfies it too. The stacked file records release-then-extension;
+        # this is where that record is read (item 66).
+        prov.check_stack(config.STREET_CACHE / a.street_file,
+                         [np.asarray(ds["image_id"]), m["image_id"]],
+                         a.street_file)
         ext_rows = np.arange(n_rel, n_rel + ext_n, dtype=np.int64)
         ext_keep = np.ones(ext_n, dtype=bool)
 

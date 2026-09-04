@@ -64,8 +64,11 @@ def provenance(tag, split, dev="cpu"):
     ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location="cpu",
                     weights_only=False)
     mode = ck.get("split_mode", sp.PRIMARY)
-    check_split(ck, mode, split)
-    return (ck.get("release"), mode, ck.get("split_hash"))
+    # The canonical hash, so an arm carrying the pre-2026-09-03 weak digest
+    # and one carrying the strong digest over the same rows compare equal.
+    # check_split has already printed what the weak digest cannot prove.
+    canon = check_split(ck, mode, split)
+    return (ck.get("release"), mode, canon or ck.get("split_hash"))
 
 
 def tag_of_err_cache(name):

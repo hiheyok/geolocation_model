@@ -172,7 +172,7 @@ def check_split(ck, mode, split, allow_dirty=False):
     # cannot tell a train/test swap from the real assignment. Recognise it so
     # 122 existing arms keep loading, but say what it does and does not prove.
     if want is not None and want != live and was == mode:
-        if want == sp.split_hash_legacy(mode, live_lab):
+        if sp.hash_matches(mode, live_lab, want) == "legacy":
             print("note: {} carries the pre-2026-09-03 split digest, which "
                   "hashed only each label's first character and so cannot "
                   "distinguish train from test. The split matches as far as "
@@ -190,7 +190,15 @@ def check_split(ck, mode, split, allow_dirty=False):
     stamp = "" if was is not None else "  (checkpoint predates the split stamp)"
     if trained_on == mode:
         print("split      {} {}  eval on {!r}{}".format(mode, live, split, stamp))
-        return
+        # Return the CANONICAL hash, not the one the checkpoint carries. An
+        # arm trained before 2026-09-03 stores the weak digest and one trained
+        # after stores the strong one, and bootstrap pairs arms by comparing
+        # these strings: without this, the first arm trained after the fix
+        # could not be compared against any of the 122 before it, and the
+        # whole parity table would have to be rebuilt to say anything at all.
+        # `want` has already been resolved to `live` above when the legacy
+        # digest matched, with the caveat printed.
+        return want if want is not None else live
 
     train_lab, train_live = sp.read(tbl, trained_on)
     # The hash check above only fires when the checkpoint was trained on the
@@ -201,7 +209,7 @@ def check_split(ck, mode, split, allow_dirty=False):
     # never trained on, and the refusal below is decided on the wrong numbers.
     want_tr = ck.get("split_hash") if ck.get("split_mode") == trained_on else None
     if want_tr is not None and want_tr != train_live:
-        if want_tr == sp.split_hash_legacy(trained_on, train_lab):
+        if sp.hash_matches(trained_on, train_lab, want_tr) == "legacy":
             print("note: {} carries the pre-2026-09-03 split digest for {!r}, "
                   "which cannot distinguish train from test. The contamination "
                   "figure below is only as trustworthy as that digest."
