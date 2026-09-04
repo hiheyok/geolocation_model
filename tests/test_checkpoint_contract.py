@@ -193,6 +193,9 @@ PROVENANCE = {
     # rate are indistinguishable from their checkpoints.
     "lr", "wd", "warmup", "batch", "limit", "epochs", "smooth", "sink_w",
     "emb_drop", "emb_noise", "mem_drop", "val_n", "sel_score_steps",
+    # The seed is recorded so a run can be repeated, not so anything
+    # reconstructs behaviour from it.
+    "seed",
 }
 
 # Orphans that are known and recorded, so a NEW one still fails the test.

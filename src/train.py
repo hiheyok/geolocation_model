@@ -234,6 +234,11 @@ def build_parser():
     ap.add_argument("--limit", type=int, default=0,
                     help="train on a random N-image subset; for learning curves. "
                          "Scale --epochs inversely to hold optimizer steps fixed.")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="seeds weight init, loader shuffling and dropout. "
+                         "Without it two identical commands differed in "
+                         "initialisation, batch order and dropout masks, and "
+                         "the checkpoint recorded nothing to explain why.")
     ap.add_argument("--overfit", type=int, default=0,
                     help="train and eval on the same N images; loss must reach ~0")
     ap.add_argument("--tag", default="g16")
@@ -350,9 +355,15 @@ def main():
 
     if a.init:
         # a warm restart at full LR would undo two epochs before recovering
-        if "--lr" not in sys.argv:
+        # `--lr 3e-4` and `--lr=3e-4` are both valid and only the first was
+        # recognised, so the equals form was silently overwritten by the warm
+        # restart defaults.
+        def _given(flag):
+            return any(x == flag or x.startswith(flag + "=") for x in sys.argv)
+
+        if not _given("--lr"):
             a.lr = 1e-4
-        if "--warmup" not in sys.argv:
+        if not _given("--warmup"):
             a.warmup = 100
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -381,6 +392,14 @@ def main():
                         neg_random=False, neg_seed=11)
     # capture before any Subset wrapping -- the stamp belongs to the benchmark,
     # not to whatever slice of it this run happened to use
+    # Seed before anything samples: weight init, the shuffling loader and
+    # dropout all draw from these. Sink negatives were already deterministic
+    # (neg_random=False, neg_seed=11), so they are not part of this.
+    torch.manual_seed(a.seed)
+    np.random.seed(a.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(a.seed)
+
     split_mode, split_hash = tr.split_mode, tr.split_hash
     if a.limit and a.limit < len(tr):
         keep = np.random.default_rng(config.SPLIT_SEED).choice(
@@ -562,7 +581,7 @@ def main():
                   "opt": opt.state_dict() if a.save_opt else None,
                   "epoch": ep, "val_loss": mva["loss"],
                   "val_km": km, "val_hit": hit, "select": a.select,
-                  "sel_n": a.sel_n, "sel_k": a.sel_k,
+                  "sel_n": a.sel_n, "sel_k": a.sel_k, "seed": a.seed,
                   # Result-defining settings that used to live only in the
                   # runner's argv. Two arms trained at different learning
                   # rates were indistinguishable from their checkpoints, so
