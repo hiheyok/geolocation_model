@@ -19,9 +19,11 @@ deferred. Unmarked items are not yet triaged.
    It establishes that this particular 768-d system is bad, but not that a learned identity-preserving fusion head is bad.
 
    > **Confirmed - conclusion retracted.** Premise confirmed: `base_w` is a fixed random 1536->768 map, so the head does not start at the measured baseline. **Quantified**: scoring the head at init (`scripts/fuse_init_probe.py`) gives 33.1% within 25 km against the 1536-d mean's 33.7% -- the projection is worth **-0.63 pp of the -11.30 pp**, and a train-fitted PCA to 768 gives +0.53 pp. So the confound is real but small, and the trained head is 10.7 pp below its own starting point: training destroys the representation rather than failing to improve it. The recorded conclusion "the pyramid fusion head is negative, do not re-open" is **retracted** -- what was measured was the objective below.
+   >
+   > **Deferred, with the reason:** Real, and deliberately not fixed. The head is a residual on exactly this vector, so correcting it changes the arm: today's three fusion runs and the head-at-init score of 33.1% that the retraction rests on would all become incomparable. Same class as 29, 31 and 32 -- fix it with a re-baseline, as a decision rather than a tidy-up. Recorded in the code at the site.
 
 
-2. `[~]` **The printed baseline and the head’s internal baseline differ.**
+2. `[.]` **The printed baseline and the head’s internal baseline differ.**
    The head averages normalized level vectors without normalizing their mean at [fuse_head.py:123](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:123). The displayed baseline normalizes again at [fuse_head.py:397](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:397). The code explicitly says they should match.
 
    > **Confirmed.** Confirmed. `FuseHead.baseline` omits the per-encoder renormalisation that the printed baseline applies, so the two differ by a dino/siglip reweighting -- the same shape as the recorded "encoder blend was accidental" bug.
@@ -31,9 +33,11 @@ deferred. Unmarked items are not yet triaged.
    [fuse_head.py:266](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:266) creates directed near pairs, then applies diagonal symmetric cross-entropy without deduplicating anchors or masking other valid positives. Two nearby positives in the same batch are trained against one another.
 
    > **Fixed.** Confirmed and **far worse than stated**. Measured over 60 real batches of 256: **100% contain a duplicate anchor**, and **50.3% of off-diagonal cells are true positives trained as negatives** -- 128 of every 255. Half the gradient was pushing apart images within 5 km of each other, which explains item 1's 10.7 pp collapse. Fixed: the loss masks off-diagonal true positives by great-circle distance and batches at most one row per anchor (`--mask-fn`, `--uniq-anchor`, both default on; `--mask-fn 0` reproduces the old runs). Mask unit-tested to kill co-located cross-terms, preserve the diagonal and keep the loss finite. Corrected arm has since run: the head is **20.5%** against 20.9% before -- essentially unchanged. So the false negatives were real but **not the binding constraint**. Training loss collapsed 3.82 -> 0.063, and the head is *better* than the mean at 2500 km (87.0% vs 86.2%) while collapsing at 1 km (4.8% vs 17.8%). That is `--pos-km 5.0` doing what it says: declaring any two images within 5 km identical, which is exactly the discrimination the reported buckets need. `--pos-km 0.5` has now run and **refuted that prediction**: 12.9% against 20.5%, median 670.5 against 384.1. Training loss and retrieval move in opposite directions across all three objectives (3.82 -> 20.9%, 0.063 -> 20.5%, 0.0145 -> 12.9%), so the head overfits 38k images. The original conclusion is re-established: the learned head is harmful, and the fix for this item, while a genuine defect, did not change it.
+   >
+   > **Fixed:** The combined arm's PCA is fitted on train rows only.
 
 
-4. `[~]` **The “mean + head, PCA” comparison leaks test data.**
+4. `[x]` **The “mean + head, PCA” comparison leaks test data.**
    PCA is fitted over every row, including test queries, at [fuse_head.py:416](/C:/Users/longd/Programming/geolocation_model/scripts/fuse_head.py:416), before the train/test retrieval evaluation.
 
    > **Confirmed.** Confirmed. `combo` spans every row and `pca_to` fits on a sample of it, so the `mean + head, PCA to 1536` arm -- the one with the best median -- is fitted transductively on the test queries.
@@ -86,8 +90,10 @@ deferred. Unmarked items are not yet triaged.
 
 11. `[-]` **Restricted-bank k-NN cache names omit the bank limit.**
     Different bank restrictions can collide or reuse incompatible caches.
+   >
+   > **Fixed:** Both evaluators now announce the release they picked instead of choosing in silence.
 
-12. `[~]` **`eval_highres.py` and `multiquery.py` restore an implicit `s10` default.**
+12. `[x]` **`eval_highres.py` and `multiquery.py` restore an implicit `s10` default.**
     This bypasses the repository’s newer “release must be explicit” rule and reintroduces wrong-release execution.
 
    > **Confirmed.** Confirmed. Both scripts set `OSV_RELEASE=s10` when unset, before importing config, which bypasses the no-default rule in exactly the two tools that produce every external number. Narrower than stated in one respect: they only set it when unset, so an explicit choice is never overridden.
@@ -130,8 +136,10 @@ deferred. Unmarked items are not yet triaged.
     A sampled run replaces rather than merges exclusions.
 
    > **Confirmed.** Inspected. Failed decodes keep their row, so a zero embedding is scored as if it were an image.
+   >
+   > **Fixed:** Rows that failed to decode are dropped before any metric, with a count printed.
 
-17. `[~]` **Resolution-probe decode failures remain in evaluation.**
+17. `[x]` **Resolution-probe decode failures remain in evaluation.**
     [res_probe.py:159](/C:/Users/longd/Programming/geolocation_model/scripts/res_probe.py:159) leaves failed images as zero embeddings while retaining their IDs, coordinates and sequence metadata.
 
    > **Confirmed.** Inspected. Unbounded executor mapping; a memory-pressure risk, not a correctness one.
@@ -177,13 +185,17 @@ deferred. Unmarked items are not yet triaged.
     For `pos` and `dual`, the primary street embedding produces the learned scores for candidates retrieved by every secondary photograph.
 
    > **Confirmed.** Confirmed. `--tag` defaults to `d1536-b350-e6`, which expects 1536 dimensions, while the cached queries are always projected to 768 by the bank55 PCA. The default invocation cannot work.
+   >
+   > **Fixed:** The default tag is a 768-d arm, matching the projection the queries always get.
 
-25. `[~]` **The default multiquery configuration is dimensionally inconsistent.**
+25. `[x]` **The default multiquery configuration is dimensionally inconsistent.**
     The default tag expects 1536 dimensions, while cached queries are always projected with the bank55 PCA to 768 dimensions.
 
    > **Confirmed.** Confirmed -- the cache validates ids and count only. Same shape as the kNN provenance hole closed in 78/79, in a path that was not covered by that fix.
+   >
+   > **Fixed:** The query cache is stamped with image root, PCA basis, encoder scale and release, and recomputes when any moves.
 
-26. `[~]` **Multiquery query caches lack provenance.**
+26. `[x]` **Multiquery query caches lack provenance.**
     They validate IDs/count only—not image root, preprocessing, encoder, PCA basis, scale or release.
 
 ## Core training and model behavior
@@ -200,9 +212,11 @@ deferred. Unmarked items are not yet triaged.
    > **Known, deferred.** Already recorded and deliberately deferred, for the same reason as 27: it would alter training semantics and break comparability with the measured p-curve.
 
    > **Confirmed.** Confirmed, and the blast radius is worth naming. The rule is `"pos" in name`, and on the shipping arm it catches exactly two tensors: `retr.q_pos.weight` and `retr.k_pos.weight`, 196,608 parameters, 3.7% of the model. Those are the **learned retrieval keys** -- worth +4.1 pp on record -- so the keyed retrieval branch has been training with no weight decay, unintentionally, on precisely the branch `--retr-drop` exists to regularise.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed: changing the decay set changes every future arm's optimisation and makes it incomparable with all 122 checkpoints on file. Worth doing as a re-baseline, and it is the one of these most likely to have moved a result -- it exempts the learned retrieval keys, 3.7% of the model.
 
 
-29. `[~]` **Weight-decay parameter grouping uses unsafe substring matching.**
+29. `[.]` **Weight-decay parameter grouping uses unsafe substring matching.**
     For example, `q_pos.weight` receives no decay because its name contains `pos`; memory embeddings and some bias-like tensors receive decay incorrectly.
 
 30. `[.]` **Step-3 sink keys receive no positive sink supervision.**
@@ -211,14 +225,18 @@ deferred. Unmarked items are not yet triaged.
    > **Known, deferred.** Already recorded in `docs/STATE.md`; it is why the sink capacity experiment was retired as contaminated rather than reported as a null.
 
    > **Confirmed.** Confirmed in code -- `merged = base + g * (lse - base)` with `g` an unconstrained parameter, so it extrapolates outside [0,1]. **Dormant**: all 122 checkpoints on disk have `sink_k=1`, so this branch never executes in any trained model.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed, and dormant anyway: every checkpoint on disk has sink_k=1, so the branch never runs.
 
 
-31. `[~]` **The sink “interpolation” coefficient is unconstrained.**
+31. `[.]` **The sink “interpolation” coefficient is unconstrained.**
     [model.py:212](/C:/Users/longd/Programming/geolocation_model/src/model.py:212) allows negative values and values above one, so the operation can extrapolate or invert rather than interpolate.
 
    > **Confirmed.** Inspected. No inverted-dropout scaling, so the magnitude distribution differs between train and eval.
+   >
+   > **Deferred, with the reason:** Deliberately not fixed: inverted-dropout scaling changes the magnitudes a trained arm sees, so it needs a re-baseline.
 
-32. `[~]` **Memory dropout lacks inverted-dropout scaling.**
+32. `[.]` **Memory dropout lacks inverted-dropout scaling.**
     Its magnitude distribution changes between training and evaluation.
 
    > **Confirmed.** Confirmed in part: `tr = Subset(tr, range(a.overfit))` builds invalid indices when `--overfit` exceeds the (possibly `--limit`-ed) training set.
@@ -252,8 +270,10 @@ deferred. Unmarked items are not yet triaged.
     [evaluate.py:21](/C:/Users/longd/Programming/geolocation_model/src/evaluate.py:21) reconstructs models using current `G` and `STEPS`, not the saved checkpoint values.
 
    > **Confirmed.** Confirmed. `street_file_for` takes an explicit override ahead of the checkpoint's own record and checks neither provenance nor width.
+   >
+   > **Fixed:** An explicit --street-file override goes through the same existence and width checks as the recorded name.
 
-38. `[~]` **Explicit street-file overrides are not checked for provenance or dimensions.**
+38. `[x]` **Explicit street-file overrides are not checked for provenance or dimensions.**
 
 39. `[~]` **The RoPE implementation does not provide the claimed relative-position behavior.**
     [encoders.py:159](/C:/Users/longd/Programming/geolocation_model/src/encoders.py:159) rotates token embeddings before LayerNorm and arbitrary Q/K projections. Those operations do not generally commute with RoPE rotations.
@@ -335,8 +355,10 @@ deferred. Unmarked items are not yet triaged.
 52. `[x]` **Existing pyramid completion arrays are not validated for shape and legal values.**
 
    > **Confirmed.** Inspected. Reuse is keyed on tile count, not grid geometry.
+   >
+   > **Fixed:** The reuse check compares the cell count as well as the token width.
 
-53. `[~]` **Tile-cache reuse ignores grid geometry.**
+53. `[x]` **Tile-cache reuse ignores grid geometry.**
     Configurations such as 3×2 and 2×3 with the same tile count can reuse incompatible data.
 
    > **Confirmed.** Confirmed; the same ordering defect as 51, in the tile cache.
@@ -346,13 +368,17 @@ deferred. Unmarked items are not yet triaged.
 54. `[-]` **Tile-cache completion can also be saved before the memmap is flushed.**
 
    > **Confirmed.** Confirmed by the fix to 42: pooling and matching consult the completion data and the beam path did not. Now it does.
+   >
+   > **Resolved elsewhere:** Resolved by the fix to 42: the beam path now consults the completion data that pooling and matching already did.
 
-55. `[~]` **Tile-cache consumers are inconsistent.**
+55. `[x]` **Tile-cache consumers are inconsistent.**
     Pooling and matching consult completion data; OSV token loading in the fusion script does not.
 
    > **Confirmed.** Inspected. A crash between truncating and rewriting the mask can bless new zero rows.
+   >
+   > **Fixed:** The stale completion mask is removed before the memmap truncates the tokens.
 
-56. `[~]` **Tile-fetch recreation does not immediately reset the previous completion mask.**
+56. `[x]` **Tile-fetch recreation does not immediately reset the previous completion mask.**
     A crash between truncating the cache and rewriting the mask can bless new zero rows on restart.
 
    > **Confirmed.** Confirmed exactly: `return (s * np.abs(X) ** p).mean(1)` with no `** (1/p)`. A signed third moment, not a generalised mean.
@@ -386,8 +412,10 @@ deferred. Unmarked items are not yet triaged.
    > masked. I claimed in a commit message that this item inflated that
    > evidence. It does not. The fix stands as a correctness guard for
    > configurations where the sets do overlap.
+   >
+   > **Fixed:** The oracle's candidates are masked before the reduction. Measured afterwards: inert in this configuration, and it corrected nothing that was reported.
 
-59. `[~]` **Tile-match oracle statistics are computed before same-sequence exclusion.**
+59. `[x]` **Tile-match oracle statistics are computed before same-sequence exclusion.**
     The reported oracle/headroom can include forbidden near-duplicate matches—the evidence used to motivate fusion is therefore inflated.
 
 ## k-NN and bank extensions
@@ -468,13 +496,17 @@ deferred. Unmarked items are not yet triaged.
 74. `[x]` **A later successful retry does not clear the stage’s stale failure record.**
 
    > **Confirmed.** Confirmed -- `st.needs` is an existence check only, which is the same hole 51 and 54 create on the producing side.
+   >
+   > **Fixed:** An empty dependency file no longer counts as a satisfied dependency.
 
-75. `[~]` **Dependency readiness checks only file existence.**
+75. `[x]` **Dependency readiness checks only file existence.**
     A metadata file from an incomplete cache can launch downstream work.
 
    > **Confirmed.** Inspected.
+   >
+   > **Fixed:** The deadline is re-checked before each retry, not only before the first.
 
-76. `[~]` **Retry deadlines are checked before, rather than during, the retry loop.**
+76. `[x]` **Retry deadlines are checked before, rather than during, the retry loop.**
 
    > **Confirmed.** Confirmed. The stamped bootstrap filenames introduced on 2026-09-03 broke this lookup; marathon still expects the unstamped name.
    >
@@ -495,14 +527,18 @@ deferred. Unmarked items are not yet triaged.
    > **Fixed.** Confirmed. Addressed by pinning the row set rather than storing ids: `main()` now requires every arm to share release, split mode and split hash, which with the seeded sample and equal `n` fixes the rows exactly. Verified both ways -- two `sequence` arms still pair from cache, and a `sequence` arm against a `cell8` arm now refuses instead of returning a tight interval over unrelated images.
 
    > **Confirmed.** Confirmed. The limit is parsed by scanning tag parts for `n<digits>k`, which no current tag contains -- `d768-b350-e6` yields limit 0, meaning evaluation over all training rows.
+   >
+   > **Fixed:** The training limit is read from the checkpoint, falling back to the tag only for older files.
 
 
-80. `[~]` **The summary table reconstructs training limits from obsolete tag syntax.**
+80. `[x]` **The summary table reconstructs training limits from obsolete tag syntax.**
     Current tags can report evaluation over all training rows, including unseen rows.
 
    > **Confirmed.** Confirmed; the same obsolete tag syntax as 80.
+   >
+   > **Fixed:** The report glob covers current d768-/d1536- names.
 
-81. `[~]` **The report glob omits current `d768`/`d1536`-style runs.**
+81. `[x]` **The report glob omits current `d768`/`d1536`-style runs.**
 
    > **Confirmed.** Confirmed; caused by the stamped filenames added on 2026-09-03, as with 77.
    >
@@ -516,9 +552,11 @@ deferred. Unmarked items are not yet triaged.
    > **Partly refuted.** Half confirmed, half refuted. The 16 scripts that hardcode a release are real, and they do undercut the explicit-release invariant. But the scripts that "fail standalone" do not fail for that reason: `after`, `b70`, `half`, `keys`, `more`, `offline`, `tiles2`, `tonight_0902` and `w768b70` take positional arguments and simply reject `--help`. All 72 scripts import cleanly.
 
    > **Confirmed.** Confirmed; the same transductive PCA fit as item 4.
+   >
+   > **Fixed:** The probe's PCA is fitted on the bank only.
 
 
-84. `[~]` **Width-probe PCA is fitted on train and held-out queries together.**
+84. `[x]` **Width-probe PCA is fitted on train and held-out queries together.**
 
    > **Partly refuted.** Split confirmed, label claim confirmed but immaterial. The cut is `permutation(n)` over **patches**, not tiles, so patches from one tile appear on both sides and the absolute accuracies are optimistic. The orientation label is indeed the gradient direction while the road runs perpendicular to it -- but the probe is a binary classification of recoverability, and its accuracy is invariant under a consistent relabelling, so this changes nothing it reports. Both representations were measured under identical leakage, so the 74.8% vs 52.7% *comparison* holds even though both numbers are inflated; and the conclusion that rests on it was settled end-to-end by the sub2 arm, which lost on every measure.
 
