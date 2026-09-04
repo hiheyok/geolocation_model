@@ -40,6 +40,41 @@ def cache_path(street_file, mode, k, bank_limit=0, ext=None):
 
 
 
+def held_cells(ds, labels, zc):
+    """The cells this split holds out, at the split's OWN zoom.
+
+    `cell_z8` was read whatever the mode said, so a cell12 or cell16 split
+    compared z8 cell ids against z12/z16 ids -- different numbering, so almost
+    nothing matched, so the extension served neighbours from precisely the
+    regions being held out and the transfer question went unasked while the
+    run printed a plausible "N dropped" line (item 60).
+
+    Both sides are derived the same way here, from the z16 address, so they
+    cannot disagree about what a cell id means. Latent until now: only
+    `sequence` (no held cells at all) and `cell8` are in use, and at z8 the
+    column happened to be right.
+    """
+    # tile_math.project is scalar (math.sin, min/max), so the array form is
+    # written out here exactly as build_dataset and dataset.py write it.
+    lat = np.clip(np.asarray(ds["lat"], dtype=np.float64),
+                  -tm.MAX_LAT, tm.MAX_LAT)
+    lon = np.asarray(ds["lon"], dtype=np.float64)
+    sin = np.sin(np.radians(lat))
+    px = (lon + 180.0) / 360.0
+    py = 0.5 - np.log((1.0 + sin) / (1.0 - sin)) / (4.0 * np.pi)
+    n16 = 1 << (4 * tm.STEPS)
+    x16 = np.clip((px * n16).astype(np.int64), 0, n16 - 1)
+    y16 = np.clip((py * n16).astype(np.int64), 0, n16 - 1)
+    return cell_ids(x16, y16, zc)[labels != "train"]
+
+
+def cell_ids(x16, y16, zc):
+    """z16 addresses -> cell ids at zoom zc. One definition, used both sides."""
+    sh = 4 * tm.STEPS - zc
+    return ((x16.astype(np.int64) >> sh) * (1 << zc)
+            + (y16.astype(np.int64) >> sh))
+
+
 def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
     """The rows that make up the bank, in the order they are addressed.
 
@@ -62,13 +97,8 @@ def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
     keep = np.ones(len(m["x16"]), dtype=bool)
     zc = sp.MODES[mode]
     if zc is not None:
-        cell = np.asarray(ds["cell_z8"])
-        held = np.fromiter(set(np.unique(cell[labels != "train"]).tolist()),
-                           dtype=np.int64)
-        sh = 4 * tm.STEPS - zc
-        ec = ((m["x16"].astype(np.int64) >> sh) * (1 << zc)
-              + (m["y16"].astype(np.int64) >> sh))
-        keep = ~np.isin(ec, held)
+        held = np.unique(held_cells(ds, labels, zc))
+        keep = ~np.isin(cell_ids(m["x16"], m["y16"], zc), held)
     return np.concatenate([rows, np.arange(n_rel, n_rel + len(keep))[keep]]), m
 
 
@@ -140,21 +170,26 @@ def main():
             # model transfers to unseen regions. The extension has no split
             # label, so without this it would serve neighbours from exactly the
             # held-out cells and the question would go unasked.
-            cell = np.asarray(ds["cell_z8"])
-            held = set(np.unique(cell[labels != "train"]).tolist())
-            shift = 4 * tm.STEPS - zc
-            ex = (m["x16"].astype(np.int64) >> shift)
-            ey = (m["y16"].astype(np.int64) >> shift)
-            ext_cell = ex * (1 << zc) + ey
-            ext_keep = ~np.isin(ext_cell, np.fromiter(held, dtype=np.int64))
+            held = np.unique(held_cells(ds, labels, zc))
+            ext_keep = ~np.isin(cell_ids(m["x16"], m["y16"], zc), held)
             print("bank ext   {:,} of {:,} dropped: they sit in z{} cells this "
                   "split holds out".format(int((~ext_keep).sum()), ext_n, zc))
 
         ext_rows = ext_rows[ext_keep]
         bank_rows = np.concatenate([bank_rows, ext_rows])
-        # sequence ids must not collide across the two corpora
-        _, ext_seq = np.unique(m["sequence"], return_inverse=True)
-        seq_id = np.concatenate([seq_id, ext_seq + seq_id.max() + 1])
+        # Factorise the two corpora TOGETHER, so a sequence appearing in both
+        # gets one id. Offsetting the extension's ids made the corpora disjoint
+        # by construction, which is not a fact about the data: one real drive
+        # crossing the boundary then had two ids, and same-sequence exclusion
+        # -- the entire reason this column exists -- silently stopped applying
+        # to it (item 61).
+        both = np.concatenate([seq.astype("U40"),
+                               np.asarray(m["sequence"]).astype("U40")])
+        _, seq_id = np.unique(both, return_inverse=True)
+        shared = len(np.intersect1d(seq.astype("U40"),
+                                    np.asarray(m["sequence"]).astype("U40")))
+        print("bank ext   {:,} sequence ids shared with the release{}".format(
+            shared, " -- exclusion now covers them" if shared else ""))
         print("bank ext   {:,} images kept from {}".format(
             len(ext_rows), ", ".join(str(x) for x in m["shards"])))
 
