@@ -11,32 +11,65 @@ are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
 ## 1. What to ship
 
 **`d768-b350-e6-drop70`** — 768-d street vector, 3.40M bank, 6 epochs,
-`--retr-drop 0.7`.
+`--retr-drop 0.7`. Unchanged as the recommendation, but **choose arms on
+KartaView, not on OSV-5M** — see §2.
 
 | arm | OSV-5M `<25 km` | KartaView `<25 km` | KartaView median |
 |---|---|---|---|
-| `d768-b265-e6` | 72.8% | 12.1% | 474.8 km |
-| `d768-b350-e6` | 75.6% | 11.6% | 505.6 km |
-| **`d768-b350-e6-drop70`** | ~75.6% | **13.4%** | **435.7 km** |
-| `d768-b350-e6-drop90` | **-5.7 pp** | 14.0% | 390.0 km |
+| `d768-b265-e6` | — | 12.1% | 474.8 km |
+| `d768-b350-e6` | 57.3% | 11.6% | 505.6 km |
+| **`d768-b350-e6-drop70`** | **57.5%** | **13.4%** | **435.7 km** |
+| `d768-b350-e6-drop90` | — | 14.0% | 390.0 km |
 | `d768-b350-e6-sub2` | — | 12.5% | 459.7 km |
-| `d1536-b350-e6` | 76.2% | **11.2%** | **532.5 km** |
-| `d1536-b350-e6-drop30` | **76.9%** | 12.3% | 492.0 km |
-| `d1536-b350-e6-drop70` | 75.9% | 12.8% | 467.4 km |
+| `d1536-b350-e6` | — | **11.2%** | **532.5 km** |
+| `d1536-b350-e6-drop30` | — | 12.3% | 492.0 km |
+| `d1536-b350-e6-drop70` | — | 12.8% | 467.4 km |
 
-All KartaView numbers are at shipping parity (each checkpoint's own bank, its
-own `retr_k`). **Best benchmark and best real-world are different arms**, and
-the gap widened at parity: `d1536-b350-e6-drop30` has the best benchmark of any
-arm and loses externally to the half-width `drop70` by −1.06 pp and −56.3 km,
-both separated. Width and dropout do not compose — `d1536-b350-e6-drop70` loses
-on both measures.
+OSV-5M figures are **post-leak-fix** (2026-09-04) and only the two arms
+re-measured so far are shown; the rest are stale by ~18 pp and are not
+reproduced here. All KartaView numbers are at shipping parity and are
+unaffected by the leak.
 
----
+**The OSV-5M column can no longer separate these arms.** Every pairwise
+contrast among the four re-measured arms is inside noise, and the spread across
+all four is 0.2 pp against 0.7 pp before. KartaView still separates them, and
+it always ranked `drop70` first — that ranking was the honest signal all along.
 
-## 2. The three results that matter
+## 2. The results that matter
+
+**The OSV-5M headline was inflated ~18 pp by a leaking retrieval bank.**
+`build_knn` offset the extension's sequence ids into a separate namespace,
+making the two corpora disjoint by construction rather than by fact — they are
+the same OSV-5M shards with the same sequence naming, and 75.5% of test
+sequences also appear in `bank_ext70`. So same-sequence exclusion never crossed
+the boundary and the bank served near-duplicate frames of the query's own drive
+as retrieval neighbours: **41.6% of test queries had a same-drive top-1, at a
+median 0.31 km**. Fixed, cache rebuilt and verified clean (0 same-sequence
+neighbours across all 32 ranks; 3.7M pairs excluded, 7.4 per query; mean top-1
+similarity 0.9080 → 0.7987).
+
+Re-measured, 5,000 test images, paired:
+
+| arm | `<25 km` before | after | median before | after |
+|---|---|---|---|---|
+| `d768-b350-e6-drop70` | 75.2% | **57.5%** | 2.2 km | **15.4 km** |
+| `d768-b350-e6` | 75.6% | **57.3%** | 1.9 km | **14.7 km** |
+| `wd29-fix-e6` | 74.9% | 57.3% | 2.5 km | 15.1 km |
+| `wd29-legacy-e6` | 75.4% | 57.4% | 2.4 km | 15.0 km |
+
+**Caveat, and it cuts both ways.** These arms were *trained* against the leaky
+cache, so this is a lower bound on what a cleanly-trained arm scores: one that
+learned to lean on near-duplicates may be worse at using honest neighbours. It
+is a *sound* bound on how much of the published number was the leak.
+
+**The benchmark has stopped discriminating.** Every pairwise contrast among the
+four is inside noise; the spread is 0.2 pp against 0.7 pp before. Nearly
+everything OSV-5M appeared to say about these arms was a statement about how
+well each exploited the leak. **Select on KartaView.** It has no same-drive
+frames in the bank, it separates the arms, and it always ranked `drop70` first.
 
 **The model is overwhelmingly a retrieval system.** With the prior removed at
-inference (`bootstrap.py --retr-off`):
+inference (`bootstrap.py --retr-off`), measured on the leaky cache:
 
 | arm | retrieval on | off | loses |
 |---|---|---|---|
@@ -45,27 +78,41 @@ inference (`bootstrap.py --retr-off`):
 | `drop90` | 69.9% | **19.3%** | −50.6 pp |
 
 Monotone in p, every contrast separated. Dropout buys standalone capability.
-The 75.6% headline is mostly corpus coverage. This was **predicted** from
-`cond_probe` (the prior's share of the logit spread, 42% → 28%) and agrees with
-`diag_beam` (headroom up, top-1 down) — three independent routes, one mechanism.
+Against the clean cache the *on* column is ~18 pp lower, so the dependency is
+smaller than this table says — but the ordering and the mechanism stand, and
+they were predicted independently by `cond_probe` and `diag_beam`.
 
-**`--retr-drop 0.7`, and the reason is not the one first recorded.** The curve
-at parity: 11.6 / 11.1 / 12.1 / 12.6 / **13.4** / 14.0% for p = 0 … 0.9.
-0.7 vs 0.9 on `<25 km` is +0.58 pp [−0.24, +1.38], **inside noise** — 0.9 does
-not overshoot the hit rate, and is separated *better* on `<200 km` and the
-median. What 0.9 costs is `<1 km` (separated worse than both 0.7 and no
-dropout) plus a −5.7 pp benchmark regression. p=0.3 is now inside noise, so
-**p ≥ 0.5 before anything is separable** — the original 0.3 guess is not
-supported.
+**`--retr-drop 0.7`.** The curve at parity on KartaView: 11.6 / 11.1 / 12.1 /
+12.6 / **13.4** / 14.0% for p = 0 … 0.9. 0.7 vs 0.9 on `<25 km` is +0.58 pp
+[−0.24, +1.38], inside noise; what 0.9 costs is `<1 km` and a −5.7 pp
+benchmark regression. p ≥ 0.5 before anything is separable. **This axis was
+measured on KartaView throughout, so the leak does not touch it.**
 
 **Step 0 is the entire tail.** `error_profile` on the shipping arm: 7.9% of
-images first go wrong at step 0 and carry **84.3% of the mean error**; 2.5% of
-images carry 66.9%. Meanwhile 33.6% first go wrong at step 3 and contribute
-0.0 km. The median and the tail are different problems.
+images first go wrong at step 0 and carry **84.3% of the mean error**; 2.5%
+carry 66.9%. 33.6% first go wrong at step 3 and contribute 0.0 km. Measured on
+the leaky cache; the shape is a property of the search, but the numbers deserve
+re-running.
 
 ---
 
 ## 3. Corrections to already-published claims
+
+**Every OSV-5M corpus result is now suspect, and one mechanism explains all of
+them.** A bigger bank holds more same-drive frames, so "the corpus pays" and
+"the bank beats the training set" were, in unknown proportion, measurements of
+leakage. The four claims below all have that shape and all need re-measuring
+against the clean cache before they are repeated:
+
+* corpus still pays at 2M (+6.50 pp, median halved to 3.6 km)
+* the bank is worth ~2.6x the training set on sequence
+* the corpus gain does not transfer externally
+* the benchmark measures bank coverage (442 km external vs 2.7 km OSV-5M)
+
+The last one is now largely *explained*: the gap was read as density and domain
+shift, and a large part of it was the OSV-5M side being inflated. The external
+side was always clean.
+
 
 **The corpus axis.** Reported as −1.32 pp [−2.04, −0.60] separated on
 photographs. At parity it is **−0.46 pp [−1.12, +0.18], inside noise**. The
