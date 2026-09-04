@@ -65,6 +65,11 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import names
+
+# Named once: these decide what a cached query vector means, and the cache
+# stamp below has to move whenever they do.
+BASIS = "pca768_bank55_pca.npz"
+SIGLIP_SCALE = 4.03
 import tile_math as tm
 from dataset import street_table
 from evaluate import evaluate, load_model
@@ -182,30 +187,41 @@ def cached_queries(data, pick, dev, stem):
     for line in (Path(data) / "manifest.jsonl").open(encoding="utf-8"):
         r = json.loads(line)
         recs[r["id"]] = r
+    # Everything that changes what these vectors mean, not just which images
+    # they came from: a different image root, PCA basis, encoder scale or
+    # release produces different embeddings for the same ids, and the cache
+    # used to hand them back as if they matched.
+    stamp = "{}|{}|{}|{}".format(data, BASIS, SIGLIP_SCALE, config.RELEASE)
     if p.exists() and q.exists():
         m = np.load(q, allow_pickle=True)
-        if len(m["image_id"]) == len(pick) and (m["image_id"] == np.array(pick)).all():
+        same_build = str(m["stamp"]) == stamp if "stamp" in m.files else False
+        if (same_build and len(m["image_id"]) == len(pick)
+                and (m["image_id"] == np.array(pick)).all()):
             print("reusing cached query embeddings, {:,}".format(len(pick)),
                   flush=True)
             return (np.load(p), m["lat"], m["lon"],
                     m["sequence"].astype("U40"))
     paths = [str(Path(data) / "img" / (i + ".jpg")) for i in pick]
     E = embed(paths, dev)
-    tok = np.concatenate([E["dinov2"], 4.03 * E["siglip"]], axis=2)
+    tok = np.concatenate([E["dinov2"], SIGLIP_SCALE * E["siglip"]], axis=2)
     pooled = tok.mean(1).astype(np.float32)
-    z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
+    z = np.load(config.STREET_CACHE / BASIS)
     V = ((pooled - z["mu"]) @ z["P"]).astype(np.float16)
     lat = np.array([recs[i]["lat"] for i in pick], np.float64)
     lon = np.array([recs[i]["lon"] for i in pick], np.float64)
     seq = np.array([str(recs[i].get("sequence_id", i)) for i in pick])
     np.save(p, V)
-    np.savez(q, image_id=np.array(pick), lat=lat, lon=lon, sequence=seq)
+    np.savez(q, image_id=np.array(pick), lat=lat, lon=lon, sequence=seq,
+             stamp=stamp)
     return V, lat, lon, seq
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tag", default="d1536-b350-e6")
+    # The queries are always projected to 768 by BASIS, so a 1536-d default
+    # could only ever exit with "cached queries are 768-d but this wants
+    # 1536-d". Default to the arm that actually ships.
+    ap.add_argument("--tag", default="d768-b350-e6-drop70")
     ap.add_argument("--bank", default=None,
                     help="defaults to the checkpoint's own street file")
     ap.add_argument("--data", default="E:/data/kartaview_hr")

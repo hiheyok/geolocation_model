@@ -75,6 +75,18 @@ def street_file_for(ck, dim, override=None):
     first.
     """
     if override:
+        # The recorded name is checked for existence and width below; an
+        # override used to skip both, so --street-file pointing at a stale or
+        # wrong-width cache was accepted in silence.
+        if not (config.STREET_CACHE / override).exists():
+            raise SystemExit(
+                "--street-file {} is not in {}".format(
+                    override, config.STREET_CACHE))
+        got = np.load(config.STREET_CACHE / override, mmap_mode="r").shape[1]
+        if got != dim:
+            raise SystemExit(
+                "--street-file {} is {}-d but the model wants {}-d".format(
+                    override, got, dim))
         return override
     named = ck.get("street_file")
     if named and not (config.STREET_CACHE / named).exists():
