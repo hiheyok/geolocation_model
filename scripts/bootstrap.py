@@ -45,8 +45,7 @@ def ckpt_stamp(tag):
     entirely plausible numbers.  Size and mtime are enough to notice a rewrite
     and cost nothing; hashing a 200 MB checkpoint on every lookup would not.
     """
-    st = (config.CHECKPOINTS / (tag + ".pt")).stat()
-    return "{:x}{:x}".format(st.st_size, st.st_mtime_ns)[-12:]
+    return safeio.file_stamp(config.CHECKPOINTS / (tag + ".pt"))
 
 
 def provenance(tag, split, dev="cpu"):

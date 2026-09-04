@@ -129,3 +129,39 @@ def test_resolver_returns_none_rather_than_a_path_that_cannot_be_used():
 def test_tag_recovery_survives_underscores_and_stamps(name, tag):
     import bootstrap as B
     assert B.tag_of_err_cache(name) == tag
+
+
+# --- the release stamp ------------------------------------------------------
+#
+# `check_split` has enforced this for the internal evaluators since the day a
+# wrong-release pairing was found, but the external ones -- eval_highres and
+# multiquery -- never call it: they score against a foreign image set, so there
+# is no split to check.  They still index s10 row-addressed artifacts, and they
+# force OSV_RELEASE rather than reading it.  Moving the check into `load_model`
+# covers every consumer, so these pin the three cases it distinguishes.
+
+def test_a_matching_release_passes():
+    import evaluate
+    evaluate.check_release({"release": config_release()}, "arm")
+
+
+def test_a_foreign_release_is_refused():
+    import evaluate
+    with pytest.raises(SystemExit, match="release mismatch"):
+        evaluate.check_release({"release": "s99"}, "arm")
+
+
+def test_a_checkpoint_predating_the_stamp_warns_but_loads(capsys):
+    """44 of the 122 checkpoints on disk carry no release field.
+
+    Inventing one for them would refuse real arms on a guess, so the missing
+    case is deliberately weaker than the mismatched case.
+    """
+    import evaluate
+    evaluate.check_release({}, "old-arm")
+    assert "predates the release stamp" in capsys.readouterr().out
+
+
+def config_release():
+    import config
+    return config.RELEASE

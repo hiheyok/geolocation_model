@@ -39,6 +39,27 @@ def replace_from(tmp, path):
         raise
 
 
+def file_stamp(path, missing="absent"):
+    """Identify a file by its bytes-on-disk, cheaply: size and mtime.
+
+    Names are not identity. A cache keyed on the *path* of its PCA basis or
+    its image root hands back vectors built from a different basis the moment
+    that file is rebuilt under the same name -- and rebuilding a basis under
+    the same name is the normal way this project produces one. The same
+    mistake, keyed on a tag rather than a path, served the previous model's
+    errors under the new model's name.
+
+    Size and mtime catch a rewrite and cost a stat. Hashing hundreds of MB on
+    every cache lookup would not, and the failure being guarded here is an
+    accidental rebuild, not an adversary.
+    """
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return missing
+    return "{:x}{:x}".format(st.st_size, st.st_mtime_ns)[-12:]
+
+
 def save_torch(obj, path, **kw):
     """torch.save, atomically. Returns the path written."""
     import torch

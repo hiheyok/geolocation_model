@@ -70,6 +70,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import names
+import safeio
 
 # Named once: these decide what a cached query vector means, and the cache
 # stamp below has to move whenever they do.
@@ -196,10 +197,22 @@ def cached_queries(data, pick, dev, stem):
     # they came from: a different image root, PCA basis, encoder scale or
     # release produces different embeddings for the same ids, and the cache
     # used to hand them back as if they matched.
-    stamp = "{}|{}|{}|{}".format(data, BASIS, SIGLIP_SCALE, config.RELEASE)
+    # Fingerprint the CONTENTS of everything that decides what these vectors
+    # mean, not its filename. Rebuilding the PCA basis or replacing the images
+    # under the same path used to leave the cache valid, so the run silently
+    # mixed vectors from two different bases.
+    stamp = "{}|{}|{}|{}|{}|{}".format(
+        data, safeio.file_stamp(Path(data) / "manifest.jsonl"),
+        BASIS, safeio.file_stamp(config.STREET_CACHE / BASIS),
+        SIGLIP_SCALE, config.RELEASE)
     if p.exists() and q.exists():
         m = np.load(q, allow_pickle=True)
         same_build = str(m["stamp"]) == stamp if "stamp" in m.files else False
+        if not same_build:
+            # Say it. A silent re-embed of 5,000 images looks like a slow run,
+            # and the reason it is re-embedding is the thing worth knowing.
+            print("query cache was built under a different basis, image root "
+                  "or release; re-embedding", flush=True)
         if (same_build and len(m["image_id"]) == len(pick)
                 and (m["image_id"] == np.array(pick)).all()):
             print("reusing cached query embeddings, {:,}".format(len(pick)),

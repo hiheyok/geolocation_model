@@ -169,6 +169,36 @@ class FuseHead(nn.Module):
         return b @ self.base_w
 
 
+def require_written(donep, n, stem):
+    """Refuse rows the cache never wrote.
+
+    The beam-search completion check does not reach this consumer, and an
+    unwritten row is the zero fill -- which L2-normalises to a unit-length
+    nothing and trains as if it were a real view. That is the silent-null
+    failure one file over: no loss can show it, because a zero token is
+    well-formed. tile_cache marks a row only after its embedding is on disk,
+    so the mask is the record of which rows are real.
+
+    The mask indexes the cache file positionally; `sel` addresses the dataset
+    and is a different space.
+    """
+    if not donep.exists():
+        print("warning: no {} -- cannot prove every {} row was written"
+              .format(donep.name, stem), flush=True)
+        return
+    d = np.load(donep)
+    if d.shape != (n,):
+        raise SystemExit(
+            "{} is {} but {}.f16.npy holds {:,} rows; they describe "
+            "different builds".format(donep.name, d.shape, stem, n))
+    bad = int((d == 0).sum())
+    if bad:
+        raise SystemExit(
+            "{:,} of {:,} {} rows were never written (zero fill). Finish "
+            "the cache before training the fusion head."
+            .format(bad, n, stem))
+
+
 def load_tokens(sel):
     """(n, 9, 2, 768) float16: 3 crops then 6 tiles, split by encoder."""
     C = np.asarray(np.load(config.STREET_CACHE / "dual_c3.f16.npy",
@@ -179,6 +209,7 @@ def load_tokens(sel):
                   C[:, h:].reshape(-1, nc, D_ENC)], axis=2)
     T = np.asarray(np.load(config.STREET_CACHE / "tile6.f16.npy",
                            mmap_mode="r"), np.float32)
+    require_written(config.STREET_CACHE / "tile6_done.u8.npy", len(T), "tile6")
     T = np.stack([T[:, :, :D_ENC], T[:, :, D_ENC:]], axis=2)
     X = np.concatenate([C, T], axis=1)
     X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)   # per-token L2

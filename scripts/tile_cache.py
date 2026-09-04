@@ -287,6 +287,16 @@ def main():
     print("cache      {}  {:,} of {:,} rows filled".format(
         emb_p.name, int(done.sum()), n), flush=True)
 
+    # Exit non-zero on an incomplete build. fetch_tiles and pyramid_cache were
+    # fixed; this one still returned success after unreadable images, so a
+    # marker-gated runner wrote its done-marker over a cache with zero-filled
+    # rows and every later stage read them as embeddings.
+    if state["bad"] or int(done.sum()) < n:
+        raise SystemExit(
+            "{:,} unreadable and {:,} of {:,} rows unfilled -- this cache is "
+            "incomplete. Re-run to fill the gaps; do not mark it done."
+            .format(state["bad"], n - int(done.sum()), n))
+
     # Windows does not OOM when VRAM runs out -- WDDM pages GPU allocations
     # into system RAM and the job simply gets slower, which is how a 2x
     # slowdown at 96 images per forward looked like nothing but a bad number.

@@ -54,9 +54,40 @@ def build_from_ck(ck, dev="cpu"):
     return m, d_street
 
 
+def check_release(ck, what="this checkpoint"):
+    """Every cache here is addressed by row order in one release.
+
+    `check_split` enforces this, but the external evaluators -- eval_highres,
+    multiquery -- never call it: they score against a foreign image set, so
+    there is no split to check. They do still index s10 row-addressed
+    artifacts (the bank, the kNN cache, the PCA basis), and they *force*
+    OSV_RELEASE=s10 rather than reading it, so an s01 arm ran against s10 rows
+    and produced entirely plausible numbers. Checking here covers every
+    consumer, since nothing loads a checkpoint another way.
+
+    Deliberately asymmetric. An explicit disagreement is refused; a checkpoint
+    that predates the field only warns, because 44 of the 122 on disk have no
+    `release` and inventing one for them would refuse arms on a guess.
+    """
+    rel = ck.get("release")
+    if rel is None:
+        print("warning: {} predates the release stamp, so nothing proves it "
+              "was trained on {!r}; its row-addressed caches may belong to "
+              "another release".format(what, config.RELEASE), flush=True)
+        return
+    if rel != config.RELEASE:
+        raise SystemExit(
+            "release mismatch: {} was trained on {!r}, OSV_RELEASE is {!r}. "
+            "The bank, kNN cache and PCA basis are all indexed by row order "
+            "in one release, so this would pair each image with another "
+            "image's embedding rather than failing. Re-run with "
+            "OSV_RELEASE={}.".format(what, rel, config.RELEASE, rel))
+
+
 def load_model(tag, dev):
     ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location=dev,
                     weights_only=False)
+    check_release(ck, tag)
     m, d_street = build_from_ck(ck, dev)
     return m, ck, d_street
 
@@ -161,7 +192,29 @@ def check_split(ck, mode, split, allow_dirty=False):
         print("split      {} {}  eval on {!r}{}".format(mode, live, split, stamp))
         return
 
-    train_lab, _ = sp.read(tbl, trained_on)
+    train_lab, train_live = sp.read(tbl, trained_on)
+    # The hash check above only fires when the checkpoint was trained on the
+    # mode being evaluated. On the transfer path it is skipped entirely -- and
+    # this branch then reads the *training* mode's labels off the current
+    # dataset.parquet to measure contamination. If those labels have moved
+    # since training, the contamination figure describes a split the model was
+    # never trained on, and the refusal below is decided on the wrong numbers.
+    want_tr = ck.get("split_hash") if ck.get("split_mode") == trained_on else None
+    if want_tr is not None and want_tr != train_live:
+        if want_tr == sp.split_hash_legacy(trained_on, train_lab):
+            print("note: {} carries the pre-2026-09-03 split digest for {!r}, "
+                  "which cannot distinguish train from test. The contamination "
+                  "figure below is only as trustworthy as that digest."
+                  .format(ck.get("tag", "this checkpoint"), trained_on),
+                  flush=True)
+        else:
+            raise SystemExit(
+                "split hash mismatch on the TRAINING mode {!r}: checkpoint {}, "
+                "data on disk {}. The transfer test measures contamination by "
+                "reading that split off dataset.parquet, so with the labels "
+                "moved it would describe a split this model never saw. "
+                "Re-run scripts/resplit.py or retrain."
+                .format(trained_on, want_tr, train_live))
     ev = live_lab == split
     dirty = float((train_lab[ev] == "train").mean())
     print("split      evaluating {!r} a model trained on {!r} -- transfer test"

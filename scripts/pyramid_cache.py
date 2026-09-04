@@ -183,9 +183,14 @@ def main():
         except Exception:
             return k, None
 
+    # Do NOT return here. A crash between the final _mark and the metadata
+    # write leaves a cache whose mask says complete and whose _meta.npz does
+    # not exist, and every later run took this branch and exited -- so the
+    # cache permanently reported "nothing to do" and never became usable.
+    # Fall through instead: the encoder loops are already no-ops when done,
+    # and the verification and metadata write below are cheap and idempotent.
     if done.all():
-        print("nothing to do")
-        return
+        print("all rows already cached; verifying and rewriting metadata")
 
     for ei, mname in enumerate(enc_order):
         # per encoder, so a run interrupted during siglip does not redo dinov2
@@ -275,9 +280,15 @@ def main():
     # that decoded for dinov2 and failed for siglip, leaving half its tokens
     # zero behind a "done" flag -- the silent-null failure this check exists
     # to prevent.
+    # Chunked, and the encoder axis sliced BEFORE the cast. `X[ok][:, :, ei]`
+    # is fancy indexing: it materialises both encoders for every complete row
+    # as float32 first -- (n, 33, 2, 768), over 10 GB at full scale -- and
+    # only then throws half away. Same shape of bug as the embed_street scan.
     for ei, mname in enumerate(enc_order):
-        z = int((np.abs(np.asarray(X[ok][:, :, ei, :], np.float32)).sum(-1)
-                 == 0).sum())
+        z = 0
+        for s in range(0, len(ok), 20000):
+            blk = np.asarray(X[ok[s:s + 20000]][:, :, ei, :], np.float32)
+            z += int((np.abs(blk).sum(-1) == 0).sum())
         if z:
             raise SystemExit("{:,} all-zero {} tokens among images marked "
                              "complete".format(z, mname))
