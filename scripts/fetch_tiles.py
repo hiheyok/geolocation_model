@@ -25,6 +25,25 @@ import tiles as T
 TOKENS, INDEX, DONE = config.map_files()
 
 
+def _load_mask(path, n):
+    """A completion mask is only a resume point if it describes this cache.
+
+    Loaded blind, a short mask makes the run unrecoverable without deleting it
+    by hand, and values above one corrupt the completed count that decides
+    whether the build is finished.
+    """
+    d = np.load(path)
+    if d.shape != (n,):
+        raise SystemExit(
+            "tile cache mask is {} but this build wants {}; it belongs to a "
+            "different cache. Delete it to start fresh.".format(d.shape, (n,)))
+    if not np.isin(d, (0, 1)).all():
+        raise SystemExit(
+            "tile cache mask holds values outside {0, 1}; it is not a "
+            "completion mask. Delete it to start fresh.")
+    return d.astype(np.uint8)
+
+
 def needed_keys(grid, exhaustive_z8):
     tg = pq.read_table(config.TARGETS_PARQUET)
     z = np.asarray(tg["tile_z"]).astype(np.int64)
@@ -137,7 +156,7 @@ def main():
     tok = np.lib.format.open_memmap(
         TOKENS, mode="r+" if reuse else "w+",
         dtype=np.float16, shape=(n, d, width))
-    done = (np.load(DONE) if reuse
+    done = (_load_mask(DONE, n) if reuse
             else np.zeros(n, dtype=np.uint8))
     pq.write_table(idx, INDEX)
 

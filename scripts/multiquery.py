@@ -292,6 +292,25 @@ def main():
     # gives the policy a corpus it never trained against. In range, so silent.
     keep = None
     kf = ck.get("knn_file")
+    if a.bank and a.bank != ck.get("street_file"):
+        # --bank swaps the corpus, and the checkpoint's bank_rows index its
+        # OWN bank file. Applying them to a different one filters it by
+        # unrelated positions -- in range, so silent. eval_highres already
+        # resolves the cache built over the bank in use; do the same here.
+        stem = "bank_ext"
+        for tag_n in ("70", "55", "40"):
+            if "bank" + tag_n in bank_file:
+                stem = "bank_ext" + tag_n
+                break
+        kf = config.knn_name(bank_file, ck.get("split_mode", "sequence"),
+                             ext=stem)
+        if not (config.STREET_CACHE / kf).exists():
+            sys.exit("--bank {} needs the kNN cache built over it ({}) to "
+                     "know which rows that bank holds; the checkpoint's own "
+                     "{} describes a different file."
+                     .format(bank_file, kf, ck.get("knn_file")))
+        print("bank override: rows from {} (not the checkpoint's {})"
+              .format(kf, ck.get("knn_file")), flush=True)
     if kf and (config.STREET_CACHE / kf).exists():
         meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
         if "bank_rows" in meta.files:

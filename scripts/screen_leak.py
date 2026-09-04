@@ -166,7 +166,13 @@ def main():
             merged_by_id[e["id"]] = e
         merged = sorted(merged_by_id.values(), key=lambda d: d["id"])
         safeio.write_text(p, json.dumps(
-            {"screened": int(prev.get("screened", 0)) + n,
+            # Union of ids, not a running sum: the default sample is
+            # seeded, so re-running screens the same images and a sum reports
+            # coverage above the corpus size.
+            {"screened": len(set(prev.get("screened_ids", []))
+                             | set(str(r["id"]) for r in recs[:len(recs)])),
+             "screened_ids": sorted(set(prev.get("screened_ids", []))
+                                    | set(str(r["id"]) for r in recs)),
              "match_km": a.match_km,
              "ids": [d["id"] for d in merged],
              "detail": merged}, indent=1))

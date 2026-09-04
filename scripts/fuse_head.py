@@ -308,7 +308,14 @@ def main():
                      level_of=level_of).to(dev)
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
-    steps = a.epochs * max(1, len(pairs) // a.batch)
+    # Count the batches actually yielded. With --uniq-anchor the loop keeps
+    # at most one row per anchor and drops the remainder, so scheduling from
+    # len(pairs) made OneCycle plan for far more steps than it takes and the
+    # run ended mid-schedule, never reaching the final low-LR phase. This
+    # affected the masked fusion runs.
+    _per_epoch = (len(set(pairs[:, 0].tolist())) // a.batch if a.uniq_anchor
+                  else len(pairs) // a.batch)
+    steps = a.epochs * max(1, _per_epoch)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, a.lr, total_steps=steps,
                                                 pct_start=0.1)
     print("head {:,} params   {:,} steps".format(n_par, steps), flush=True)
