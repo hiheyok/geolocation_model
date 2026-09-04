@@ -1,393 +1,273 @@
-# Live state — updated 2026-09-04
+# Live state — rewritten 2026-09-04 12:10, before a compaction
 
-Read this first. `docs/REVIEW.md` and `docs/REVIEW2.md` hold the two Codex
-reviews with every item marked; `docs/BACKLOG.md` the code and performance
-work; `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings
-are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
-**277 tests pass. Nothing is running. Tile server is up.**
-
----
-
-## 1. What to ship
-
-**`d768-b350-e6-drop70`** — 768-d street vector, 3.40M bank, 6 epochs,
-`--retr-drop 0.7`. Unchanged as the recommendation, but **choose arms on
-KartaView, not on OSV-5M** — see §2.
-
-| arm | OSV-5M `<25 km` | KartaView `<25 km` | KartaView median |
-|---|---|---|---|
-| `d768-b265-e6` | — | 12.1% | 474.8 km |
-| `d768-b350-e6` | 57.3% | 11.6% | 505.6 km |
-| **`d768-b350-e6-drop70`** | **57.5%** | **13.4%** | **435.7 km** |
-| `d768-b350-e6-drop90` | — | 14.0% | 390.0 km |
-| `d768-b350-e6-sub2` | — | 12.5% | 459.7 km |
-| `d1536-b350-e6` | — | **11.2%** | **532.5 km** |
-| `d1536-b350-e6-drop30` | — | 12.3% | 492.0 km |
-| `d1536-b350-e6-drop70` | — | 12.8% | 467.4 km |
-
-OSV-5M figures are **post-leak-fix** (2026-09-04) and only the two arms
-re-measured so far are shown; the rest are stale by ~18 pp and are not
-reproduced here. All KartaView numbers are at shipping parity and are
-unaffected by the leak.
-
-**The OSV-5M column can no longer separate these arms.** Every pairwise
-contrast among the four re-measured arms is inside noise, and the spread across
-all four is 0.2 pp against 0.7 pp before. KartaView still separates them, and
-it always ranked `drop70` first — that ranking was the honest signal all along.
-
-## 2. The results that matter
-
-**The OSV-5M headline was inflated ~18 pp by a leaking retrieval bank.**
-`build_knn` offset the extension's sequence ids into a separate namespace,
-making the two corpora disjoint by construction rather than by fact — they are
-the same OSV-5M shards with the same sequence naming, and 75.5% of test
-sequences also appear in `bank_ext70`. So same-sequence exclusion never crossed
-the boundary and the bank served near-duplicate frames of the query's own drive
-as retrieval neighbours: **41.6% of test queries had a same-drive top-1, at a
-median 0.31 km**. Fixed, cache rebuilt and verified clean (0 same-sequence
-neighbours across all 32 ranks; 3.7M pairs excluded, 7.4 per query; mean top-1
-cosine 0.8261 → 0.7987).
-
-*A correction to my own first report of this:* I first wrote that drop as
-0.9080 → 0.7987, which compared the 768-d bank's new value against the
-**1536-d** bank's old one — two different embedding spaces. The real drops are
-0.8261 → 0.7987 at 768-d and 0.9080 → 0.8948 at 1536-d. That makes the result
-more striking, not less: a 0.027 change in mean top-1 similarity is worth
-18 pp, because only 41.6% of queries had a leaked top-1 and the honest
-replacement is usually still a reasonable match — just not a photograph taken
-seconds away on the same drive.
-
-Re-measured, 5,000 test images, paired:
-
-| arm | `<25 km` before | after | median before | after |
-|---|---|---|---|---|
-| `d768-b350-e6-drop70` | 75.2% | **57.5%** | 2.2 km | **15.4 km** |
-| `d768-b350-e6` | 75.6% | **57.3%** | 1.9 km | **14.7 km** |
-| `wd29-fix-e6` | 74.9% | 57.3% | 2.5 km | 15.1 km |
-| `wd29-legacy-e6` | 75.4% | 57.4% | 2.4 km | 15.0 km |
-
-**Caveat, and it cuts both ways.** These arms were *trained* against the leaky
-cache, so this is a lower bound on what a cleanly-trained arm scores: one that
-learned to lean on near-duplicates may be worse at using honest neighbours. It
-is a *sound* bound on how much of the published number was the leak.
-
-**The benchmark has stopped discriminating.** Every pairwise contrast among the
-four is inside noise; the spread is 0.2 pp against 0.7 pp before. Nearly
-everything OSV-5M appeared to say about these arms was a statement about how
-well each exploited the leak. **Select on KartaView.** It has no same-drive
-frames in the bank, it separates the arms, and it always ranked `drop70` first.
-
-**The model is overwhelmingly a retrieval system.** With the prior removed at
-inference (`bootstrap.py --retr-off`), measured on the leaky cache:
-
-| arm | retrieval on | off | loses |
-|---|---|---|---|
-| `d768-b350-e6` | 75.6% | **2.7%** | −72.9 pp |
-| `drop70` | 75.2% | **10.7%** | −64.5 pp |
-| `drop90` | 69.9% | **19.3%** | −50.6 pp |
-
-Monotone in p, every contrast separated. Dropout buys standalone capability.
-Against the clean cache the *on* column is ~18 pp lower, so the dependency is
-smaller than this table says — but the ordering and the mechanism stand, and
-they were predicted independently by `cond_probe` and `diag_beam`.
-
-**`--retr-drop 0.7`.** The curve at parity on KartaView: 11.6 / 11.1 / 12.1 /
-12.6 / **13.4** / 14.0% for p = 0 … 0.9. 0.7 vs 0.9 on `<25 km` is +0.58 pp
-[−0.24, +1.38], inside noise; what 0.9 costs is `<1 km` and a −5.7 pp
-benchmark regression. p ≥ 0.5 before anything is separable. **This axis was
-measured on KartaView throughout, so the leak does not touch it.**
-
-**Step 0 is the entire tail.** `error_profile` on the shipping arm: 7.9% of
-images first go wrong at step 0 and carry **84.3% of the mean error**; 2.5%
-carry 66.9%. 33.6% first go wrong at step 3 and contribute 0.0 km. Measured on
-the leaky cache; the shape is a property of the search, but the numbers deserve
-re-running.
+Read this first. `docs/REVIEW.md`, `REVIEW2.md` and `REVIEW3.md` hold three
+Codex reviews; `docs/BACKLOG.md` the code and performance work;
+`docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings are in
+the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
+**315 tests pass. `scripts/seqfix2.py` is RUNNING (see §7). Tile server up.**
 
 ---
 
-## 3. Corrections to already-published claims
+## 1. The headline finding: the retrieval bank was leaking
 
-**Every OSV-5M corpus result is now suspect, and one mechanism explains all of
-them.** A bigger bank holds more same-drive frames, so "the corpus pays" and
-"the bank beats the training set" were, in unknown proportion, measurements of
-leakage. The four claims below all have that shape and all need re-measuring
-against the clean cache before they are repeated:
+`build_knn` offset the bank extension's sequence ids into a separate namespace,
+making the release and the extension disjoint **by construction**. They are not
+— the extension is the same OSV-5M shards with the same sequence naming, and
+**75.5% of test sequences also appear in `bank_ext70`**. Same-sequence exclusion
+therefore never crossed the corpus boundary, and the bank served near-duplicate
+frames of the query's own drive as retrieval neighbours.
 
-* corpus still pays at 2M (+6.50 pp, median halved to 3.6 km)
-* the bank is worth ~2.6x the training set on sequence
-* the corpus gain does not transfer externally
-* the benchmark measures bank coverage (442 km external vs 2.7 km OSV-5M)
+* **41.6% of test queries had a same-drive top-1**, at a median **0.31 km**
+* legitimate top-1 sat at a median 28.4 km
 
-The last one is now largely *explained*: the gap was read as density and domain
-shift, and a large part of it was the OSV-5M side being inflated. The external
-side was always clean.
+Fixed in `build_knn` (factorise both corpora together). **All three caches
+rebuilt and verified clean** — 0 same-sequence neighbours across all 32 ranks:
 
+| cache | pairs excluded | per query | top-1 cosine |
+|---|---|---|---|
+| `pca768_bank70` | 3,722,574 | 7.4 | 0.8261 → 0.7987 |
+| `pool_bal_bank70` | 3,722,574 | 7.4 | 0.9080 → 0.8948 |
+| `pca768_bank55` | 2,988,188 | 6.0 | (no comparable prior) |
 
-**The corpus axis.** Reported as −1.32 pp [−2.04, −0.60] separated on
-photographs. At parity it is **−0.46 pp [−1.12, +0.18], inside noise**. The
-median effect survives (+30.8 km, separated) and `<1 km` slightly favours the
-bigger bank. The 2×2 blaming the model rather than the bank **survives**: bank
-effect noise in both cells, model effect separated on the median at both banks.
-And **with dropout the corpus transfers**: b265 → drop70 is +1.34 pp, +3.58 pp
-at 200 km, −39.2 km, all separated.
+The two bank70 counts being identical is the check that matters: same corpus,
+same sequences, so the exclusion must not depend on embedding width.
 
-**Why the caveat was wrong.** It said every arm was measured the same way so
-paired directions would hold. Parity cost p=0 nothing and each dropout arm
-~0.6 pp — the error was **correlated with the treatment**, because neighbour
-count is what `--retr-drop` manipulates. The rule that replaces it: *ask whether
-the error is independent of the treatment first.*
+Old caches kept as `knn_*.LEAKY-preseqfix.npz`, so every published number stays
+reproducible. `scripts/seqleak.py` measures; `--verify` asserts a rebuild is
+clean and exits non-zero if not.
 
-**The pyramid fusion head: retracted, then re-established.** Reported negative
-from a confounded comparison. Retracted after the review, then survived three
-attempts to break it. The head at **initialisation** scores 33.1% against the
-1536-d mean's 33.7%, so the random projection is worth 0.63 pp of the 11.30.
-Training is what destroys it:
+---
 
-| epochs / objective | train loss | `<25 km` |
-|---|---|---|
-| **1 epoch** | — | **32.2%** |
-| 12, 5 km positives | 0.063 | 20.5% |
-| 12, 0.5 km positives | 0.0145 | 12.9% |
+## 2. The corrected benchmark — and a claim of mine to retract
 
-Loss and retrieval move in opposite directions — overfitting, 2.5M parameters
-on 38,009 images. Three explanations were tested and none survives: the random
-projection (0.63 pp), the false negatives (50.3% of off-diagonal cells were
-true positives; fixing them moved 20.9 → 20.5%), and the positive radius (my
-hypothesis, wrong in the opposite direction). **The multi-level mean stands**:
-L0+L1+L2 beats L0 alone by +1.6 pp and 40 km at equal width, with no learned
-head. *Caveat:* REVIEW2 new#6 found the OneCycle schedule was truncated in
-these runs, so the individual numbers were produced under a shortened schedule;
-the epoch curve is robust to that, the point estimates less so.
+**~18 pp of the OSV-5M headline was the leak.** 5,000 paired test images:
 
-**KartaView/OSV leakage, audited.** 0 image-id and 0 sequence-id overlaps.
-Median nearest-OSV distance 231 m; 1.06% of evaluated queries within 10 m.
-Dropping those 53 moves the dropout result from +1.80 to +1.80 pp and the
-corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
+| arm | `<25 km` | median | (was) |
+|---|---|---|---|
+| `d1536-b350-e6-drop30` | **59.1%** | 13.4 km | 76.9% |
+| `d1536-b350-e6-drop70` | 58.3% | 14.6 km | 75.9% |
+| `d1536-b350-e6` | 58.0% | 14.1 km | 76.2% |
+| `d768-b350-e6-drop30` | 57.8% | 14.4 km | — |
+| **`d768-b350-e6-drop70`** (shipping) | 57.5% | 15.4 km | 75.2% |
+| `d768-b350-e6` | 57.3% | 14.7 km | 75.6% |
+| `d768-b265-e6` | 55.0% | 17.8 km | 72.8% |
+| `d768-b350-e6-drop90` | 52.7% | 21.1 km | 69.9% |
+
+**RETRACTION.** I wrote that "the OSV-5M benchmark no longer separates arms."
+That was measured on four arms which are near-identical by construction
+(same bank, same width, similar dropout) and it does not generalise. The full
+eight-arm table spans **52.7% to 59.1%**, and the axes still separate:
+
+* **corpus still pays** — b265 55.0% vs b350 57.3%, +2.3 pp. This survives the
+  fix, which I had flagged as needing re-measurement. It does.
+* **width still pays** — d1536 58.0% vs d768 57.3%
+* **drop90 is clearly bad** — 52.7%, worst of the eight
+
+What is true: among arms differing only slightly, the benchmark cannot separate
+them, and it never could. Best on OSV-5M is `d1536-b350-e6-drop30`; best
+externally is `d768-b350-e6-drop70`. That split is unchanged by the fix.
+
+**Caveat, both directions.** These arms were *trained* against the leaky cache.
+57.5% is a **lower bound** on a cleanly-trained arm — one that learned to lean
+on near-duplicates may be worse at using honest neighbours. It is a **sound**
+bound on how much of the published number was the leak. §7 is measuring the
+difference right now.
+
+**KartaView is unaffected** (no same-drive frames in the bank) and is the
+selection benchmark: drop70 13.4% / 435.7 km, drop90 14.0% / 390.0 km,
+d1536-drop30 12.3% / 492.0 km, d1536 11.2% / 532.5 km.
+
+---
+
+## 3. #29 weight decay: answered, no effect
+
+The rule `"pos" in name` exempted `retr.q_pos.weight` and `retr.k_pos.weight`
+— `nn.Linear` projections, the **learned retrieval keys**, 196,608 params,
+3.7% of the model — from weight decay. Now classified by module type.
+
+Two full ladders at `--seed 0`, one flag apart. **Every contrast inside noise**:
+OSV-5M `<25 km` [−1.08, +0.10] pp; KartaView `<1 km` −0.18 pp, `<25 km`
++0.16 pp, `<200 km` −0.30 pp, median +4.1 km. No re-baseline needed.
+
+Two things the paired design caught:
+* the 2,000-image selection set pointed the **wrong way, monotonically**
+  (+0.15 / +0.30 / +0.55 pp) — it picks checkpoints, it does not measure them
+* **the seed is the larger effect** — both wd29 arms are separated worse than
+  the shipping arm while differing from it only in the seed
+
+`--wd-legacy` restores the old rule. Also corrected: STATE.md had said the
+substring caught "exactly two" tensors; it caught **three** — the third is
+`map.pos.weight`, a real `nn.Embedding` that must stay exempt, so deleting the
+clause would have been a second bug.
 
 ---
 
 ## 4. Reviews
 
-`docs/REVIEW.md` — 86 items: **68 fixed, 8 refuted, 7 deferred, 2 open, 1
-forced a retraction.** The two still open (24, 39) both need a re-baseline
-decision and are in §5.
-`docs/REVIEW2.md` — 22 items: **all 22 fixed.**
+`REVIEW.md` 86 items: **68 fixed, 8 refuted, 7 deferred, 2 open** (24, 39 —
+both need a re-baseline decision, §5).
+`REVIEW2.md` 22 items: **all 22 fixed.**
+`REVIEW3.md` 10 items: **NONE fixed — arrived 2026-09-04, unread until now.**
 
-Round two found that **three of round one's forty were wrong**, two of them
-defects I introduced while fixing something else, and one fixed in the wrong
-file. Chief among them: `split_hash` hashed only each label's first character,
-so train and test were indistinguishable and the bootstrap row-parity guarantee
-was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
+### REVIEW3 — verified, and two of them are my own work from today
 
-**Still open, REVIEW.md:** 24 and 39 only, both awaiting a re-baseline call.
+**#7 `file_stamp` discards the size. CONFIRMED by direct test.**
+`"{:x}{:x}".format(size, mtime_ns)[-12:]` — hex(mtime_ns) is 16 chars, so the
+slice keeps mtime only. Sizes 1, 999,999,999 and 5 GB all produce the identical
+stamp. This weakens the bootstrap error-cache key and the multiquery query-cache
+key **that I added today**. Fix: encode the fields separately.
 
-**The largest thing found closing them was not a review item as written.**
-Item 61 was stated conditionally — "*if* one real drive crosses the corpus
-boundary, same-sequence exclusion fails". It is the normal case, and it
-inflates the OSV-5M benchmark. See §3.
-**Still open, REVIEW2.md:** none.
+**#2 `--seed` does not make sink training reproducible. CONFIRMED.**
+`train.py:438` builds the *train* dataset with the default `neg_random=True`;
+only *val* (line 442) passes `neg_random=False`. My REVIEW2 note said training
+passes it, and the comment I wrote at `train.py:448` repeats that error. Every
+`--neg 4` run draws off-path tiles from OS entropy. **The wd29 conclusion
+survives** — both ladders were equally unseeded here, so it adds noise to a
+result that was already inside noise — but the recorded seed overstates
+reproducibility.
 
-The last eight of round two closed on 2026-09-04, and each was checked by
-reverting its guard and watching its test go red -- the discipline whose
-absence produced three wrong fixes in round one. Five of the eight are the same
-shape: a consumer reading an artifact without asking which of its rows are
-real, or a guard that stopped one file short of the last place it was needed.
-
-**The provenance family closed on 2026-09-04.** #40 with 43, 44, 46, 47, 62,
-63 and 66 were one issue — every artifact addressed by row position with
-nothing proving two describe the same rows — and one design change retired all
-eight: `src/provenance.py`, a digest of the ordered ids in a sidecar beside
-each artifact, with `scripts/backfill_prov.py` for the 38 that already existed.
-Absent warns, mismatched refuses. See the closing section of `docs/REVIEW.md`.
-
-Doing it turned up two things reading would not have. The first resolver
-stamped `pyr47_fuse_p05` as release rows: its `_rows.i64.npy` holds 0..47645,
-a legal index into a 500,000-row release that actually indexes a KartaView
-cache. And **a live regression**: the strong `split_hash` had landed without a
-legacy fallback in `dataset.py`, so every kNN cache on disk was refused and the
-shipping retrieval path could not build at all. All three sites comparing a
-split digest now go through one `splits.hash_matches`.
-
-**#70–73 closed the same day**, and it was the other structural group: a
-stage identified by its name alone, and a log appended to across days. Both
-made a file describe work a different run did — the pair that killed
-`fuse-attn-pyr47` at epoch 11 of 12. `src/runlog.py` holds both conventions.
-Measured rather than argued: 47 of 200 logs had been parsing to zero epochs,
-so those report rows all carried a NaN seconds-per-epoch, and two training
-logs were genuinely spliced across attempts.
+Not yet verified, in the reviewer's severity order:
+* **#1** any non-release-length street cache bypasses row provenance; an
+  extension-only 750k cache would pair every photo with another's embedding
+* **#3** the production PCA basis (`pca768_bank55_pca.npz`) is fitted on the
+  first 500k rows = the whole release, so ~20% is val/test. Same transductive
+  leak fixed in `fuse_head` in round one, still live in the pipeline that built
+  every 768-d arm
+* **#4** `stack_bank` cannot rebuild the documented multi-extension banks
+* **#5** marker identity covers argv only, not inputs/outputs — reopens #70,
+  which I closed today. Dangerous here: a clean kNN build can be replaced under
+  the same name while the stage still reports satisfied
+* **#6** `concat_street`/`pool_street` write no sidecars; `stack_bank` writes
+  `basis="built"` without checking its inputs first
+* **#8** a corrupt JSON marker reads as a trusted legacy success — and
+  `tests/test_runlog.py` asserts that behaviour. Marker writes are non-atomic
+* **#9** `_check_fetched` treats any nonzero mask value as complete
+* **#10** `serve.py` and `occupancy_probe.py` bypass `provenance.bank_ext`
 
 ---
 
-## 5. Needs your decision — do not fix these silently
+## 5. Needs your decision — do not fix silently
 
-Eight items change what a trained arm *is*, so fixing any makes future arms
-incomparable with all 122 checkpoints on file. Each needs a re-baseline.
-**#29 is fixed AND measured — it changes nothing, so no re-baseline is needed
-and the 122 checkpoints stay comparable (§6). #24 joined the list on
-2026-09-04. Seven remain.**
+Seven items change what a trained arm *is*. #29 is closed (§3); #24 joined.
 
-* **#29 weight decay — CLOSED 2026-09-04. Fixed, measured, no effect (§6).**
-  Kept here for the record because the enumeration is what made the fix safe.
-  The rule was
-  `"pos" in name`. Enumerated rather than assumed, and the line above was
-  wrong: it caught **three** ndim-2 tensors, not two. Two are
-  `retr.q_pos.weight` and `retr.k_pos.weight` — `nn.Linear` projections, the
-  **learned retrieval keys**, 196,608 parameters, 3.7% of the model, worth
-  +4.1 pp on record, and the branch `--retr-drop` exists to regularise. The
-  third is `map.pos.weight`, a real `nn.Embedding` that *should* be exempt, so
-  simply deleting the clause would have been a second bug. Now classified by
-  module type: `nn.Embedding` covers `map.pos`, `state.step` and `GeoMem.emb`
-  (retiring the `"geo."` clause), `ndim <= 1` covers the norms, biases and the
-  `retr.w_pos` scalar. One other change: `geo.q_geo`, a dense Linear the geo
-  clause also exempted, now decays — 8,192 parameters, geo arms only.
-  `--wd-legacy` restores the old rule. Both sides were run fresh at one seed;
-  every contrast is inside noise on both benchmarks (§6).
-* **#28 `quality()`** sees the unmasked top-1 similarity even when
-  `--retr-drop` hid that neighbour.
-* **#27 `--save-opt`** writes optimizer state nothing loads; scheduler and RNG
-  are not saved, so a 2+2+2 ladder is three optimizer restarts.
-* **#2 `FuseHead.baseline`** omits a per-encoder renormalisation the printed
-  baseline applies. The head is a residual on exactly that vector, so changing
-  it invalidates today's fusion runs and the 33.1% init score.
-* **#31 sink coefficient** unconstrained (dormant — all checkpoints `sink_k=1`).
-* **#32 memory dropout** lacks inverted-dropout scaling.
-* **#24 multi-photo scoring** — the learned neighbour score is
-  `cos(q_pos(q_emb), k_pos(nbr_emb))` and one query embedding is supplied per
-  group, so candidates a *secondary* photograph retrieved are scored against a
-  photograph that did not retrieve them. Closing it means letting the
-  retrieval prior take a query embedding per neighbour: a shipped model's
-  interface, and it invalidates "several photos help a little" (+1.2 pp).
-  `multiquery.py` prints the caveat whenever a pos/dual arm runs at N>1.
-* **#39 RoPE** gives no relative position. Measured: with identical content at
-  all 256 positions, the attention logit's within-offset spread is 0.845 of its
-  overall spread as built, against 0.000 for the textbook arrangement. Live for
-  108 of 122 checkpoints including the shipping arm.
+* **#24 multi-photo scoring** — one query embedding per group, so candidates a
+  *secondary* photo retrieved are scored against a photo that did not retrieve
+  them. Fixing changes the prior's interface and invalidates "+1.2 pp for a
+  second angle". `multiquery` prints the caveat at N>1.
+* **#39 RoPE** gives no relative position (measured: within-offset spread
+  0.845 of overall, vs 0.000 for the textbook arrangement). Live for 108 of 122
+  checkpoints including the shipping arm.
+* **#28** `quality()` sees the unmasked top-1 even when `--retr-drop` hid it.
+* **#27** `--save-opt` writes optimizer state nothing loads.
+* **#2** `FuseHead.baseline` omits a per-encoder renormalisation.
+* **#31** sink coefficient unconstrained (dormant, all `sink_k=1`).
+* **#32** memory dropout lacks inverted-dropout scaling.
 
 ---
 
-## 6. #29, answered: the fix is right and changes nothing
+## 6. Corrections I made to my own claims today
 
-Ran 2026-09-04, 00:45–03:50. Two full d768/3.50M/p=0.7 ladders (e2 → e4 → e6,
-two epochs a rung with `--init`, exactly how the shipping arm was built), one
-with the corrected weight-decay grouping and one with `--wd-legacy`, **both at
-`--seed 0`**. All nine stages succeeded.
+Recorded because the pattern matters more than any one of them.
 
-**Every contrast is inside noise, on both benchmarks, at every threshold.**
-
-OSV-5M, paired bootstrap, 5,000 test images:
-
-| contrast | median | | `<25 km` | |
-|---|---|---|---|---|
-| fix vs legacy | [−0.0, +0.2] km | inside noise | [−1.08, +0.10] pp | inside noise |
-
-KartaView, paired, 5,000 images:
-
-| | fix | legacy | diff |
-|---|---|---|---|
-| `<1 km` | 1.7% | 1.5% | −0.18 pp [−0.38, +0.02] |
-| `<25 km` | 12.3% | 12.4% | +0.16 pp [−0.40, +0.72] |
-| `<200 km` | 32.4% | 32.1% | −0.30 pp [−1.14, +0.52] |
-| median | 462.0 km | 466.2 km | +4.1 km [−13.0, +20.4] |
-
-The defect was real — the substring exempted the learned retrieval keys, which
-are `nn.Linear` — but correcting it moves nothing. **#29 was the item flagged
-as most likely to have moved a published result. It did not.** No re-baseline
-is needed; the 122 checkpoints stay comparable.
-
-**Two things the paired design caught that the obvious comparison would not.**
-
-The selection set pointed the *wrong way*, monotonically: fix beat legacy by
-+0.15 / +0.30 / +0.55 pp across the three rungs, and fix-e6 read 0.7475 against
-the shipping arm's 0.7355. On the real 5,000-image test set fix-e6 is 74.9% and
-the shipping arm 75.2%. The 2,000-image set picks checkpoints; it does not
-measure them, and here it produced a clean monotone trend out of noise.
-
-And **the seed is the larger effect**: both wd29 arms are separated *worse*
-than the shipping arm on the OSV-5M median ([+0.2, +0.6] and [+0.1, +0.4] km),
-differing from it only in the seed. Everything the naive comparison would have
-credited to the weight-decay rule was the seed — which is exactly the confound
-the two-fresh-ladder design existed to separate.
-
-Artifacts: `runs/BOOTSTRAP_wd29.md`, `runs/wd29_fix.npz`, `runs/wd29_legacy.npz`,
-`scripts/wd29.py`, logs `runs/logs/*wd29*`.
+1. **"the benchmark no longer separates arms"** — retracted, §2. Generalised
+   from four near-identical arms.
+2. **top-1 cosine "0.9080 → 0.7987"** — compared the 768-d bank's new value to
+   the **1536-d** bank's old one. Real drop is 0.8261 → 0.7987 (−0.027). The
+   18 pp result is unaffected; it was measured, not inferred.
+3. **"#29 exempts exactly two tensors"** — it was three (§3).
+4. **"training passes `neg_random=False`"** — that is val, not train (§4 #2).
+5. **the error cache did not depend on the retrieval cache** — the first
+   re-measurement returned in 6 s with pre-rebuild numbers to 4 s.f. Third
+   instance today of one shape: a cache key that names an identifier rather
+   than everything the value depends on.
+6. **`eval_highres` printed "a gap here is domain shift, not overfitting"** —
+   half wrong; much of the gap was the OSV-5M side inflated.
+7. **`bootstrap` labelled every pre-flag checkpoint "by module type"** — a
+   missing field read as falsy, so the table added to prevent misreading
+   mislabelled all 122 arms.
 
 ---
 
-## 7. Best next experiment
+## 7. RUNNING NOW — `scripts/seqfix2.py` (launched 11:53, 5 h deadline)
 
-**An auxiliary coarse street-only head.** Two independent measurements point at
-it: step 0 carries 84.3% of the mean error, and with retrieval off the visual
-branch scores 2.7%. It is Tier 1 in `ARCHITECTURE_NEXT.md`, needs tiles and a
-training run.
+Stages in order. First three are **done**; the ladder is training.
 
-Also promoted there: **capped or mixture retrieval combination**, because
-`cond_probe` showed the prior's contribution outweighs the top-1 margin in 85%
-of rows — it is deciding the answer often enough that how it is combined
-matters. That measurement reversed three conclusions I had drawn from the
-static gates alone, which the same document had flagged as a floor rather than
-the whole story.
+1. ✅ rebuild `pool_bal_bank70` kNN + verify clean
+2. ✅ rebuild `pca768_bank55` kNN + verify clean
+3. ✅ `seqfix2-boot-all` → `runs/BOOTSTRAP_seqfix_all.md` (the §2 table)
+4. ⏳ `train-clean-e2/e4/e6` → **`clean-drop70-e6`**, the shipping ladder
+   retrained against the **clean** cache at `--seed 0`. ~26 min a rung.
+5. ⏳ `seqfix2-boot-clean` → `runs/BOOTSTRAP_cleantrain.md`, comparing
+   `clean-drop70-e6` vs `wd29-fix-e6` vs the shipping arm
+6. ⏳ `seqfix2-hr-clean` → `runs/hr_cleandrop70.npz`, KartaView at 5,000
 
----
+**The point of step 4:** `clean-drop70-e6` differs from `wd29-fix-e6` in
+exactly one thing — whether the bank it trained against leaked. That converts
+§2's lower bound into an estimate of what the system is actually worth.
 
-## 8. Tools written this session
-
-`scripts/parity_report.py` — the whole external table from the exports.
-`scripts/pair_npz.py` — paired bootstrap over two exported error arrays.
-`scripts/rope_probe.py` — is rotary giving relative position (no).
-`scripts/cond_probe.py` — the retrieval prior's real influence on a logit.
-`scripts/fuse_init_probe.py` — the fusion head scored at initialisation.
-`bootstrap.py --retr-off` — corpus dependency measured directly.
-`eval_highres.py --match-bank` — reproduce the bank's embedding pipeline.
-`src/safeio.py` — atomic checkpoint and report writes.
-
-Tests: `test_checkpoint_contract.py`, `test_split_hash_and_cache.py`,
-`test_topk_bounds.py`, `test_import_order.py`, `test_safeio.py`,
-`test_cache_completeness.py`.
+Monitor: `runs/logs/seqfix2_runner.log`. If it died, re-run
+`OSV_RELEASE=s10 python scripts/seqfix2.py 5` — markers make it resume.
 
 ---
 
-## 9. Hardware and environment
+## 8. What to do next
 
-* RTX 3070, 8 GB. Training is **GPU-bound**, 92–96% at 165–176 W. The fusion
-  head runs 97% at 236 W with 6.9/8 GB resident. **Never stack GPU jobs** —
-  measured 2.6× cost.
-* 31.7 GB RAM. Casting a bank to float32 whole is a 10.7 GB allocation; chunk.
+1. **Read the clean-train result** when §7 finishes. If `clean-drop70-e6` beats
+   `wd29-fix-e6`, training against a leaking bank was itself harmful and every
+   arm on record is understated; if it matches, 57.5% is the honest number.
+2. **REVIEW3**, in the reviewer's order. #7 and #2 first — they are mine, from
+   today, and #7 undermines a cache key I added to fix a different bug.
+3. **#3 (transductive PCA)** is the one most likely to move a published number
+   after the leak: every 768-d arm uses a basis fitted partly on val/test.
+4. The auxiliary coarse street-only head (Tier 1 in ARCHITECTURE_NEXT) — step 0
+   carries 84.3% of the mean error and the visual branch alone scores 2.7%.
+
+---
+
+## 9. Tools and tests written this session
+
+`scripts/seqleak.py` (+`--verify`), `seqfix_eval.py`, `seqfix2.py`, `wd29.py`,
+`backfill_prov.py`, `parity_report.py`, `pair_npz.py`, `rope_probe.py`,
+`cond_probe.py`, `fuse_init_probe.py`; `src/provenance.py`, `src/runlog.py`,
+`src/safeio.py`; `bootstrap.py --retr-off`, `train.py --seed/--wd-legacy`,
+`multiquery --calib`.
+
+Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
+`test_merge_candidates.py`, `test_written_row_guards.py`, `test_argparse_help.py`,
+`test_split_hash_and_cache.py`, `test_checkpoint_contract.py`, `test_topk_bounds.py`,
+`test_import_order.py`, `test_safeio.py`, `test_cache_completeness.py`.
+
+---
+
+## 10. Environment
+
+* RTX 3070, 8 GB. Training is GPU-bound, 90–96% at 165–176 W. **Never stack
+  GPU jobs** — 2.6× measured cost. kNN rebuild ~5–7 min; a training rung ~26 min.
 * `python` on PATH is MSYS2's and lacks numpy. Always
   `/c/Users/longd/AppData/Local/Programs/Python/Python313/python.exe`.
-* Tile server `192.168.50.1:3000`. Needed by all training (beam rollout) and
-  all evaluation. Not needed by pyramid/fusion work or any probe above.
-* `OSV_RELEASE` is now **required** — no default. The runner sets it.
+* Tile server `192.168.50.1:3000`. `OSV_RELEASE` is required, no default.
+* `.gitignore` now covers `runs/*.npz`, `runs/errs_prebug/`, `.pytest_cache/`,
+  `.claude/`, safeio `.tmp<pid>` and `.grow.npy` leftovers.
 
 ---
 
-## 10. Rules learned the hard way
+## 11. Rules learned the hard way
 
+* **A cache key must name everything the value depends on**, not everything
+  that looks like an identifier. Three instances today (§6.5).
 * **A fix is not done until it is tested against the failure it prevents.**
-  Round two found three wrong fixes and every one had never been run against
-  its own failure case: the split hash never fed a swapped assignment, the
-  cache resolver never given a retrained checkpoint, the top-k never run at
-  `K == bank size`. Two of those I introduced while fixing something else.
-* **Ask whether a measurement error is independent of the treatment**, not
-  merely whether it was applied uniformly.
-* **A guard that is defined and never called is not a guard.** Happened twice
-  (#65, #17). Nor is one that fails open (#42).
-* **Never type a backslash inside a Bash heredoc** — it arrives as a real
-  newline. Hit six times today despite being written down. Build it as
-  `chr(92)` or write the patch script to a file with the Write tool.
-* **Assert before writing** in patch scripts. Two anchors missed today and
-  neither corrupted a file. But re-running a patch script double-applies —
-  check for duplication after.
-* **Scope every log check to the newest `==== attempt`.** An append-only log
-  matched a `FAIL` from the previous day and killed `fuse-attn-pyr47` at epoch
-  11 of 12.
-* **Do not block on `WaitForExit` in the PowerShell tool**, and expect the Bash
-  tool's background jobs to be reaped. Long runs survive as detached
-  `Start-Process` with output redirected to a file, polled afterwards.
-* **`git checkout <file>` discards uncommitted work.** Lost the `overnight.py`
-  edits that way; commit before sabotage-testing.
-* **Never `git stash`.** It swept a session's uncommitted work out from under
-  a diagnostic on 2026-09-04. Recovered with `stash pop`, but the safe form of
-  "what did this look like before my change?" is `git show <rev>:<path>` to a
-  scratch file, never anything that touches the working tree.
-* The **2,000-image selection set is not evidence**; it picks checkpoints.
+* **Ask whether a measurement error is independent of the treatment.**
+* **Never generalise a null from arms that are near-identical by construction**
+  (§6.1). Pick contrasts that span the axes before concluding a metric is blind.
+* **Never compare two numbers from different embedding spaces** (§6.2).
+* **Never `git stash`** — it swept uncommitted work out from under a diagnostic.
+  Use `git show <rev>:<path>` to a scratch file.
+* **A guard defined and never called is not a guard.** Nor is one that fails open.
+* **Never type a backslash inside a Bash heredoc** — it arrives as a newline.
+  Build it as `chr(92)` or write the patch script with the Write tool.
+* **Scope every log check to the newest `==== attempt`.**
+* **Do not block on `WaitForExit` in the PowerShell tool**; detach with
+  `Start-Process` and poll.
+* The **2,000-image selection set is not evidence**; it picks checkpoints, and
+  it produced a clean monotone trend out of pure noise today (§3).
 * **A wide interval means get more data, not weaken the claim.**
