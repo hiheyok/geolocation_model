@@ -1,10 +1,12 @@
-# Live state — rewritten 2026-09-04 12:10, before a compaction
+# Live state — updated 2026-09-04 13:35
 
 Read this first. `docs/REVIEW.md`, `REVIEW2.md` and `REVIEW3.md` hold three
 Codex reviews; `docs/BACKLOG.md` the code and performance work;
 `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings are in
 the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
-**315 tests pass. `scripts/seqfix2.py` is RUNNING (see §7). Tile server up.**
+**355 tests pass. REVIEW3 is closed (§4). The clean-bank result from
+`seqfix2.py` is VOID and re-running as `seqfix3.py` — read §7 before citing
+anything about a clean-trained arm. Tile server up.**
 
 ---
 
@@ -217,39 +219,79 @@ the first thing to test for.
 
 ---
 
-## 7. RUNNING NOW — `scripts/seqfix2.py` (launched 11:53, 5 h deadline)
+## 7. The clean-bank experiment — first attempt VOID, re-running
 
-Stages in order. First three are **done**; the ladder is training.
+`scripts/seqfix2.py` (11:53) finished stages 1–3 correctly and they stand:
 
-1. ✅ rebuild `pool_bal_bank70` kNN + verify clean
-2. ✅ rebuild `pca768_bank55` kNN + verify clean
-3. ✅ `seqfix2-boot-all` → `runs/BOOTSTRAP_seqfix_all.md` (the §2 table)
-4. ⏳ `train-clean-e2/e4/e6` → **`clean-drop70-e6`**, the shipping ladder
-   retrained against the **clean** cache at `--seed 0`. ~26 min a rung.
-5. ⏳ `seqfix2-boot-clean` → `runs/BOOTSTRAP_cleantrain.md`, comparing
-   `clean-drop70-e6` vs `wd29-fix-e6` vs the shipping arm
-6. ⏳ `seqfix2-hr-clean` → `runs/hr_cleandrop70.npz`, KartaView at 5,000
+1. ✅ rebuild `pool_bal_bank70` kNN + verify — 0 same-sequence over 32 ranks
+2. ✅ rebuild `pca768_bank55` kNN + verify — 0 over 32 ranks
+3. ✅ `seqfix2-boot-all` → `runs/BOOTSTRAP_seqfix_all.md` (the §2 eight-arm table)
 
-**The point of step 4:** `clean-drop70-e6` differs from `wd29-fix-e6` in
-exactly one thing — whether the bank it trained against leaked. That converts
-§2's lower bound into an estimate of what the system is actually worth.
+Stages 4–6 produced `clean-drop70-e2/e4/e6` and
+`runs/BOOTSTRAP_cleantrain.md`, which reads −2.5 to −4.8 pp against both
+reference arms, separated. **Do not cite it.**
 
-Monitor: `runs/logs/seqfix2_runner.log`. If it died, re-run
-`OSV_RELEASE=s10 python scripts/seqfix2.py 5` — markers make it resume.
+### Why it is void — my own edit, mid-ladder
+
+| rung | written | `neg_random` | trained with |
+|---|---|---|---|
+| `clean-drop70-e2` | 12:33:37 | `None` | old code, OS-entropy negatives |
+| `clean-drop70-e4` | 12:47:25 | `False` | **new code, seeded negatives** |
+| `clean-drop70-e6` | 13:28:15 | `False` | new code |
+
+I committed REVIEW3 #2 (seed the sink negatives) to `train.py` at **12:32:53**.
+`train-clean-e4` launched at **12:33:38**. Each stage is a fresh subprocess, so
+the edit landed on rungs 2 and 3 and not on rung 1.
+
+This is not cosmetic. Seeded negatives are a pure function of
+(split, seed, index), so an image sees the **same four off-path tiles every
+epoch** instead of fresh ones — the tradeoff named in `GeoStepDataset.neg_rng`.
+Over e4 and e6 the sink class saw 1.6M distinct negatives repeated four times
+where every reference arm saw 6.4M distinct. That plausibly explains both the
+ladder's decline (54.65% at e2/e4 → 54.10% at e6) and the deficit. So
+`clean-drop70-e6` differs from `wd29-fix-e6` in **two** ways, and the question
+needed one.
+
+### The re-run — `scripts/seqfix3.py`
+
+Passes `--neg-random`, which is what every arm on record used, making the bank
+the only difference again. Trains `clean2-drop70-e2/e4/e6`, then bootstraps
+**all three rungs** against `wd29-fix-e6` and `d768-b350-e6-drop70`, then
+KartaView on e6.
+
+Bootstrapping the whole ladder is deliberate: the first ladder peaked at e2 and
+declined by e6, so reporting only e6 would understate a clean-trained arm even
+with the confound gone — and if that shape survives, it is itself the result,
+since every reference arm is an e6.
+
+    OSV_RELEASE=s10 py scripts/seqfix3.py 4
+
+~81 min of training + ~45 min of evaluation. Markers make it resumable.
+**Wait for `seqfix2-hr-clean` to finish before starting it** — never stack GPU
+jobs (§10). `clean-drop70-*` are kept, not deleted; they are a real measurement
+of a differently-trained arm, just not an answer to this question.
 
 ---
 
 ## 8. What to do next
 
-1. **Read the clean-train result** when §7 finishes. If `clean-drop70-e6` beats
-   `wd29-fix-e6`, training against a leaking bank was itself harmful and every
-   arm on record is understated; if it matches, 57.5% is the honest number.
-2. **REVIEW3**, in the reviewer's order. #7 and #2 first — they are mine, from
-   today, and #7 undermines a cache key I added to fix a different bug.
+1. **Run `scripts/seqfix3.py` and read `runs/BOOTSTRAP_cleantrain2.md`** (§7),
+   once `seqfix2-hr-clean` has released the GPU. If `clean2-drop70-*` beats the
+   references, training against a leaking bank was itself harmful and every arm
+   on record is understated; if it matches, **57.5% is the honest number**;
+   if it loses *with the negative draw held fixed*, a model that learned to
+   lean on near-duplicates really is worse at using honest neighbours, and the
+   whole retrieval prior needs re-tuning against the clean bank.
+2. **Regenerate `runs/FINAL.md`** — it still carries the pre-leak headline and
+   is marked stale in place. Needs every arm re-measured first, not just the
+   eight in §2.
 3. **#3 (transductive PCA)** is the one most likely to move a published number
-   after the leak: every 768-d arm uses a basis fitted partly on val/test.
+   after the leak: every 768-d arm uses a basis fitted partly on val/test. This
+   is a decision, not a task — see §5.
 4. The auxiliary coarse street-only head (Tier 1 in ARCHITECTURE_NEXT) — step 0
    carries 84.3% of the mean error and the visual branch alone scores 2.7%.
+
+REVIEW3 is done (§4) and is no longer on this list.
 
 ---
 
@@ -298,6 +340,14 @@ Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
 * **Never compare two numbers from different embedding spaces** (§6.2).
 * **Never `git stash`** — it swept uncommitted work out from under a diagnostic.
   Use `git show <rev>:<path>` to a scratch file.
+* **Never edit code that a running chain has not finished importing.** Each
+  stage is a fresh subprocess, so an edit lands on every stage that starts
+  after it and none that started before. This voided the clean-bank result:
+  `train.py`'s negative seeding changed at 12:32:53, `train-clean-e4` launched
+  at 12:33:38, and the ladder's three rungs were then not the same arm. Fixing
+  a review item and running an experiment are both fine; doing them in the
+  same hour on the same file is not. Check `runs/logs/*_runner.log` for an
+  in-flight chain before touching `src/`, or stage the edit and commit after.
 * **A guard defined and never called is not a guard.** Nor is one that fails open.
 * **Never type a backslash inside a Bash heredoc** — it arrives as a newline.
   Build it as `chr(92)` or write the patch script with the Write tool.
