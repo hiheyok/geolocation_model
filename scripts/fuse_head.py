@@ -467,8 +467,9 @@ def main():
     # that made crops+tiles work: complementary errors beat either alone.
     combo = np.concatenate([l2(base_un), l2(Z)], axis=1)
 
-    def pca_to(X, d, rng, fit=40000):
-        F = X[rng.choice(len(X), min(fit, len(X)), replace=False)]
+    def pca_to(X, d, rng, fit=40000, fit_rows=None):
+        src = X if fit_rows is None else X[fit_rows]
+        F = src[rng.choice(len(src), min(fit, len(src)), replace=False)]
         mu = F.mean(0, keepdims=True)
         Fc = F - mu
         Om = rng.standard_normal((Fc.shape[1], d + 64)).astype(np.float32)
@@ -479,7 +480,11 @@ def main():
         _, _, Vt = np.linalg.svd(Q.T @ Fc, full_matrices=False)
         return (X - mu) @ Vt[:d].T
 
-    combo_eq = pca_to(combo, base_un.shape[1], np.random.default_rng(0))
+    # Fit on TRAIN rows only. Fitting over every row lets the basis be
+    # chosen with the test queries in hand, which flatters the arm that uses
+    # it -- and that arm was the one reporting the best median.
+    combo_eq = pca_to(combo, base_un.shape[1], np.random.default_rng(0),
+                      fit_rows=tr)
 
     if a.export:
         # Everything above is a retrieval probe: 3,000 queries against a 96k

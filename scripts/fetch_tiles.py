@@ -109,15 +109,30 @@ def main():
             # 12-d cache for a --sub 2 build would keep the old memmap and an
             # all-complete done mask, then report "nothing to do".
             try:
-                w = np.load(TOKENS, mmap_mode="r").shape[-1]
+                shp = np.load(TOKENS, mmap_mode="r").shape
+                w, cells = shp[-1], shp[1]
             except Exception:
-                w = None
+                w, cells = None, None
+            # Cell count as well as width: the memmap header would catch a
+            # mismatch on open, but only by raising somewhere less obvious
+            # than here.
+            if cells not in (None, d):
+                reuse = False
+                print("cache holds {} cells per tile, this build wants {} "
+                      "-- starting fresh".format(cells, d))
             if w != width:
                 reuse = False
                 print("cache is {}-d, this build is {}-d -- starting fresh"
                       .format(w, width))
         if not reuse:
             print("index changed -- starting a fresh cache")
+
+    if not reuse and DONE.exists():
+        # Drop the old mask BEFORE the memmap below truncates the tokens.
+        # Otherwise a crash in between leaves a zeroed token file beside a
+        # mask that still says every row is complete, and the next run
+        # blesses rows that hold nothing.
+        DONE.unlink()
 
     tok = np.lib.format.open_memmap(
         TOKENS, mode="r+" if reuse else "w+",

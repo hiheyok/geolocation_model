@@ -112,7 +112,9 @@ def main():
     if (RUNS / "state.json").exists():
         state = json.loads((RUNS / "state.json").read_text(encoding="utf-8"))
 
-    tags = sorted({p.stem for p in LOGS.glob("s*_*.log")
+    # "s*_*.log" predates the d768-/d1536- naming, so every current arm was
+    # invisible to this report. Take any log with a matching checkpoint.
+    tags = sorted({p.stem for p in LOGS.glob("*.log")
                    if "_eval_" not in p.stem} | {"s01_km"})
     tags = [t for t in tags if (ROOT / "checkpoints" / (t + ".pt")).exists()]
 

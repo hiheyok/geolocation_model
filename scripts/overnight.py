@@ -218,7 +218,11 @@ def run_stage(st, state, deadline):
     if st.satisfied():
         log("skip   {}  (already done)".format(st.name))
         return True
-    if st.needs is not None and not Path(st.needs).exists():
+    # Existence only: a metadata file from an interrupted cache launches
+    # downstream work that then reads zero rows. Size is a weak proxy but it
+    # catches the truncated-to-nothing case, which is the common one.
+    if st.needs is not None and (not Path(st.needs).exists()
+                                 or Path(st.needs).stat().st_size == 0):
         # Retrying a missing input burns the whole retry budget in seconds and
         # buries the real cause -- usually that the stage which builds it was
         # dropped for time.

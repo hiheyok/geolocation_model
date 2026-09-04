@@ -89,11 +89,18 @@ def main():
         check_split(ck, mode, "train")
         neg = dict(n_neg=ck.get("neg", 0), neg_random=False, neg_seed=11)
 
-        # limit is encoded in the tag, e.g. s10_n100k_e10
-        limit = 0
-        for part in tag.split("_"):
-            if part.startswith("n") and part.endswith("k") and part[1:-1].isdigit():
-                limit = int(part[1:-1]) * 1000
+        # The limit used to be encoded in the tag, e.g. s10_n100k_e10.
+        # Current tags look like d768-b350-e6 and carry no such part, so this
+        # silently yielded 0 -- meaning "no limit", i.e. evaluate over every
+        # training row including ones the arm never saw. The checkpoint has
+        # recorded it since 2026-09-03; fall back to the tag only for older
+        # files.
+        limit = int(ck.get("limit") or 0)
+        if not limit:
+            for part in tag.split("_"):
+                if (part.startswith("n") and part.endswith("k")
+                        and part[1:-1].isdigit()):
+                    limit = int(part[1:-1]) * 1000
 
         tr = GeoStepDataset("train", street_file=sf, split_mode=mode, **kn, **neg)
         te = GeoStepDataset("test", street_file=sf, split_mode=mode, **kn, **neg)
