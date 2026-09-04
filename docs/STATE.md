@@ -107,42 +107,50 @@ clause would have been a second bug.
 `REVIEW.md` 86 items: **68 fixed, 8 refuted, 7 deferred, 2 open** (24, 39 —
 both need a re-baseline decision, §5).
 `REVIEW2.md` 22 items: **all 22 fixed.**
-`REVIEW3.md` 10 items: **NONE fixed — arrived 2026-09-04, unread until now.**
+`REVIEW3.md` 10 items: **all 10 fixed**, commit `4fbe408`. Tests 321 → 355.
 
-### REVIEW3 — verified, and two of them are my own work from today
+### REVIEW3 — closed 2026-09-04, two of them defects in my own work that day
 
-**#7 `file_stamp` discards the size. CONFIRMED by direct test.**
-`"{:x}{:x}".format(size, mtime_ns)[-12:]` — hex(mtime_ns) is 16 chars, so the
-slice keeps mtime only. Sizes 1, 999,999,999 and 5 GB all produce the identical
-stamp. This weakens the bootstrap error-cache key and the multiquery query-cache
-key **that I added today**. Fix: encode the fields separately.
+Each was reproduced against the old implementation before being fixed, so the
+new tests are known to fail without the fix. The measured reproductions:
 
-**#2 `--seed` does not make sink training reproducible. CONFIRMED.**
-`train.py:438` builds the *train* dataset with the default `neg_random=True`;
-only *val* (line 442) passes `neg_random=False`. My REVIEW2 note said training
-passes it, and the comment I wrote at `train.py:448` repeats that error. Every
-`--neg 4` run draws off-path tiles from OS entropy. **The wd29 conclusion
-survives** — both ladders were equally unseeded here, so it adds noise to a
-result that was already inside noise — but the recorded seed overstates
-reproducibility.
+| # | the bug, measured | |
+|---|---|---|
+| 7 | `file_stamp` size discarded — 1 byte and 999,999,999 bytes stamp identically at equal mtime | confirmed |
+| 1 | old rule on a 750k extension-only cache | `ACCEPTED UNCHECKED` |
+| 9 | old mask rule calls a `2` fetched | `True` |
+| 8 | old `marker_matches("{not json}")` → `None`, which the caller reads as satisfied | confirmed |
+| 5 | old identity unchanged by a rebuilt bank | `True` |
+| 3 | old PCA fit sample: **39,903 of 200,000 rows (20.0%) were val or test** | confirmed |
 
-Not yet verified, in the reviewer's severity order:
-* **#1** any non-release-length street cache bypasses row provenance; an
-  extension-only 750k cache would pair every photo with another's embedding
-* **#3** the production PCA basis (`pca768_bank55_pca.npz`) is fitted on the
-  first 500k rows = the whole release, so ~20% is val/test. Same transductive
-  leak fixed in `fuse_head` in round one, still live in the pipeline that built
-  every 768-d arm
-* **#4** `stack_bank` cannot rebuild the documented multi-extension banks
-* **#5** marker identity covers argv only, not inputs/outputs — reopens #70,
-  which I closed today. Dangerous here: a clean kNN build can be replaced under
-  the same name while the stage still reports satisfied
-* **#6** `concat_street`/`pool_street` write no sidecars; `stack_bank` writes
-  `basis="built"` without checking its inputs first
-* **#8** a corrupt JSON marker reads as a trusted legacy success — and
-  `tests/test_runlog.py` asserts that behaviour. Marker writes are non-atomic
-* **#9** `_check_fetched` treats any nonzero mask value as complete
-* **#10** `serve.py` and `occupancy_probe.py` bypass `provenance.bank_ext`
+**#7 and #2 were mine, from earlier the same day.** #7 weakened the error-cache
+key I added that morning to fix a *different* staleness bug. #2 contradicts a
+claim I wrote into `REVIEW2.md` **and** into a source comment at `train.py:448`;
+the *train* set took `neg_random=True` and drew off-path tiles from OS entropy,
+so every `--neg 4` run was unseeded. The wd29 conclusion survives — both ladders
+were equally unseeded, so it adds noise to a result already inside noise — but
+the recorded seed overstated what it covered. Checkpoints now record
+`neg_random`, and `bootstrap.py` prints it whenever arms disagree.
+
+**The pattern, which is the useful part:** every one of the ten sits at a
+*seam*. One round fixed a producer, the next fixed a consumer, and the hole was
+in whichever of the two nobody looked at that day — the completion mask is
+validated on write and read back as "nonzero means done"; row provenance is
+checked on the one cache length that happens to be the release's.
+
+**What the fixes deliberately do not do:**
+
+* The `pca768_*_pca.npz` bases on disk are **still the transductive ones** (#3).
+  Refitting changes the coordinate system, so every 768-d arm would need
+  re-measuring against a rebuilt bank before its number could be compared to
+  the others. Script fixed; artifacts not rebuilt. **This is a re-baseline
+  decision — see §5.**
+* Marker input stamps cover the entry script, not its imports (#5). Stamping
+  all of `src/` would invalidate every marker on any edit, which in a research
+  runner means re-running finished work several times a day.
+* `runs/FINAL.md` was regenerated at 00:18, **before** the leak was found, so it
+  carries the inflated headline. Marked stale in place; needs regenerating once
+  every arm is re-measured.
 
 ---
 
@@ -162,6 +170,18 @@ Seven items change what a trained arm *is*. #29 is closed (§3); #24 joined.
 * **#2** `FuseHead.baseline` omits a per-encoder renormalisation.
 * **#31** sink coefficient unconstrained (dormant, all `sink_k=1`).
 * **#32** memory dropout lacks inverted-dropout scaling.
+
+Added by REVIEW3 (§4):
+
+* **REVIEW3 #3 — the PCA bases on disk are transductive.** 20.0% of the
+  200,000-row fit sample was val/test (39,903 rows, measured). The *script* now
+  fits on the training split; the `pca768_*_pca.npz` files are unchanged.
+  Refitting changes the coordinate system, so it is not a drop-in: the bank
+  must be re-projected and **every 768-d arm re-measured** before its number is
+  comparable to anything on record. That is the entire d768 family, which is
+  most of the recent work. PCA is unsupervised so the effect is likely small —
+  but "likely small" is a claim, not a measurement, and the cheap version of
+  the measurement does not exist. Your call whether to spend the rebuild.
 
 ---
 
@@ -185,6 +205,15 @@ Recorded because the pattern matters more than any one of them.
 7. **`bootstrap` labelled every pre-flag checkpoint "by module type"** — a
    missing field read as falsy, so the table added to prevent misreading
    mislabelled all 122 arms.
+8. **`file_stamp` "includes size and mtime"** — it never included the size.
+   The `[-12:]` slice keeps only the low bits of mtime, so the field I relied
+   on that morning to fix a staleness bug was doing half of what its docstring
+   said. Same day, same file, one function apart.
+
+Six of the eight are one shape: **a check that names an identifier rather than
+everything the value depends on** — a tag, a filename, a length, a prefix, a
+substring, a size that gets sliced off. When something here is wrong, that is
+the first thing to test for.
 
 ---
 
@@ -243,8 +272,15 @@ Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
 
 * RTX 3070, 8 GB. Training is GPU-bound, 90–96% at 165–176 W. **Never stack
   GPU jobs** — 2.6× measured cost. kNN rebuild ~5–7 min; a training rung ~26 min.
-* `python` on PATH is MSYS2's and lacks numpy. Always
-  `/c/Users/longd/AppData/Local/Programs/Python/Python313/python.exe`.
+* **Use `py`.** Three names, two interpreters: `py` is the Windows launcher
+  (`C:\Windows\py.exe`) and resolves to Python 3.13 with numpy 2.3.5, torch
+  2.6.0+cu126 and CUDA — the project stack. Both `python` and `python3` are
+  MSYS2's `mingw64` 3.12 and have none of it. `py -m pytest tests/ -q` runs the
+  suite; the hardcoded
+  `/c/Users/longd/AppData/Local/Programs/Python/Python313/python.exe` is the
+  same binary and only needed where a launcher is not wanted. This is what the
+  round-three reviewer hit when they reported the suite could not be run —
+  `py` was there the whole time.
 * Tile server `192.168.50.1:3000`. `OSV_RELEASE` is required, no default.
 * `.gitignore` now covers `runs/*.npz`, `runs/errs_prebug/`, `.pytest_cache/`,
   `.claude/`, safeio `.tmp<pid>` and `.grow.npy` leftovers.

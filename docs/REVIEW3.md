@@ -6,14 +6,48 @@ Several reopen guarantees marked fixed in `REVIEW.md` or `REVIEW2.md`; the
 implementation covers one producer or one consumer, but not the full artifact
 lifecycle.
 
-No source files were changed. All 111 Python files parse successfully. The full
-pytest suite could not be run because the only `python` on `PATH` is the MSYS2
-3.12 interpreter and it has neither pytest nor the project's numeric packages.
-The `file_stamp` collision below was reproduced directly with that interpreter.
+**All 10 are now fixed** (commit `4fbe408`), each confirmed against the old
+implementation first -- `scripts/` was made to reproduce the bug before the
+fix went in, so the regression tests are known to fail without it. Tests
+321 -> 355.
+
+**Markers.** `[x]` fixed and verified.
+
+Two of these were defects in work done earlier the same day, which is the
+useful part of the round: #7 weakened the error-cache key added that morning
+to fix a *different* staleness bug, and #2 contradicts a claim written into
+`REVIEW2.md` and into a source comment. The pattern across all ten is that
+each sits at a seam -- one round fixed a producer, the next fixed a consumer,
+and the hole was in whichever of the two nobody looked at that day.
+
+What the fixes do **not** do:
+
+* The `pca768_*_pca.npz` bases on disk are still the transductive ones (#3).
+  Refitting changes the coordinate system, so every 768-d arm would need
+  re-measuring against a rebuilt bank before its number could be compared to
+  the others. Script fixed; artifacts not rebuilt.
+* Marker input stamps cover the entry script, not its imports (#5). Stamping
+  all of `src/` would invalidate every marker in the queue on any edit, which
+  in a research runner means re-running finished work several times a day --
+  a cure that would simply be turned off.
+* `pool_bal_bank25.f16.npy` had no sidecar and could not be content-matched,
+  because its extension was never saved as a standalone pooled file. Resolved
+  instead by proving its head is byte-identical to the verified `pool_bal` and
+  taking the extension from the same-length sibling; the row space records
+  both, so the inference is legible rather than assumed.
+
+The reviewer's own note, kept for context: *"No source files were changed. All
+111 Python files parse successfully. The full pytest suite could not be run
+because the only `python` on `PATH` is the MSYS2 3.12 interpreter and it has
+neither pytest nor the project's numeric packages. The `file_stamp` collision
+below was reproduced directly with that interpreter."* That interpreter is the
+one this project keeps tripping over; the suite runs under
+`AppData/Local/Programs/Python/Python313/python.exe`, which is what
+`sys.executable` resolves to inside the runner.
 
 ## High severity
 
-### 1. Any non-release-length street cache bypasses row provenance
+### 1. `[x]` Any non-release-length street cache bypasses row provenance
 
 [`GeoStepDataset`](../src/dataset.py#L160) checks the street sidecar only when
 `len(street) == len(dataset.parquet)`. Every other length is accepted. That is
@@ -35,7 +69,7 @@ layout must be rejected. A regression test should pass an extension-only cache
 whose width is valid and assert that construction fails before the first row is
 read.
 
-### 2. `--seed` still does not make sink training reproducible
+### 2. `[x]` `--seed` still does not make sink training reproducible
 
 Training constructs its dataset with the default `neg_random=True` at
 [`train.py:438`](../src/train.py#L438). Each `__getitem__` then creates
@@ -54,7 +88,7 @@ A regression test should construct the same training sample twice under one
 seed and compare `neg_step`, `neg_x0`, `neg_y0`, and `neg_tokens`, including with
 more than one loader worker.
 
-### 3. The production PCA basis is fitted on validation and test embeddings
+### 3. `[x]` The production PCA basis is fitted on validation and test embeddings
 
 [`project_street.py`](../scripts/project_street.py#L94) samples 200,000 rows
 from the first `--fit-from` rows, whose default is 500,000. On the s10 release
@@ -75,7 +109,7 @@ mode/hash should be stored with the basis. A regression test should make held-ou
 rows numerically distinctive and prove that changing them cannot change a
 training-only basis.
 
-### 4. `stack_bank.py` cannot rebuild the documented multi-extension banks
+### 4. `[x]` `stack_bank.py` cannot rebuild the documented multi-extension banks
 
 The documented bank-growth workflow uses an already stacked base, for example
 `--base pool_bal_bank25 --ext bank_ext2_pool --out pool_bal_bank40` in
@@ -93,7 +127,7 @@ but the checked-in tooling cannot reproduce them now.
 A chain test should build `release ++ ext1`, then append `ext2`, and verify both
 the output data and its digest describe `release ++ ext1 ++ ext2`.
 
-### 5. Completion markers remain valid after inputs or outputs change
+### 5. `[x]` Completion markers remain valid after inputs or outputs change
 
 Round one item 70 included changed inputs, changed code, and deleted/corrupt
 outputs. The replacement identity contains only stage name, argv, and release
@@ -118,7 +152,7 @@ an input and delete an output while leaving argv unchanged.
 
 ## Medium severity
 
-### 6. Row-preserving embedding transforms drop or invent provenance
+### 6. `[x]` Row-preserving embedding transforms drop or invent provenance
 
 `concat_street.py` and `pool_street.py` write new positional arrays but never
 import or call `provenance`; fresh outputs have no sidecars at all
@@ -137,7 +171,7 @@ Each transform should verify every input's row digest and only then carry or
 compose those verified digests into the output. Tests should swap two rows in
 one input while leaving its length unchanged.
 
-### 7. `file_stamp()` discards the file size it claims to include
+### 7. `[x]` `file_stamp()` discards the file size it claims to include
 
 [`safeio.file_stamp`](../src/safeio.py#L42) concatenates hexadecimal size and
 mtime, then keeps only the last 12 characters:
@@ -157,7 +191,7 @@ changing the key, contrary to the function's contract and the round-two fix.
 Encode the two fields separately (or hash their structured representation) and
 test equal-mtime/different-size files.
 
-### 8. A corrupt JSON marker is treated as a trusted legacy success
+### 8. `[x]` A corrupt JSON marker is treated as a trusted legacy success
 
 [`marker_matches`](../src/runlog.py#L62) returns `None` for both a genuine old
 plain-text marker and malformed JSON. `Stage.satisfied()` treats every `None`
@@ -171,7 +205,7 @@ Only a syntactically non-JSON legacy format should receive the compatibility
 path; a string beginning like the new JSON format but failing to decode should
 be a mismatch. New-format marker writes should use `safeio.write_text`.
 
-### 9. Training accepts non-binary completion-mask values as complete
+### 9. `[x]` Training accepts non-binary completion-mask values as complete
 
 The producer now validates that `done.u8.npy` contains only zero or one, but the
 training consumer does not. [`_check_fetched`](../src/dataset.py#L108) checks
@@ -184,7 +218,7 @@ The consumer should require shape `(n,)`, dtype/values representing a binary
 mask, and exact agreement with the token array's row count. A regression test
 should put value 2 on a reachable row and require refusal.
 
-### 10. Two extension consumers bypass the release-checking loader
+### 10. `[x]` Two extension consumers bypass the release-checking loader
 
 `provenance.bank_ext()` is the central loader that rejects extension metadata
 from a different release. `serve.py` bypasses it on the normal modern-cache
