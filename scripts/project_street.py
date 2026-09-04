@@ -49,6 +49,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import provenance as prov
+import safeio
 import splits as sp
 from tile_pool import pca_fit
 
@@ -108,6 +109,7 @@ def main():
                   "was fitted in this cache's space".format(a.basis),
                   flush=True)
         print("reusing basis {}".format(a.basis), flush=True)
+        basis_rec = None                # nothing new to publish
     else:
         hi = min(a.fit_from or n, n)
         rng = np.random.default_rng(0)
@@ -143,13 +145,20 @@ def main():
         F = np.asarray(X[pick], dtype=np.float32)
         mu, P = pca_fit(F, a.dim, np.random.default_rng(0), fit_rows=len(pick))
         del F
-        np.savez(str(out).replace(".f16.npy", "") + "_pca.npz", mu=mu, P=P,
-                 src=a.src, dim=a.dim,
-                 fit_split=("all rows" if a.fit_all_rows else a.split_mode),
-                 fit_split_hash=("" if a.fit_all_rows
-                                 else sp.split_hash(a.split_mode, labels)),
-                 encoder=json.dumps(prov.encoder_of(src), sort_keys=True))
-        print("saved basis alongside the output", flush=True)
+        # Held back until the projection it describes has been written and
+        # verified. Saving it here meant a run that stopped after this line
+        # left the OLD projected bank and its old, still-valid sidecar on disk
+        # while the basis path they name held NEW components. Serving and
+        # external evaluation load that path to project fresh queries, so the
+        # queries land in the new space and the bank sits in the old one --
+        # dimensions agree, every similarity is finite, and the row-provenance
+        # check cannot see it because no row changed.
+        basis_rec = dict(
+            mu=mu, P=P, src=a.src, dim=a.dim,
+            fit_split=("all rows" if a.fit_all_rows else a.split_mode),
+            fit_split_hash=("" if a.fit_all_rows
+                            else sp.split_hash(a.split_mode, labels)),
+            encoder=json.dumps(prov.encoder_of(src), sort_keys=True))
 
     Y = np.lib.format.open_memmap(out, mode="w+", dtype=np.float16,
                                   shape=(n, a.dim))
@@ -181,6 +190,30 @@ def main():
         zeros += int((np.abs(blk).sum(1) == 0).sum())
     if zeros:
         raise SystemExit("{:,} all-zero rows".format(zeros))
+    # One generation: the basis is published only now, after the data it
+    # describes is complete and has been checked against it. Written to a
+    # temporary name and re-read before it is published, because the check
+    # above compares against the in-memory mu/P -- which proves this process
+    # was consistent with itself, not that the file anyone else will load
+    # reproduces the projection. That is the claim the comment above makes and
+    # it was not being tested.
+    if basis_rec is not None:
+        final = Path(str(out).replace(".f16.npy", "") + "_pca.npz")
+        tmp = final.with_name(final.name + ".tmp.npz")
+        np.savez(tmp, **basis_rec)
+        z = np.load(tmp, allow_pickle=True)
+        for i in rng.choice(n, 3, replace=False):
+            want = (np.asarray(X[i], dtype=np.float32) - z["mu"][0]) @ z["P"]
+            got = np.asarray(Y[i], dtype=np.float32)
+            if not np.allclose(want, got, atol=3e-2):
+                tmp.unlink()
+                raise SystemExit(
+                    "the saved basis does not reproduce row {} of the output "
+                    "it was fitted for; refusing to publish it".format(i))
+        del z
+        safeio.replace_from(tmp, final)
+        print("saved basis alongside the output, verified by re-reading it",
+              flush=True)
     print("\nwrote {} in {:.0f}s; 5 rows verified, no zero rows".format(
         out.name, time.time() - t0), flush=True)
 

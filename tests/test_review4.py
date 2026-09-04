@@ -93,6 +93,44 @@ def test_a_one_sided_digest_would_have_certified_a_mismatched_join(tmp_path):
     assert prov.rows_digest(a_ids) == ra["rows_digest"]
 
 
+# ------------------ 3 & 17. publish only what has been shown to be whole --
+
+def test_embed_street_publishes_only_after_the_zero_scan():
+    """The sidecar used to be written before the first image was embedded, so
+    an interrupted run left a full-shaped array whose tail was the zero fill
+    AND an authoritative `basis="built"` record beside it. The all-row scan
+    that was supposed to catch that is never reached by the process that dies.
+    """
+    s = _src("embed_street.py")
+    scan = s.index("embedding rows are all zero")
+    publish = s.index("prov.write(out_path")
+    rename = s.index("safeio.replace_from(tmp_path, out_path)")
+    assert scan < rename < publish, "publication must follow verification"
+    assert 'open_memmap(tmp_path, mode="w+"' in s
+
+
+def test_project_street_publishes_the_basis_after_the_data():
+    """A run that stopped after the basis save left the OLD projected bank and
+    its old valid sidecar beside a basis path holding NEW components. Queries
+    then land in the new space and the bank sits in the old one: dimensions
+    agree, similarities are finite, and no row changed so provenance is blind.
+    """
+    s = _src("project_street.py")
+    write_data = s.index('open_memmap(out, mode="w+"')
+    save_basis = s.index('np.savez(tmp, **basis_rec)')
+    assert write_data < save_basis
+
+
+def test_project_street_verifies_the_basis_by_re_reading_it():
+    """The row check compares against the in-memory mu/P, which proves the
+    process was self-consistent, not that the file anyone else loads
+    reproduces the projection -- the claim the comment was already making."""
+    s = _src("project_street.py")
+    assert 'z = np.load(tmp, allow_pickle=True)' in s
+    assert 'z["mu"][0]) @ z["P"]' in s
+    assert "refusing to publish it" in s
+
+
 # ------------------------- 11 & 12. one completion-mask validator, shared --
 
 def test_a_non_binary_mask_is_refused(tmp_path):

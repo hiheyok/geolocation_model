@@ -19,7 +19,8 @@ below. Findings are ordered by impact, not by file.
 
 > **Triage, 2026-09-04 13:45.** Read this before working the list.
 >
-> **5 fixed so far: #4, #5, #11, #12, #20** (`[x]` below). It guards the KartaView benchmark, which is
+> **7 fixed so far: #3, #4, #5, #11, #12, #17, #20** (`[x]` below). All are in
+> files the running chain does not import. It guards the KartaView benchmark, which is
 > the selection benchmark and which `seqfix3` is about to measure against, so
 > it could not wait.
 >
@@ -116,7 +117,7 @@ transfer needs a separate explicit override that is recorded as contamination,
 not the ordinary continuation path. Tests should cover a different split hash,
 a different release, and a same-width/different-projection street cache.
 
-### 3. An interrupted street-embedding pass publishes a trusted partial artifact
+### 3. `[x]` An interrupted street-embedding pass publishes a trusted partial artifact
 
 [`embed_street.py`](../scripts/embed_street.py#L187) creates the full-sized
 memmap, then writes its `basis="built"` provenance sidecar at lines 196-203
@@ -429,7 +430,7 @@ and bounded), token-row count, and binary mask count must agree. Regression
 tests should cover `row=-1`, duplicate keys, duplicate rows, and a permutation
 of otherwise valid rows in both dataset and beam consumers.
 
-### 17. `project_street` can publish a new PCA basis while leaving the old bank certified
+### 17. `[x]` `project_street` can publish a new PCA basis while leaving the old bank certified
 
 When fitting rather than reusing a basis, [`project_street.py:139-154`](../scripts/project_street.py#L139)
 writes `<out>_pca.npz` before it opens and rebuilds `<out>.f16.npy`. If the

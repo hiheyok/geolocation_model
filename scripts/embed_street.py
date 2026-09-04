@@ -33,6 +33,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
 import provenance as prov
+import safeio
 
 EMB = config.STREET_CACHE / "embeddings.f16.npy"
 EMB_IDS = config.STREET_CACHE / "image_ids.i64.npy"
@@ -184,23 +185,22 @@ def main():
     # drops is what the fine zoom steps need.
     n_tok = a.crops * a.patch_grid ** 2 if a.patch_grid else 0
     shape = (n, n_tok, dim) if a.patch_grid else (n, dim * a.crops)
-    emb = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.float16,
+    # Written to a temporary name and published only once every row has been
+    # proved non-zero. The sidecar used to be written here, before the first
+    # image was embedded, so an interrupted run left a full-shaped array whose
+    # tail was the zero fill AND an authoritative-looking `basis="built"`
+    # record beside it. The all-row scan added for item 45 cannot catch that,
+    # because the process that was killed never reaches it -- and a zero row is
+    # a legal-looking embedding, so nothing downstream notices either.
+    # keeps the .npy extension open_memmap expects, and `*.partial.npy` is
+    # visibly not a cache anyone should reach for
+    tmp_path = out_path.with_name(out_path.name[:-len(".npy")] + ".partial.npy")
+    emb = np.lib.format.open_memmap(tmp_path, mode="w+", dtype=np.float16,
                                     shape=shape)
     if a.patch_grid:
         print("patch grid  {}x{} per crop -> {} tokens x {} dims  ({:.1f} GB)"
               .format(a.patch_grid, a.patch_grid, n_tok, dim,
                       n * n_tok * dim * 2 / 1e9), flush=True)
-    # a bank extension is not the release: do not overwrite its id map
-    if not a.parquet:
-        np.save(EMB_IDS, image_ids)
-    # Record the rows this file describes, beside the file. `image_ids.i64.npy`
-    # has existed for a while and nothing ever read it -- and it is a single
-    # global path, so it says nothing about which of the many caches in this
-    # directory it belongs to.
-    prov.write(out_path, image_ids, release=config.RELEASE,
-               row_space=("the release" if not a.parquet
-                          else "the rows of " + Path(a.parquet).name),
-               model=a.model, crops=a.crops, size=a.size)
     if a.crops > 1:
         print("crops      {} horizontal -> embedding dim {}"
               .format(a.crops, dim * a.crops), flush=True)
@@ -276,6 +276,23 @@ def main():
     print("sanity: mean L2 {:.3f}   zero rows in first 512: {}".format(
         float(np.linalg.norm(flat, axis=1).mean()),
         int((np.abs(flat).sum(1) == 0).sum())))
+
+    # Publish only now: the data is complete, so the name and the sidecar can
+    # start meaning something. Windows will not rename a mapped file, so the
+    # memmap is dropped first.
+    del emb, sample, flat
+    safeio.replace_from(tmp_path, out_path)
+    # a bank extension is not the release: do not overwrite its id map
+    if not a.parquet:
+        np.save(EMB_IDS, image_ids)
+    # Record the rows this file describes, beside the file. `image_ids.i64.npy`
+    # has existed for a while and nothing ever read it -- and it is a single
+    # global path, so it says nothing about which of the many caches in this
+    # directory it belongs to.
+    prov.write(out_path, image_ids, release=config.RELEASE,
+               row_space=("the release" if not a.parquet
+                          else "the rows of " + Path(a.parquet).name),
+               model=a.model, crops=a.crops, size=a.size)
 
 
 if __name__ == "__main__":
