@@ -38,14 +38,20 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed. `combo` spans every row and `pca_to` fits on a sample of it, so the `mean + head, PCA to 1536` arm -- the one with the best median -- is fitted transductively on the test queries.
 
+   > **Confirmed.** Confirmed. The export writes `.f16.npy`, `_rows.i64.npy` and `_head.pt` and nothing else -- no PCA mean or basis -- so a new query cannot be placed in the exported coordinate system.
 
-5. **The exported combined representation is incomplete.**
+
+5. `[~]` **The exported combined representation is incomplete.**
    The PCA-transformed vectors are saved, but the corresponding PCA mean and basis are not. New queries cannot be embedded in the exported coordinate system.
 
-6. **Hard-negative scheduling is calculated from the wrong number of batches.**
+   > **Confirmed.** Inspected and consistent with the claim. Does not touch any reported result: the pyr47 runs did not use `--hard`.
+
+6. `[~]` **Hard-negative scheduling is calculated from the wrong number of batches.**
    In `--hard` mode, OneCycle uses the full pair count, while training drops small buckets and bucket remainders. Consequently, the schedule may never approach its final phase. The latest pyr47 run did not use `--hard`, so this did not affect that result.
 
-7. **Fusion ignores pyramid completion masks.**
+   > **Confirmed.** Inspected; the review's own check stands -- `pyr47_done.u8.npy` is complete, so no reported run was affected.
+
+7. `[~]` **Fusion ignores pyramid completion masks.**
    Missing pyramid rows would silently become zero tokens. I checked the actual `pyr47_done.u8.npy`: all 95,292 encoder-row entries are complete, so this bug did not affect the reported pyr47 run.
 
 ## External evaluation and leakage
@@ -109,16 +115,24 @@ deferred. Unmarked items are not yet triaged.
 14. `[~]` **Leak screening does not gate downstream use.**
     `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
 
-15. **Leak-screen failures are counted as successfully screened.**
+   > **Confirmed.** Inspected. Unreadable images are skipped while the denominator stays the manifest size, so the screened fraction is overstated.
+
+15. `[~]` **Leak-screen failures are counted as successfully screened.**
     Unreadable images are skipped, but the denominator remains the complete manifest size.
 
-16. **Partial screening can overwrite a previous blocklist.**
+   > **Confirmed.** Inspected. The blocklist is written, not merged. Compounds 14, where nothing reads it at all.
+
+16. `[~]` **Partial screening can overwrite a previous blocklist.**
     A sampled run replaces rather than merges exclusions.
 
-17. **Resolution-probe decode failures remain in evaluation.**
+   > **Confirmed.** Inspected. Failed decodes keep their row, so a zero embedding is scored as if it were an image.
+
+17. `[~]` **Resolution-probe decode failures remain in evaluation.**
     [res_probe.py:159](/C:/Users/longd/Programming/geolocation_model/scripts/res_probe.py:159) leaves failed images as zero embeddings while retaining their IDs, coordinates and sequence metadata.
 
-18. **Resolution probing can buffer too many decoded images.**
+   > **Confirmed.** Inspected. Unbounded executor mapping; a memory-pressure risk, not a correctness one.
+
+18. `[~]` **Resolution probing can buffer too many decoded images.**
     Unbounded executor mapping can retain many completed image variants simultaneously and cause avoidable memory spikes.
 
 ## Serving and multi-photograph retrieval
@@ -142,10 +156,14 @@ deferred. Unmarked items are not yet triaged.
 
 22. `[~]` **`topk` can exceed the available bank size.**
 
-23. **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
+   > **Confirmed.** Inspected and the mechanism is right: slots are allocated per photograph, then raw similarities from different photographs go into one softmax with no per-image calibration.
+
+23. `[~]` **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
     Candidate slots are allocated equally, but raw similarities from different photographs are pooled into one softmax. Scores are not calibrated across images, so one view can still dominate.
 
-24. **Learned multi-photo modes score secondary candidates with the primary photo.**
+   > **Confirmed.** Inspected. For `pos`/`dual` the primary embedding scores candidates that a secondary photograph retrieved.
+
+24. `[~]` **Learned multi-photo modes score secondary candidates with the primary photo.**
     For `pos` and `dual`, the primary street embedding produces the learned scores for candidates retrieved by every secondary photograph.
 
    > **Confirmed.** Confirmed. `--tag` defaults to `d1536-b350-e6`, which expects 1536 dimensions, while the cached queries are always projected to 768 by the bank55 PCA. The default invocation cannot work.
@@ -153,7 +171,9 @@ deferred. Unmarked items are not yet triaged.
 25. `[~]` **The default multiquery configuration is dimensionally inconsistent.**
     The default tag expects 1536 dimensions, while cached queries are always projected with the bank55 PCA to 768 dimensions.
 
-26. **Multiquery query caches lack provenance.**
+   > **Confirmed.** Confirmed -- the cache validates ids and count only. Same shape as the kNN provenance hole closed in 78/79, in a path that was not covered by that fix.
+
+26. `[~]` **Multiquery query caches lack provenance.**
     They validate IDs/count only—not image root, preprocessing, encoder, PCA basis, scale or release.
 
 ## Core training and model behavior
@@ -186,7 +206,9 @@ deferred. Unmarked items are not yet triaged.
 31. `[~]` **The sink “interpolation” coefficient is unconstrained.**
     [model.py:212](/C:/Users/longd/Programming/geolocation_model/src/model.py:212) allows negative values and values above one, so the operation can extrapolate or invert rather than interpolate.
 
-32. **Memory dropout lacks inverted-dropout scaling.**
+   > **Confirmed.** Inspected. No inverted-dropout scaling, so the magnitude distribution differs between train and eval.
+
+32. `[~]` **Memory dropout lacks inverted-dropout scaling.**
     Its magnitude distribution changes between training and evaluation.
 
    > **Confirmed.** Confirmed in part: `tr = Subset(tr, range(a.overfit))` builds invalid indices when `--overfit` exceeds the (possibly `--limit`-ed) training set.
@@ -213,7 +235,9 @@ deferred. Unmarked items are not yet triaged.
 37. `[-]` **Evaluation ignores checkpoint grid geometry.**
     [evaluate.py:21](/C:/Users/longd/Programming/geolocation_model/src/evaluate.py:21) reconstructs models using current `G` and `STEPS`, not the saved checkpoint values.
 
-38. **Explicit street-file overrides are not checked for provenance or dimensions.**
+   > **Confirmed.** Confirmed. `street_file_for` takes an explicit override ahead of the checkpoint's own record and checks neither provenance nor width.
+
+38. `[~]` **Explicit street-file overrides are not checked for provenance or dimensions.**
 
 39. `[~]` **The RoPE implementation does not provide the claimed relative-position behavior.**
     [encoders.py:159](/C:/Users/longd/Programming/geolocation_model/src/encoders.py:159) rotates token embeddings before LayerNorm and arbitrary Q/K projections. Those operations do not generally commute with RoPE rotations.
@@ -222,7 +246,9 @@ deferred. Unmarked items are not yet triaged.
 
 ## Positional artifact correctness
 
-40. **Dataset artifacts are trusted purely by row position.**
+   > **Confirmed.** Confirmed and it is the root of this whole family. Every cache here is addressed by row position and nothing proves two artifacts describe the same ordered rows. This is what the backlog calls provenance manifests, and it subsumes 43, 44, 46, 47, 63 and 66.
+
+40. `[~]` **Dataset artifacts are trusted purely by row position.**
     [dataset.py](/C:/Users/longd/Programming/geolocation_model/src/dataset.py:141) does not prove that street embeddings, target files, image-ID sidecars and map indices describe the same ordered rows.
 
    > **Confirmed.** Confirmed. `z["idx"][:, :knn_k]` is sliced with no range check, and a negative index would read from the end of the table and return a neighbour that is not the one recorded.
@@ -234,10 +260,14 @@ deferred. Unmarked items are not yet triaged.
 
 42. `[x]` **Beam token loading ignores map completion masks.**
 
-43. **Dataset and target files are published separately.**
+   > **Confirmed.** Confirmed; an instance of 40.
+
+43. `[~]` **Dataset and target files are published separately.**
     An interruption can leave two valid-looking files from different generations.
 
-44. **Generic street embedding can overwrite the canonical cache.**
+   > **Confirmed.** Confirmed. A custom invocation without `--out` writes the release's canonical embedding path.
+
+44. `[~]` **Generic street embedding can overwrite the canonical cache.**
     A custom parquet/model invocation without `--out` writes to the normal release embedding path.
 
    > **Confirmed.** Confirmed. There is no completion mask for street embeddings, and the closing check reads `emb[:512]` -- so an interrupted write is caught only if it stopped inside the first 512 rows.
@@ -245,34 +275,56 @@ deferred. Unmarked items are not yet triaged.
 45. `[~]` **Street embedding has no completion mask.**
     An interrupted full-shaped memmap appears complete. Its final sanity check examines only the first 512 rows.
 
-46. **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
+   > **Confirmed.** Confirmed; an instance of 40.
+
+46. `[~]` **Stacking, concatenation, pooling and projection utilities do not verify row IDs.**
     Same-shaped artifacts from different orders can be combined without error.
 
-47. **Reused PCA bases are validated by shape only.**
+   > **Confirmed.** Confirmed; the same shape as 9.
+
+47. `[~]` **Reused PCA bases are validated by shape only.**
 
 ## Cache construction
 
-48. **Pyramid `--n` extension actually destroys and recomputes the cache.**
+   > **Confirmed.** Inspected. `--n` extension rebuilds rather than extends.
 
-49. **Pyramid progress is recorded only after an entire encoder pass.**
+48. `[~]` **Pyramid `--n` extension actually destroys and recomputes the cache.**
+
+   > **Confirmed.** Confirmed, and it explains something already on the record. `_mark` is called once per encoder pass, after the whole loop, so an interruption mid-pass loses that pass entirely. The project log has 14 pyramid attempts of which one reached 14,000 images and all resumed from zero -- this is why. The tmp+replace in `_mark` made the *file* durable; it did not make progress incremental.
+
+49. `[~]` **Pyramid progress is recorded only after an entire encoder pass.**
     A mid-pass interruption loses all resumable progress from that pass.
 
-50. **Pyramid decode failures are swallowed and the command can exit successfully with incomplete output.**
+   > **Confirmed.** Confirmed. Decode failures are counted and printed but do not change the exit status.
 
-51. **Completion bits can be persisted before embedding data is flushed.**
+50. `[~]` **Pyramid decode failures are swallowed and the command can exit successfully with incomplete output.**
+
+   > **Confirmed.** Confirmed. The token memmap is never `flush()`ed, while the done bits are written durably through tmp+replace -- so a crash can leave rows marked complete whose data never reached disk. The ordering is exactly backwards.
+
+51. `[~]` **Completion bits can be persisted before embedding data is flushed.**
     A crash can leave rows marked complete whose token data was not durable.
 
-52. **Existing pyramid completion arrays are not validated for shape and legal values.**
+   > **Confirmed.** Inspected. An existing done array is loaded without checking shape or that its values are 0/1.
 
-53. **Tile-cache reuse ignores grid geometry.**
+52. `[~]` **Existing pyramid completion arrays are not validated for shape and legal values.**
+
+   > **Confirmed.** Inspected. Reuse is keyed on tile count, not grid geometry.
+
+53. `[~]` **Tile-cache reuse ignores grid geometry.**
     Configurations such as 3×2 and 2×3 with the same tile count can reuse incompatible data.
 
-54. **Tile-cache completion can also be saved before the memmap is flushed.**
+   > **Confirmed.** Confirmed; the same ordering defect as 51, in the tile cache.
 
-55. **Tile-cache consumers are inconsistent.**
+54. `[~]` **Tile-cache completion can also be saved before the memmap is flushed.**
+
+   > **Confirmed.** Confirmed by the fix to 42: pooling and matching consult the completion data and the beam path did not. Now it does.
+
+55. `[~]` **Tile-cache consumers are inconsistent.**
     Pooling and matching consult completion data; OSV token loading in the fusion script does not.
 
-56. **Tile-fetch recreation does not immediately reset the previous completion mask.**
+   > **Confirmed.** Inspected. A crash between truncating and rewriting the mask can bless new zero rows.
+
+56. `[~]` **Tile-fetch recreation does not immediately reset the previous completion mask.**
     A crash between truncating the cache and rewriting the mask can bless new zero rows on restart.
 
    > **Confirmed.** Confirmed exactly: `return (s * np.abs(X) ** p).mean(1)` with no `** (1/p)`. A signed third moment, not a generalised mean.
@@ -280,7 +332,9 @@ deferred. Unmarked items are not yet triaged.
 57. `[~]` **The tile “GeM” implementation is missing the p-th root.**
     It computes a signed p-th moment, not generalized-mean pooling.
 
-58. **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
+   > **Confirmed.** Confirmed exactly: `k = min(K, S.shape[1] - 1)`. One valid neighbour is dropped whenever query and bank are disjoint, and a one-row bank gives k=0.
+
+58. `[~]` **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
     It unnecessarily drops one valid neighbor and breaks on a one-row bank.
 
    > **Confirmed.** Confirmed, and this one has consequences. `best` comes from `set_sim()`, which never receives `same`; the chamfer and maxmax arms it is compared against go through `topk_stats`, which does `S[same] = -2.0`. So the oracle may count same-sequence near-duplicates as hits while its comparison arms cannot, and the headroom is inflated **relative to the methods**. That headroom was the evidence motivating the fusion work -- which then turned out to be actively harmful in every configuration tried. Worth re-measuring before any of it is cited again.
@@ -295,26 +349,44 @@ deferred. Unmarked items are not yet triaged.
 60. `[~]` **Held-region filtering is wrong for cell12/cell16 extensions.**
     [build_knn.py:130](/C:/Users/longd/Programming/geolocation_model/scripts/build_knn.py:130) reads held cells from the dataset’s z8 field and compares them with extension z12/z16 cells.
 
-61. **Sequences are forcibly treated as disjoint across release and extension banks.**
+   > **Confirmed.** Inspected. Release and extension sequences are treated as disjoint by construction, so a drive crossing the boundary would defeat same-sequence exclusion.
+
+61. `[~]` **Sequences are forcibly treated as disjoint across release and extension banks.**
     If one real drive crosses the corpus boundary, same-sequence exclusion fails.
 
-62. **Extension release metadata is ignored.**
+   > **Confirmed.** Inspected; an instance of 40 in the extension metadata.
 
-63. **Embedding validation permits extra rows and does not establish row identity/order.**
+62. `[~]` **Extension release metadata is ignored.**
 
-64. **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
+   > **Confirmed.** Confirmed; an instance of 40.
 
-65. **Extension duplicate image IDs are not rejected.**
+63. `[~]` **Embedding validation permits extra rows and does not establish row identity/order.**
 
-66. **Merged bank metadata checks total length but not whether part order matches embedding-stack order.**
+   > **Confirmed.** Inspected. With fewer than K legal neighbours, placeholder rows can survive into the top-k.
 
-67. **KartaView quotas are consumed before download success is known.**
+64. `[~]` **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
+
+   > **Confirmed.** Inspected. Duplicate extension ids are not rejected.
+
+65. `[~]` **Extension duplicate image IDs are not rejected.**
+
+   > **Confirmed.** Confirmed; an instance of 40 -- total length is checked, part order is not.
+
+66. `[~]` **Merged bank metadata checks total length but not whether part order matches embedding-stack order.**
+
+   > **Confirmed.** Inspected. The per-sequence cap is applied before download, so a failed or undersized fetch still consumes its slot.
+
+67. `[~]` **KartaView quotas are consumed before download success is known.**
     Failed or undersized images suppress later valid candidates.
 
-68. **Mapillary `--save-dir` does not save images.**
+   > **Confirmed.** Confirmed. `--save-dir` only does `save.mkdir(...)`; no image bytes are ever written.
+
+68. `[~]` **Mapillary `--save-dir` does not save images.**
     The directory is created, but the implementation writes only metadata/URLs.
 
-69. **Mapillary harvesting can exceed `--max-images`.**
+   > **Confirmed.** Inspected.
+
+69. `[~]` **Mapillary harvesting can exceed `--max-images`.**
 
 ## Orchestration and reporting
 
@@ -328,21 +400,31 @@ deferred. Unmarked items are not yet triaged.
 71. `[~]` **Retries append to the same log.**
     Calibration and reporting can read stale attempts; the calibration path takes the first regex match. The pyr47 log itself contains multiple appended attempts and duplicate successes.
 
-72. **Report parsing can mix epochs from separate attempts.**
+   > **Confirmed.** Confirmed; an instance of 71, whose append-only log is the shared cause.
 
-73. **The report epoch regex is not multiline-aware.**
+72. `[~]` **Report parsing can mix epochs from separate attempts.**
+
+   > **Confirmed.** Inspected; an instance of 71.
+
+73. `[~]` **The report epoch regex is not multiline-aware.**
     Logs beginning with an attempt header may produce an empty epoch list and `NaN` seconds-per-epoch.
 
    > **Confirmed.** Confirmed. `state["failed"][name]` is written on failure and never cleared, so a stage that later succeeds still reports as failed in the summary.
 
 74. `[~]` **A later successful retry does not clear the stage’s stale failure record.**
 
-75. **Dependency readiness checks only file existence.**
+   > **Confirmed.** Confirmed -- `st.needs` is an existence check only, which is the same hole 51 and 54 create on the producing side.
+
+75. `[~]` **Dependency readiness checks only file existence.**
     A metadata file from an incomplete cache can launch downstream work.
 
-76. **Retry deadlines are checked before, rather than during, the retry loop.**
+   > **Confirmed.** Inspected.
 
-77. **Marathon looks for an obsolete unstamped bootstrap filename.**
+76. `[~]` **Retry deadlines are checked before, rather than during, the retry loop.**
+
+   > **Confirmed.** Confirmed. The stamped bootstrap filenames introduced on 2026-09-03 broke this lookup; marathon still expects the unstamped name.
+
+77. `[~]` **Marathon looks for an obsolete unstamped bootstrap filename.**
     It can fall back to validation data or stale legacy errors instead of the current test bootstrap.
 
 78. `[x]` **Bootstrap cache hits bypass model and split validation.**
@@ -356,23 +438,33 @@ deferred. Unmarked items are not yet triaged.
 
    > **Fixed.** Confirmed. Addressed by pinning the row set rather than storing ids: `main()` now requires every arm to share release, split mode and split hash, which with the seeded sample and equal `n` fixes the rows exactly. Verified both ways -- two `sequence` arms still pair from cache, and a `sequence` arm against a `cell8` arm now refuses instead of returning a tight interval over unrelated images.
 
+   > **Confirmed.** Confirmed. The limit is parsed by scanning tag parts for `n<digits>k`, which no current tag contains -- `d768-b350-e6` yields limit 0, meaning evaluation over all training rows.
 
-80. **The summary table reconstructs training limits from obsolete tag syntax.**
+
+80. `[~]` **The summary table reconstructs training limits from obsolete tag syntax.**
     Current tags can report evaluation over all training rows, including unseen rows.
 
-81. **The report glob omits current `d768`/`d1536`-style runs.**
+   > **Confirmed.** Confirmed; the same obsolete tag syntax as 80.
 
-82. **Digest cannot parse current stamped bootstrap filenames correctly.**
+81. `[~]` **The report glob omits current `d768`/`d1536`-style runs.**
+
+   > **Confirmed.** Confirmed; caused by the stamped filenames added on 2026-09-03, as with 77.
+
+82. `[~]` **Digest cannot parse current stamped bootstrap filenames correctly.**
 
 83. `[-]` **Several runners now fail standalone because they import `config` before setting their declared release.**
     Conversely, another group silently hardcodes `s10`; together these undermine the explicit-release invariant.
 
    > **Partly refuted.** Half confirmed, half refuted. The 16 scripts that hardcode a release are real, and they do undercut the explicit-release invariant. But the scripts that "fail standalone" do not fail for that reason: `after`, `b70`, `half`, `keys`, `more`, `offline`, `tiles2`, `tonight_0902` and `w768b70` take positional arguments and simply reject `--help`. All 72 scripts import cleanly.
 
+   > **Confirmed.** Confirmed; the same transductive PCA fit as item 4.
 
-84. **Width-probe PCA is fitted on train and held-out queries together.**
 
-85. **Map-structure probing splits patches rather than source tiles.**
+84. `[~]` **Width-probe PCA is fitted on train and held-out queries together.**
+
+   > **Partly refuted.** Split confirmed, label claim confirmed but immaterial. The cut is `permutation(n)` over **patches**, not tiles, so patches from one tile appear on both sides and the absolute accuracies are optimistic. The orientation label is indeed the gradient direction while the road runs perpendicular to it -- but the probe is a binary classification of recoverability, and its accuracy is invariant under a consistent relabelling, so this changes nothing it reports. Both representations were measured under identical leakage, so the 74.8% vs 52.7% *comparison* holds even though both numbers are inflated; and the conclusion that rests on it was settled end-to-end by the sub2 arm, which lost on every measure.
+
+85. `[-]` **Map-structure probing splits patches rather than source tiles.**
     Patches from one map tile can occur in both train and test, overstating recoverability. Its orientation label also names the gradient direction as the road direction, although those are perpendicular.
 
    > **Partly refuted.** Confirmed but immaterial. `baselines.py` uses `err_km <= b` while the bootstrap and external evaluators use `< t`. For continuous great-circle distances the disagreement is a measure-zero set, so no reported number can differ. A consistency wart, not a defect.
