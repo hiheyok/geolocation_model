@@ -137,6 +137,17 @@ def check_split(ck, mode, split, allow_dirty=False):
     tbl = pq.read_table(config.DATASET_PARQUET)
     live_lab, live = sp.read(tbl, mode)
     was, want = ck.get("split_mode"), ck.get("split_hash")
+    # A checkpoint written before 2026-09-03 carries the weak digest, which
+    # cannot tell a train/test swap from the real assignment. Recognise it so
+    # 122 existing arms keep loading, but say what it does and does not prove.
+    if want is not None and want != live and was == mode:
+        if want == sp.split_hash_legacy(mode, live_lab):
+            print("note: {} carries the pre-2026-09-03 split digest, which "
+                  "hashed only each label's first character and so cannot "
+                  "distinguish train from test. The split matches as far as "
+                  "that digest can tell.".format(ck.get("tag", "this checkpoint")),
+                  flush=True)
+            want = live
     trained_on = was or sp.PRIMARY
 
     if was is not None and was == mode and want != live:

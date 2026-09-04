@@ -29,9 +29,18 @@ OUT = RUNS / "FINAL.md"
 
 def arm_rows():
     rows = []
-    for p in sorted(ERRS.glob("*_test_5000r_k2_d3.npy")):
-        from bootstrap import tag_of_err_cache
-        tag = tag_of_err_cache(p.name)
+    # One row per arm, not one per file. Legacy and stamped caches coexist for
+    # five tags in this workspace, and globbing every file listed each arm
+    # twice -- with the current checkpoint's metadata attached to whichever
+    # errors happened to be read.
+    from bootstrap import find_err_cache, tag_of_err_cache
+    seen = {}
+    for f in sorted(ERRS.glob("*_test_5000r_k2_d3.npy")):
+        seen.setdefault(tag_of_err_cache(f.name), None)
+    for tag in sorted(seen):
+        p = find_err_cache(tag)
+        if p is None:
+            continue        # no cache matching the checkpoint now on disk
         e = np.load(p)
         meta = {}
         ck = config.CHECKPOINTS / (tag + ".pt")

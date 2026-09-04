@@ -87,12 +87,30 @@ def find_err_cache(tag, split="test", n=5000, beam_k=2, score_steps=3):
     the format is written down once.
     """
     tail = "{}_{}r_k{}_d{}.npy".format(split, n, beam_k, score_steps)
-    # The glob's `*` also matches the empty string, so it already covers the
-    # pre-stamp layout. Appending that path after the sort, as the first
-    # version did, made the oldest file win every time.
-    hits = list(CACHE.glob("{}_*{}".format(tag, tail)))
-    hits = [h for h in hits if tag_of_err_cache(h.name) == tag]
-    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
+    hits = [h for h in CACHE.glob("{}_*{}".format(tag, tail))
+            if tag_of_err_cache(h.name) == tag]
+    if not hits:
+        return None
+
+    # Newest-by-mtime is not good enough: after retraining, the previous
+    # model's cache is still the newest file for this tag until the new one is
+    # computed, so "newest" hands back the old model's errors under the new
+    # model's name. Require the current checkpoint's stamp.
+    ckp = config.CHECKPOINTS / (tag + ".pt")
+    if ckp.exists():
+        want = "{}_{}_{}".format(tag, ckpt_stamp(tag), tail)
+        for h in hits:
+            if h.name == want:
+                return h
+        # An unstamped file is only trustworthy if it postdates the checkpoint
+        # -- the same rule the migration in errors_for applies.
+        legacy = CACHE / "{}_{}".format(tag, tail)
+        if legacy.exists() and legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
+            return legacy
+        return None
+    # No checkpoint on disk (a deleted arm): nothing to match against, so the
+    # newest is the best available answer.
+    return max(hits, key=lambda h: h.stat().st_mtime)
 
 
 def errors_for(tag, split, n, beam_k, score_steps, dev, source,
