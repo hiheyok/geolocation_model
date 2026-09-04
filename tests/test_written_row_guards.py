@@ -92,3 +92,39 @@ def test_the_chunked_scan_counts_what_the_whole_array_scan_counted():
 def test_the_chunked_scan_holds_on_an_empty_selection():
     X = np.ones((4, 33, 2, 8), np.float16)
     assert scan_chunked(X, np.zeros(0, np.int64), 0, 20000) == 0
+
+
+# --- per-encoder masks -----------------------------------------------------
+#
+# The pyramid cache writes one column per encoder, so a row is real only when
+# every encoder wrote it.  Checking column 0 alone passes an image that decoded
+# for dinov2 and failed for siglip, leaving half its tokens zero behind a
+# "done" flag.  The live pyr47 mask is (47,646, 2) and complete, so this had to
+# be constructed too.
+
+def test_a_two_column_mask_needs_every_encoder(tmp_path):
+    p = tmp_path / "pyr_done.u8.npy"
+    d = np.ones((16, 2), np.uint8)
+    np.save(p, d)
+    require_written(p, 16, "pyr")          # complete: fine
+
+    d[9, 1] = 0                            # decoded for one encoder only
+    np.save(p, d)
+    with pytest.raises(SystemExit, match="never written"):
+        require_written(p, 16, "pyr")
+
+
+def test_a_two_column_mask_of_the_wrong_length_is_refused(tmp_path):
+    p = tmp_path / "pyr_done.u8.npy"
+    np.save(p, np.ones((12, 2), np.uint8))
+    with pytest.raises(SystemExit, match="different builds"):
+        require_written(p, 16, "pyr")
+
+
+def test_both_mask_shapes_are_accepted(tmp_path):
+    """tile6 writes (n,), the pyramid writes (n, 2); one helper serves both."""
+    a, b = tmp_path / "a.npy", tmp_path / "b.npy"
+    np.save(a, np.ones(8, np.uint8))
+    np.save(b, np.ones((8, 2), np.uint8))
+    require_written(a, 8, "flat")
+    require_written(b, 8, "per-encoder")

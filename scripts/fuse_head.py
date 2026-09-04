@@ -187,11 +187,16 @@ def require_written(donep, n, stem):
               .format(donep.name, stem), flush=True)
         return
     d = np.load(donep)
-    if d.shape != (n,):
+    # (n,) for a single-encoder cache, (n, k) for one column per encoder --
+    # the pyramid writes the latter, and a row is real only when every
+    # encoder wrote it. Checking column 0 alone would pass an image that
+    # decoded for dinov2 and failed for siglip.
+    if d.shape[0] != n or d.ndim > 2:
         raise SystemExit(
             "{} is {} but {}.f16.npy holds {:,} rows; they describe "
             "different builds".format(donep.name, d.shape, stem, n))
-    bad = int((d == 0).sum())
+    bad = int((~(d.astype(bool).all(-1) if d.ndim == 2 else d.astype(bool)))
+              .sum())
     if bad:
         raise SystemExit(
             "{:,} of {:,} {} rows were never written (zero fill). Finish "
@@ -289,9 +294,13 @@ def main():
                       for x in seq.tolist()])
         tr = np.flatnonzero(h < 8)
         te = np.flatnonzero(h >= 8)
-        X = np.asarray(np.load(config.STREET_CACHE
-                               / (a.pyr_stem + ".f16.npy"),
-                               mmap_mode="r"), np.float32)
+        _pyr = config.STREET_CACHE / (a.pyr_stem + ".f16.npy")
+        # The same check the tile6 branch gets. pyr47_done.u8.npy happens to be
+        # complete, so no reported run was affected -- which is luck, not a
+        # guarantee, and an unwritten row here is the same unit-length nothing.
+        require_written(config.STREET_CACHE / (a.pyr_stem + "_done.u8.npy"),
+                        len(np.load(_pyr, mmap_mode="r")), a.pyr_stem)
+        X = np.asarray(np.load(_pyr, mmap_mode="r"), np.float32)
         X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
         X = X.astype(np.float16)
         print("{:,} pyramid rows: {:,} train, {:,} test   levels {}"
@@ -401,6 +410,18 @@ def main():
                   sum(len(b) for b in buckets), len(pairs)), flush=True)
         if not buckets:
             sys.exit("no bucket holds a full batch; lower --batch or --bucket-z")
+        # Re-plan the schedule. --hard drops every bucket below one batch and
+        # then drops each bucket's remainder, so the run takes far fewer steps
+        # than `steps` assumed and OneCycle never reaches its final low-LR
+        # phase. Same defect as the --uniq-anchor one, in the other branch.
+        _hard_per_epoch = sum(len(b) // a.batch for b in buckets)
+        _want = a.epochs * max(1, _hard_per_epoch)
+        if _want != steps:
+            print("  schedule {:,} -> {:,} steps (hard negatives drop small "
+                  "buckets and remainders)".format(steps, _want), flush=True)
+            steps = _want
+            sched = torch.optim.lr_scheduler.OneCycleLR(
+                opt, a.lr, total_steps=steps, pct_start=0.15)
 
     def batches():
         if not a.hard:

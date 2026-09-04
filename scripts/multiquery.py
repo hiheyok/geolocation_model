@@ -310,11 +310,8 @@ def main():
         # OWN bank file. Applying them to a different one filters it by
         # unrelated positions -- in range, so silent. eval_highres already
         # resolves the cache built over the bank in use; do the same here.
-        stem = "bank_ext"
-        for tag_n in ("70", "55", "40"):
-            if "bank" + tag_n in bank_file:
-                stem = "bank_ext" + tag_n
-                break
+        stem, _how = prov.ext_for_bank(config.STREET_CACHE / bank_file,
+                                       bank_file)
         kf = config.knn_name(bank_file, ck.get("split_mode", "sequence"),
                              ext=stem)
         if not (config.STREET_CACHE / kf).exists():
@@ -374,12 +371,10 @@ def main():
     # part-order contract, which is silent when broken: a wrong order still
     # concatenates to the right length and every address is then attached to
     # the wrong bank row.
-    stem = "bank_ext"
-    for n in ("70", "55", "40"):
-        if "bank" + n in bank_file:
-            stem = "bank_ext" + n
-            break
-    m = np.load(config.bank_meta(stem), allow_pickle=True)
+    stem, how = prov.ext_for_bank(config.STREET_CACHE / bank_file, bank_file)
+    print("bank {}   addresses {}  ({})".format(bank_file, stem, how),
+          flush=True)
+    m = prov.bank_ext(stem, config.RELEASE)
     bx = np.concatenate([bx, m["x16"].astype(bx.dtype)])
     by = np.concatenate([by, m["y16"].astype(by.dtype)])
     assert len(bx) == bank.shape[0], (stem, len(bx), bank.shape[0])

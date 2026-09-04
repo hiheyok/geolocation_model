@@ -146,7 +146,31 @@ def main():
     donep = config.STREET_CACHE / (a.out + "_done.u8.npy")
     config.STREET_CACHE.mkdir(parents=True, exist_ok=True)
     shape = (n, ntok, 2, D_ENC)
-    if out.exists() and np.load(out, mmap_mode="r").shape == shape:
+    have = np.load(out, mmap_mode="r").shape if out.exists() else None
+    if have and have[1:] == shape[1:] and have[0] < n and donep.exists():
+        # `order` is a permutation prefix precisely so that raising --n extends
+        # the same cache. It did not: the resume branch demanded an exact shape
+        # match, so a larger --n fell through to `w+` and destroyed every row
+        # already computed -- the one case the prefix trick exists to serve.
+        old = np.load(out, mmap_mode="r")
+        k = len(old)
+        print("extending {:,} -> {:,} rows (keeping the cached prefix)"
+              .format(k, n), flush=True)
+        tmp = out.with_suffix(".grow.npy")
+        Y = np.lib.format.open_memmap(tmp, mode="w+", dtype=np.float16,
+                                      shape=shape)
+        for s in range(0, k, 2000):
+            Y[s:min(s + 2000, k)] = old[s:min(s + 2000, k)]
+        Y.flush()
+        del old, Y
+        os.replace(tmp, out)
+        prev = _load_done(donep, k)
+        done = np.zeros((n, 2), np.uint8)
+        done[:k] = prev
+        np.save(donep, done)
+        X = np.load(out, mmap_mode="r+")
+        print("resuming: {:,}/{:,} complete".format(int(done.all(1).sum()), n))
+    elif have == shape:
         X = np.load(out, mmap_mode="r+")
         done = _load_done(donep, n)
         print("resuming: {:,}/{:,} complete  (dinov2 {:,}, siglip {:,})".format(
@@ -248,6 +272,13 @@ def main():
                     X[k, :, ei, :] = z[j].astype(np.float16)
                 buf_v.clear()
                 buf_k.clear()
+                # Record here, not after the pass. `_mark`'s own docstring says
+                # "saving per flush makes an interruption cost one batch
+                # instead of the whole run", and the call site did not do that
+                # -- it ran once, after the loop. The project log has fourteen
+                # pyramid attempts and one reached 14,000 images; every restart
+                # resumed from zero because nothing had been written yet.
+                _mark(done, loaded, ei, donep, X)
 
             for k, views in decoded(todo.tolist(), 2 * a.workers):
                 if views is None:

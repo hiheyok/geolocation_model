@@ -117,7 +117,9 @@ def main():
     Y.flush()
     # One output row per input row, in order, so the output describes exactly
     # the rows the input did.
-    prov.carry(src, out, n, projection=a.basis or "fitted here", dim=a.dim)
+    prov.carry(src, out, n, dim=a.dim,
+               projection=a.basis or (out.name.replace(".f16.npy", "")
+                                      + "_pca.npz"))
 
     # the projection must be reproducible from the saved basis, not just from
     # this process; recompute a handful of rows the long way round

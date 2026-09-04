@@ -226,3 +226,47 @@ def test_the_encoder_is_readable_from_a_sidecar(tmp_path):
 
 def test_an_unstamped_cache_reports_no_encoder_rather_than_a_wrong_one(tmp_path):
     assert prov.encoder_of(tmp_path / "absent.f16.npy") == {}
+
+
+# --- identity by record, not by filename -----------------------------------
+#
+# Three call sites each carried their own copy of a filename scan for "70",
+# "55" and "40" -- and one of those copies was written on 2026-09-03 while
+# fixing a different bug, which is how a workaround becomes a third instance of
+# the problem it works around.  Renaming a bank made every copy select another
+# extension's metadata while every dimensional check still passed, because the
+# check compares the bank against whichever metadata the scan picked.
+
+def test_the_extension_comes_from_the_record_when_there_is_one(tmp_path):
+    p = tmp_path / "pca768_bank70.f16.npy"
+    prov.write(p, np.arange(4), row_space="release ++ bank_ext70_meta.npz")
+    assert prov.ext_of(p) == "bank_ext70"
+    assert prov.ext_for_bank(p, p.name) == ("bank_ext70", "recorded")
+
+
+def test_a_renamed_bank_still_resolves_from_its_record(tmp_path):
+    """The failure the scan produced: the name no longer says "70", and the
+    scan silently answered bank_ext -- an extension of a different length,
+    against which every dimensional check still passed."""
+    p = tmp_path / "corpus_A.f16.npy"
+    prov.write(p, np.arange(4), row_space="release ++ bank_ext70_meta.npz")
+    assert prov.ext_for_bank(p, p.name)[0] == "bank_ext70"
+
+
+def test_an_unstamped_bank_falls_back_to_the_scan_and_says_so(tmp_path):
+    p = tmp_path / "pca768_bank55.f16.npy"
+    stem, how = prov.ext_for_bank(p, p.name)
+    assert stem == "bank_ext55"
+    assert "guessed" in how
+
+
+def test_an_unstamped_and_unnamed_bank_gets_the_base_extension(tmp_path):
+    p = tmp_path / "dual_c3_bank25.f16.npy"
+    assert prov.ext_for_bank(p, p.name)[0] == "bank_ext"
+
+
+def test_the_projection_is_read_from_the_record(tmp_path):
+    p = tmp_path / "b.f16.npy"
+    assert prov.projection_of(p) is None
+    prov.write(p, np.arange(4), projection="pca768_bank55_pca.npz")
+    assert prov.projection_of(p) == "pca768_bank55_pca.npz"

@@ -48,6 +48,7 @@ if not os.environ.get("OSV_RELEASE"):
           "s10-only)", flush=True)
 
 import config
+import provenance as prov
 import names
 import tile_math as tm
 from dataset import street_table
@@ -161,7 +162,13 @@ def main():
     ap.add_argument("--beam", type=int, default=2)
     ap.add_argument("--score-steps", type=int, default=3)
     ap.add_argument("--scale-b", type=float, default=4.03)
-    ap.add_argument("--basis", default="pca768_bank55_pca.npz",
+    ap.add_argument("--basis", default="",
+                    help="PCA basis; empty means read it from the bank's "
+                         "provenance sidecar, which is where it belongs. "
+                         "The old default was pca768_bank55_pca.npz whatever "
+                         "bank was loaded, checked on output width alone.")
+    ap.add_argument("--basis-legacy-default", dest="basis_fallback",
+                    default="pca768_bank55_pca.npz",
                     help="PCA basis, used only when the bank is narrower than "
                          "the pooled vector")
     ap.add_argument("--seed", type=int, default=0)
@@ -195,12 +202,13 @@ def main():
     # silently evaluated d768-b350-e6 against the 2.75M bank it had never seen
     # and reported the number as that arm's external score.
     bank_file = a.bank or ck.get("street_file")
-    meta_stem = "bank_ext"
-    for n in ("70", "55", "40"):
-        if "bank" + n in bank_file:
-            meta_stem = "bank_ext" + n
-            break
-    print("bank {}   addresses {}".format(bank_file, meta_stem), flush=True)
+    # The record first, the filename only as a fallback. Scanning the name for
+    # "70"/"55"/"40" picked another extension's metadata the moment a bank was
+    # renamed, and every dimensional check still passed.
+    meta_stem, how = prov.ext_for_bank(config.STREET_CACHE / bank_file,
+                                       bank_file)
+    print("bank {}   addresses {}  ({})".format(bank_file, meta_stem, how),
+          flush=True)
 
     E = embed(paths, dev, match_bank=a.match_bank)
     # equal-norm join, mean-pool over crops, then the SAVED PCA basis -- but
@@ -216,7 +224,17 @@ def main():
         print("query vectors {}  pooled, no projection (bank is {}-d)"
               .format(q.shape, bank_dim), flush=True)
     else:
-        z = np.load(config.STREET_CACHE / a.basis)
+        basis = a.basis or prov.projection_of(
+            config.STREET_CACHE / bank_file)
+        if not basis:
+            basis = a.basis_fallback
+            print("warning: {} does not record the PCA basis it was "
+                  "projected with, so {} is assumed. Output width was the "
+                  "only thing ever checked, and several bases here share a "
+                  "width. Re-run scripts/project_street.py to record it."
+                  .format(bank_file, basis), flush=True)
+        print("basis      {}".format(basis), flush=True)
+        z = np.load(config.STREET_CACHE / basis)
         q = ((pooled - z["mu"]) @ z["P"]).astype(np.float16)
         if q.shape[1] != bank_dim:
             sys.exit("projected to {}-d but the bank is {}-d"
@@ -293,7 +311,7 @@ def main():
     ds = pq.read_table(config.DATASET_PARQUET, columns=["lat", "lon"])
     bx, by = tile_for_vec(np.asarray(ds["lat"], np.float64),
                           np.asarray(ds["lon"], np.float64), 4 * tm.STEPS)
-    m = np.load(config.bank_meta(meta_stem), allow_pickle=True)
+    m = prov.bank_ext(meta_stem, config.RELEASE)
     bx = np.concatenate([bx, m["x16"].astype(bx.dtype)])
     by = np.concatenate([by, m["y16"].astype(by.dtype)])
     assert len(bx) == bank.shape[0], (meta_stem, len(bx), bank.shape[0])

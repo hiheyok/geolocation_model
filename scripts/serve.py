@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 import tiles as T
@@ -118,10 +119,27 @@ def load_everything(tag, dev, bank_gpu):
                  street=torch.from_numpy(np.asarray(emb)) if not bank_gpu else None,
                  k=ck.get("retr_k", 16))
     # sf is the checkpoint's own street file, resolved above
-    STATE["enc_scale"] = [1.0, 4.03 if "bal" in sf or "pca768" in sf else 1.0]
+    # Both of these were decided by substrings in the filename: the SigLIP
+    # scale by `"bal" in sf or "pca768" in sf`, and the basis by a hardcoded
+    # name whatever produced the bank. Serving is the one place a wrong answer
+    # reaches a user rather than a report, so it prefers the record and says
+    # which it used.
+    _bank = config.STREET_CACHE / sf
+    _enc = prov.encoder_of(_bank)
+    STATE["enc_scale"] = [1.0, float(_enc["siglip_scale"])
+                          if "siglip_scale" in _enc
+                          else (4.03 if "bal" in sf or "pca768" in sf else 1.0)]
     STATE["pca"] = None
     if STATE["bank"].shape[1] == 768:
-        z = np.load(config.STREET_CACHE / "pca768_bank55_pca.npz")
+        basis = prov.projection_of(_bank)
+        if not basis:
+            basis = "pca768_bank55_pca.npz"
+            print("warning: {} does not record its PCA basis, so {} is "
+                  "assumed. Width was the only thing ever checked, and "
+                  "several bases here share one.".format(sf, basis),
+                  flush=True)
+        print("basis      {}".format(basis), flush=True)
+        z = np.load(config.STREET_CACHE / basis)
         STATE["pca"] = (torch.from_numpy(z["mu"]).to(STATE["dev"]),
                         torch.from_numpy(z["P"]).to(STATE["dev"]))
     print("query     {}-d, siglip x{:.2f}{}".format(

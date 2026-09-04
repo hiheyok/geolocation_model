@@ -33,6 +33,7 @@ consistent and collectively wrong.
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -155,6 +156,49 @@ def carry(src, dst, n, **extra):
     d.update(out)
     safeio.write_text(sidecar(dst), json.dumps(d, indent=1, sort_keys=True))
     return d
+
+
+def ext_of(path):
+    """Which bank extension a stacked artifact records, or None.
+
+    The consumers used to recover this by scanning the *filename* for "70",
+    "55" or "40" (items 10 and 9). Renaming a bank then selected another
+    extension's metadata while every dimensional check still passed, because
+    the extensions differ in length but the check only compared the bank
+    against whichever metadata the scan happened to pick. The sidecar records
+    it instead, so the answer comes from what was built rather than from what
+    it was called.
+    """
+    rec = read(path) or {}
+    m = re.search(r"(bank_ext\w*)_meta\.npz", str(rec.get("row_space", "")))
+    return m.group(1) if m else None
+
+
+def ext_for_bank(path, name):
+    """The extension stacked under a bank: recorded if possible, else guessed.
+
+    Three call sites carried their own copy of a filename scan for "70", "55"
+    and "40" -- and one of those copies was written on 2026-09-03 to fix a
+    different bug, which is how a workaround becomes a third instance of the
+    problem it was working around. Renaming a bank made every copy pick the
+    wrong extension while every dimensional check still passed.
+
+    Returns (stem, how) so the caller can say which answer it got.
+    """
+    got = ext_of(path)
+    if got:
+        return got, "recorded"
+    stem = "bank_ext"
+    for tag in ("70", "55", "40"):
+        if "bank" + tag in name:
+            stem = "bank_ext" + tag
+            break
+    return stem, "guessed from the filename; run scripts/backfill_prov.py"
+
+
+def projection_of(path):
+    """The PCA basis an artifact was projected with, or None if unrecorded."""
+    return (read(path) or {}).get("projection") or None
 
 
 def encoder_of(path):
