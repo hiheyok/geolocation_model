@@ -257,7 +257,18 @@ class GeoStepDataset(Dataset):
                     "knn cache has {} neighbours per query, {} were asked for. "
                     "Slicing would silently train on fewer neighbours than the "
                     "run records.".format(have, knn_k))
-            self.knn_idx = z["idx"][:, :knn_k]
+            idx_all = z["idx"][:, :knn_k]
+            # A negative index reads from the end of the address tables and
+            # returns a neighbour that is not the one recorded -- silently,
+            # because the result is a perfectly ordinary row.
+            lo, hi = int(idx_all.min()), int(idx_all.max())
+            if lo < 0 or hi >= len(self.all_x16):
+                raise SystemExit(
+                    "knn cache holds neighbour indices in [{}, {}] but the "
+                    "address tables have {:,} rows; a negative index would "
+                    "read from the end and a large one is out of range."
+                    .format(lo, hi, len(self.all_x16)))
+            self.knn_idx = idx_all
             self.knn_sim = z["sim"][:, :knn_k].astype(np.float32)
 
         self.uv = np.stack([u[keep][:, steps], v[keep][:, steps]], 1)

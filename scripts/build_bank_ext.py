@@ -36,6 +36,19 @@ def shard_ids(zip_path):
         return [int(Path(n).stem) for n in z.namelist() if n.endswith(".jpg")]
 
 
+def _reject_duplicate_ids(ids):
+    """Two rows claiming one image id make the address tables ambiguous."""
+    import numpy as _np
+    u, c = _np.unique(ids, return_counts=True)
+    dup = u[c > 1]
+    if len(dup):
+        raise SystemExit(
+            "{:,} image ids appear more than once in this extension (e.g. "
+            "{}); a bank row is addressed by position and two rows claiming "
+            "one id make the mapping ambiguous."
+            .format(len(dup), ", ".join(map(str, dup[:5]))))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--shards", default=",".join("{:02d}".format(i)
@@ -96,6 +109,7 @@ def main():
         x16[i] = x
         y16[i] = y
 
+    _reject_duplicate_ids(image_id)
     out_pq = config.PROCESSED / (a.out + ".parquet")
     pq.write_table(pa.table({
         "image_id": pa.array(image_id, pa.int64()),

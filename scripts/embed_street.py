@@ -230,6 +230,20 @@ def main():
     el = time.time() - t0
     print("\nembedded {:,} in {:.1f} min ({:.0f} img/s)".format(n, el / 60, n / el))
     print("wrote {}  {:.0f} MB".format(out_path.name, emb.nbytes / 1e6))
+    # The first 512 rows only prove the run started. An interruption
+    # anywhere later leaves a full-shaped memmap whose tail is the zero fill,
+    # which is exactly what this check exists to catch, so it has to look at
+    # every row. A norm scan over the whole file is seconds.
+    dead = 0
+    for lo in range(0, len(emb), 200_000):
+        blk = np.asarray(emb[lo:lo + 200_000], dtype=np.float32)
+        dead += int((np.linalg.norm(blk, axis=1) == 0).sum())
+    if dead:
+        raise SystemExit(
+            "{:,} of {:,} embedding rows are all zero, so this file is "
+            "incomplete -- most likely an interrupted run. Re-run; a "
+            "zero row is a legal-looking embedding and nothing downstream "
+            "would notice.".format(dead, len(emb)))
     sample = np.asarray(emb[:512], dtype=np.float32)
     flat = sample.reshape(len(sample), -1)
     print("sanity: mean L2 {:.3f}   zero rows in first 512: {}".format(
