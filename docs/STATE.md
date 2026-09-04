@@ -1,11 +1,10 @@
-# Live state — rewritten 2026-09-03, before a compaction
+# Live state — updated 2026-09-04
 
 Read this first. `docs/REVIEW.md` and `docs/REVIEW2.md` hold the two Codex
 reviews with every item marked; `docs/BACKLOG.md` the code and performance
 work; `docs/ARCHITECTURE_NEXT.md` the architecture directions. Durable findings
-are in the memory directory. Branch `retrieval-dropout`, PR #13, 50 commits
-this session, all pushed. **133 tests pass. Nothing is running. Tile server is
-up.**
+are in the memory directory. Branch `retrieval-dropout`, PR #13, all pushed.
+**142 tests pass. Nothing is running. Tile server is up.**
 
 ---
 
@@ -115,7 +114,7 @@ corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
 
 `docs/REVIEW.md` — 86 items: **40 fixed, 8 refuted, 7 deferred, 30 open, 1
 forced a retraction.**
-`docs/REVIEW2.md` — 22 items: **14 fixed, 8 open.**
+`docs/REVIEW2.md` — 22 items: **all 22 fixed.**
 
 Round two found that **three of round one's forty were wrong**, two of them
 defects I introduced while fixing something else, and one fixed in the wrong
@@ -125,9 +124,15 @@ was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
 
 **Still open, REVIEW.md:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 40, 43, 44,
 46, 47, 48, 49, 60, 61, 62, 63, 64, 66, 67, 69, 70, 71, 72, 73.
-**Still open, REVIEW2.md:** reopened 8, 10, 11; new 1, 2, 7, 8, 9.
+**Still open, REVIEW2.md:** none.
 
-Two of those thirty are really two structural problems: **#40 with 43, 44, 46,
+The last eight of round two closed on 2026-09-04, and each was checked by
+reverting its guard and watching its test go red -- the discipline whose
+absence produced three wrong fixes in round one. Five of the eight are the same
+shape: a consumer reading an artifact without asking which of its rows are
+real, or a guard that stopped one file short of the last place it was needed.
+
+Twelve of those thirty are two structural problems: **#40 with 43, 44, 46,
 47, 62, 63, 66** is one issue — every artifact addressed by row position with
 nothing proving two describe the same rows (the provenance-manifest item; one
 design change retires eight). **#70–73** is the runner's marker and log design.
