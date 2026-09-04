@@ -46,7 +46,16 @@ the boundary and the bank served near-duplicate frames of the query's own drive
 as retrieval neighbours: **41.6% of test queries had a same-drive top-1, at a
 median 0.31 km**. Fixed, cache rebuilt and verified clean (0 same-sequence
 neighbours across all 32 ranks; 3.7M pairs excluded, 7.4 per query; mean top-1
-similarity 0.9080 → 0.7987).
+cosine 0.8261 → 0.7987).
+
+*A correction to my own first report of this:* I first wrote that drop as
+0.9080 → 0.7987, which compared the 768-d bank's new value against the
+**1536-d** bank's old one — two different embedding spaces. The real drops are
+0.8261 → 0.7987 at 768-d and 0.9080 → 0.8948 at 1536-d. That makes the result
+more striking, not less: a 0.027 change in mean top-1 similarity is worth
+18 pp, because only 41.6% of queries had a leaked top-1 and the honest
+replacement is usually still a reasonable match — just not a photograph taken
+seconds away on the same drive.
 
 Re-measured, 5,000 test images, paired:
 
