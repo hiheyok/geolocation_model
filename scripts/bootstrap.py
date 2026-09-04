@@ -15,6 +15,7 @@ Per-image errors are cached, so re-running a comparison costs nothing.
 """
 
 import argparse
+import hashlib
 import itertools
 import sys
 from pathlib import Path
@@ -74,7 +75,9 @@ def provenance(tag, split, dev="cpu"):
 def tag_of_err_cache(name):
     """Recover the tag from an error-cache filename, stamp or not."""
     import re
-    m = re.match(r"^(.*?)(?:_[0-9a-f]{12})?_(?:test|val|train)_\d+r_k\d+_d\d+$",
+    # <tag>[_<12-hex ckpt stamp>][_i<8-hex inputs stamp>]_<split>_...
+    m = re.match(r"^(.*?)(?:_[0-9a-f]{12})?(?:_i[0-9a-f]{8})?"
+                 r"_(?:test|val|train)_\d+r_k\d+_d\d+$",
                  name.replace(".npy", ""))
     return m.group(1) if m else name
 
@@ -100,14 +103,15 @@ def find_err_cache(tag, split="test", n=5000, beam_k=2, score_steps=3):
     # model's name. Require the current checkpoint's stamp.
     ckp = config.CHECKPOINTS / (tag + ".pt")
     if ckp.exists():
-        want = "{}_{}_{}".format(tag, ckpt_stamp(tag), tail)
+        want = "{}_{}{}_{}".format(tag, ckpt_stamp(tag), inputs_stamp(tag),
+                                   tail)
         for h in hits:
             if h.name == want:
                 return h
         # An unstamped file is only trustworthy if it postdates the checkpoint
         # -- the same rule the migration in errors_for applies.
         legacy = CACHE / "{}_{}".format(tag, tail)
-        if legacy.exists() and legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
+        if legacy.exists() and not inputs_stamp(tag)                 and legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
             return legacy
         return None
     # No checkpoint on disk (a deleted arm): nothing to match against, so the
@@ -115,16 +119,49 @@ def find_err_cache(tag, split="test", n=5000, beam_k=2, score_steps=3):
     return max(hits, key=lambda h: h.stat().st_mtime)
 
 
+def inputs_stamp(tag):
+    """Fingerprint everything outside the checkpoint that decides the errors.
+
+    `ckpt_stamp` identifies the weights. The errors also depend on the
+    retrieval cache and the bank those weights are scored against, and nothing
+    in the key covered them -- so rebuilding the kNN cache left every cached
+    error array valid-looking and stale.
+
+    That is not hypothetical: on 2026-09-04 the cache was rebuilt to remove
+    same-sequence leakage, and the re-measurement returned in six seconds with
+    the pre-rebuild numbers, to four significant figures. Same failure shape as
+    the query cache that fingerprinted filenames rather than contents, one
+    artifact over.
+
+    Returns "" when the checkpoint names neither, so a non-retrieval arm keeps
+    its existing key rather than being invalidated for no reason.
+    """
+    try:
+        ck = torch.load(config.CHECKPOINTS / (tag + ".pt"), map_location="cpu",
+                        weights_only=False)
+    except Exception:
+        # A file that is not a loadable checkpoint has no inputs to stamp.
+        # Return "" rather than raising: this is a key helper, and whatever is
+        # wrong with the file will surface loudly at load_model.
+        return ""
+    parts = [safeio.file_stamp(config.STREET_CACHE / ck[f])
+             for f in ("knn_file", "street_file") if ck.get(f)]
+    if not parts:
+        return ""
+    h = hashlib.sha256("|".join(parts).encode()).hexdigest()[:8]
+    return "_i" + h
+
+
 def errors_for(tag, split, n, beam_k, score_steps, dev, source,
                retr_off=False):
-    """Per-image great-circle error, cached by (tag+checkpoint, split, n, k, depth)."""
+    """Per-image error, keyed by checkpoint, its retrieval inputs, and protocol."""
     CACHE.mkdir(parents=True, exist_ok=True)
     # "r" marks the seeded random sample; the old caches were the first n rows
     # `_noretr` in the key, not alongside it: a retrieval-off run and a normal
     # one are different measurements of the same checkpoint, and a key that
     # cannot tell them apart would serve one as the other.
-    key = "{}_{}_{}_{}r_k{}_d{}{}.npy".format(
-        tag, ckpt_stamp(tag), split, n, beam_k, score_steps,
+    key = "{}_{}{}_{}_{}r_k{}_d{}{}.npy".format(
+        tag, ckpt_stamp(tag), inputs_stamp(tag), split, n, beam_k, score_steps,
         "_noretr" if retr_off else "")
     p = CACHE / key
     if p.exists():
@@ -134,11 +171,19 @@ def errors_for(tag, split, n, beam_k, score_steps, dev, source,
     # after the checkpoint now on disk.  That is the exact condition the stamp
     # enforces going forward, so this migrates the honest files and recomputes
     # the ones that cannot be shown to match -- rather than trusting the name.
+    # Migration is deliberately NOT extended to the checkpoint-stamped keys
+    # written before the inputs stamp existed. Those were computed against
+    # whatever retrieval cache happened to be on disk at the time, which for
+    # every arm on this machine is the leaky one; adopting them by mtime would
+    # reintroduce exactly the staleness this key exists to prevent. The
+    # pre-stamp files below are older still and are migrated only when their
+    # mtime proves they postdate the checkpoint.
     legacy = (CACHE / "{}_{}_{}r_k{}_d{}.npy".format(
         tag, split, n, beam_k, score_steps)) if not retr_off else None
     ckp = config.CHECKPOINTS / (tag + ".pt")
     if legacy is not None and legacy.exists() and \
-            legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns:
+            legacy.stat().st_mtime_ns > ckp.stat().st_mtime_ns \
+            and not inputs_stamp(tag):
         e = np.load(legacy)
         np.save(p, e)
         return e
