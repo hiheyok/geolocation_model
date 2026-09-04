@@ -157,6 +157,10 @@ def main():
             a.model, size, (size // patch) ** 2), flush=True)
 
     emb = {x: np.zeros((len(recs), 768), np.float32) for x in arms}
+    # A row that never decoded keeps its id, coordinates and sequence while
+    # holding a zero vector, so it is scored as an image that simply matches
+    # nothing. Track them and drop them before any metric is computed.
+    decoded_ok = np.zeros(len(recs), bool)
     pool = ThreadPoolExecutor(a.workers)
 
     def load(i):
@@ -191,6 +195,7 @@ def main():
         if v is None:
             bad += 1
             continue
+        decoded_ok[i] = True
         for x in arms:
             buf[x].append(v[x])
         idx.append(i)
@@ -218,6 +223,18 @@ def main():
                  **{x: emb[x] for x in arms})
         print("saved embeddings -> {}".format(d / ("emb_%s.npz" % a.model)),
               flush=True)
+
+    # Drop the rows that never decoded. They kept their coordinates and
+    # sequence while holding a zero vector, so they were scored as images that
+    # simply match nothing -- a silent penalty applied equally to every arm,
+    # which is worse than it sounds: it shrinks every difference toward zero.
+    if not decoded_ok.all():
+        keep = np.flatnonzero(decoded_ok)
+        print("dropping {:,} of {:,} rows that failed to decode"
+              .format(len(recs) - len(keep), len(recs)), flush=True)
+        recs = [recs[i] for i in keep]
+        for x in arms:
+            emb[x] = emb[x][keep]
 
     lat = np.array([r["lat"] for r in recs])
     lon = np.array([r["lon"] for r in recs])

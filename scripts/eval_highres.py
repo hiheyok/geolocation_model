@@ -40,7 +40,12 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 if not os.environ.get("OSV_RELEASE"):
+    # Declared, not silent. config refuses to guess a release precisely
+    # because guessing produced five wrong-release runs; a tool that picks one
+    # for you should at least say so in the output it is about to print.
     os.environ["OSV_RELEASE"] = "s10"
+    print("OSV_RELEASE not set; using s10 (this tool's bank and harvest are "
+          "s10-only)", flush=True)
 
 import config
 import names

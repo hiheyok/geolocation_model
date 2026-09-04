@@ -244,6 +244,13 @@ def run_stage(st, state, deadline):
     logf = LOGS / (st.name + ".log")
 
     for attempt in range(1, st.retries + 2):
+        # Re-check inside the loop: a first attempt that runs long can carry a
+        # retry past the deadline that was only tested before the first try.
+        if now() + st.est > deadline:
+            log("drop   {}  (retry would pass the deadline)".format(st.name))
+            state["failed"][st.name] = "dropped: retry out of time"
+            save_state(state)
+            return False
         if SAMPLER:
             SAMPLER.stage = st.name
         t0 = now()

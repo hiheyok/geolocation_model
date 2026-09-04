@@ -131,6 +131,13 @@ class FuseHead(nn.Module):
         per = [torch.nn.functional.normalize(
             x[:, self.level_of == l].mean(1), dim=-1)
             for l in range(self.n_lvl)]
+        # DELIBERATELY NOT FIXED. Review item 2 is real: this differs from the
+        # printed baseline by a per-encoder renormalisation. But the head is a
+        # residual on exactly this vector, so changing it changes the arm --
+        # the three fusion runs of 2026-09-03, and the head-at-init score of
+        # 33.1% that the retraction rests on, would all become incomparable.
+        # Same class as items 29, 31 and 32: fix it with a re-baseline, as a
+        # decision, not as a tidy-up.
         return torch.stack(per).mean(0).flatten(1)      # (B, 2*768)
 
     def forward(self, x):
