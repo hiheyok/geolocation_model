@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import config
+import provenance as prov
 
 D_ENC = 768
 
@@ -91,6 +92,11 @@ def main():
                                v[half:].reshape(crops, D_ENC)], axis=1).mean(0)
         got = np.asarray(Y[i], dtype=np.float32)
         assert np.allclose(want, got, atol=2e-2), "row {} disagrees".format(i)
+    # One output row per input row, in order, so the output describes exactly
+    # the rows the input did -- but only if the input ever said what those
+    # were. Writing no sidecar at all left every pooled cache unprovenanced,
+    # and the loader that checks banks then had nothing to check against.
+    prov.carry(src, out, n, pooled_from=a.src, crops=crops)
     print("\nwrote {} in {:.0f}s; 5 rows verified against a recompute".format(
         out.name, time.time() - t0), flush=True)
 

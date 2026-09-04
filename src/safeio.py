@@ -18,6 +18,7 @@ than the system temp: `os.replace` is only atomic within a filesystem, and
 checkpoints live on C: while some caches live on E:.
 """
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -52,12 +53,22 @@ def file_stamp(path, missing="absent"):
     Size and mtime catch a rewrite and cost a stat. Hashing hundreds of MB on
     every cache lookup would not, and the failure being guarded here is an
     accidental rebuild, not an adversary.
+
+    Both fields have to survive into the result, which the obvious spelling
+    does not do: `"{:x}{:x}".format(size, mtime_ns)[-12:]` keeps the last 12
+    hex characters, and a contemporary nanosecond mtime is 16 of them on its
+    own -- so the size was concatenated and then sliced straight back off, and
+    sizes 1 and 999,999,999 stamped identically. A file rewritten to a
+    different length while its mtime is preserved (a restore, a `touch -r`, a
+    copy that keeps timestamps) kept its key. Hash the two as separate,
+    delimited fields instead, so neither can be absorbed by the other.
     """
     try:
         st = Path(path).stat()
     except OSError:
         return missing
-    return "{:x}{:x}".format(st.st_size, st.st_mtime_ns)[-12:]
+    rec = "{}:{}".format(st.st_size, st.st_mtime_ns)
+    return hashlib.sha256(rec.encode()).hexdigest()[:12]
 
 
 def save_torch(obj, path, **kw):

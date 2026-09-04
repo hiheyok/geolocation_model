@@ -97,13 +97,31 @@ def test_a_marker_from_another_release_does_not_match():
 
 
 @pytest.mark.parametrize("text", ["", "26s\n", "satisfied by check\n", None,
-                                  "{not json}"])
+                                  "satisfied by check"])
 def test_a_pre_stamp_marker_reads_as_unknown_not_as_a_mismatch(text):
     """All 212 markers on disk are bare durations.  Reading them as a
     mismatch would re-run every finished stage in the queue; reading them as a
     match without saying so is the hole being closed.  Unknown is the third
     answer, and the runner logs it."""
     assert runlog.marker_matches(text, ident(["x"])) is None
+
+
+@pytest.mark.parametrize("text", [
+    "{not json}",
+    '{"stage": "train", "argv": ["x"',          # truncated mid-write
+    '{"stage": "train", "argv": ["x"], ',       # truncated at a comma
+    "{",
+])
+def test_a_corrupt_json_marker_is_a_mismatch_not_a_legacy_success(text):
+    """This used to read as None, and the caller reads None as satisfied.
+
+    Marker writes were not atomic, so an interrupted run leaves exactly these
+    bytes on disk -- and the stage that was interrupted is precisely the one
+    that must not be skipped on restart. A legacy marker never begins with a
+    brace, so the compatibility path keeps the old files without also adopting
+    every half-written new one.
+    """
+    assert runlog.marker_matches(text, ident(["x"])) is False
 
 
 def test_key_order_does_not_change_the_identity():

@@ -17,6 +17,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
+import provenance as prov
 
 
 def main():
@@ -72,6 +73,27 @@ def main():
     if zeros:
         raise SystemExit("{:,} all-zero rows -- an embedding pass did not "
                          "finish; delete its cache and rerun it".format(zeros))
+    # Row i of the output is row i of A beside row i of B, so the two inputs
+    # have to be the same rows in the same order. Equal row counts do not show
+    # that -- two encoders run over two different builds of the release agree
+    # on length and on nothing else, and the joined vector would pair each
+    # image's DINOv2 with another image's SigLIP. Nothing downstream could
+    # notice: the width is right, the norms are ordinary, and the arm just
+    # comes out mysteriously weak.
+    ra, rb = prov.read(pa), prov.read(pb)
+    if ra and rb and ra.get("rows_digest") != rb.get("rows_digest"):
+        raise SystemExit(
+            "{} describes rows {} and {} describes rows {}; they are "
+            "different builds, so joining them positionally pairs each "
+            "image's features with another image's."
+            .format(a.a, ra.get("rows_digest"), a.b, rb.get("rows_digest")))
+    if not (ra and rb):
+        print("warning: {} has no provenance sidecar, so nothing proves the "
+              "two inputs are the same rows in the same order (run "
+              "scripts/backfill_prov.py)".format(a.a if not ra else a.b),
+              flush=True)
+    prov.carry(pa, out, n, joined_with=a.b, scale_b=a.scale_b)
+
     s = np.asarray(C[:512], dtype=np.float32)
     print("\nwrote {}  {:.2f} GB   mean L2 {:.2f}   zero rows 0".format(
         out.name, out.stat().st_size / 1e9, float(np.linalg.norm(s, axis=1).mean())))

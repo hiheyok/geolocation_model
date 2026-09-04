@@ -75,7 +75,12 @@ def load_everything(tag, dev, bank_gpu):
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
     if "bank_rows" in knn:
         rows = knn["bank_rows"]
-        m = np.load(config.bank_meta(ext), allow_pickle=True) if ext else None
+        # provenance.bank_ext, not a bare np.load: check_split above
+        # validates the checkpoint against the release, but the extension
+        # metadata is a separately replaceable file, and a mismatched one
+        # attaches another release's z16 addresses to valid bank rows --
+        # plausible coordinates, wrong place, nothing to notice it.
+        m = prov.bank_ext(ext, config.RELEASE) if ext else None
     else:
         from build_knn import bank_rows_for
         rows, m = bank_rows_for(ds, labels, mode, ext or None)

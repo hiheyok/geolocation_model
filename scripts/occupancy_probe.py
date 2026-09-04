@@ -44,6 +44,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config
+import provenance as prov
 import tile_math as tm
 
 G = 16
@@ -123,7 +124,10 @@ def main():
 
     ex, ey = [x16[tr]], [y16[tr]]
     for stem in [s.strip() for s in a.exts.split(",") if s.strip()]:
-        m = np.load(config.bank_meta(stem), allow_pickle=True)
+        # the release check lives in provenance.bank_ext; an extension
+        # harvested against another release would silently widen the
+        # corpus this probe reports occupancy for
+        m = prov.bank_ext(stem, config.RELEASE)
         ex.append(m["x16"].astype(np.int64))
         ey.append(m["y16"].astype(np.int64))
         print("  + {:<12} {:,} images".format(stem, len(m["x16"])))

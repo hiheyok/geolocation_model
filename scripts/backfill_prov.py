@@ -128,10 +128,78 @@ def resolve(p, n, ids, metas):
         if hit is not None:
             return (np.concatenate([ids, metas[hit]]),
                     "release ++ {} (matched on contents)".format(hit.name))
+        sib = match_by_sibling(p, n, len(ids), by_len)
+        if sib is not None:
+            hit, why = sib
+            return (np.concatenate([ids, metas[hit]]),
+                    "release ++ {} ({})".format(hit.name, why))
         return None, "{} extensions have {:,} rows; the name does not say " \
                      "which and the contents do not match any of them" \
                      .format(len(by_len), rest)
     return None, "no row space of {:,} could be resolved".format(n)
+
+
+def head_is_the_release(p, n_rel):
+    """Which release-length artifact this bank's first rows are, verbatim.
+
+    A stacked bank is written by copying the release-length embedding in
+    first, so its head is that file byte for byte. When the head matches an
+    artifact whose own row space is already resolved as the release, the
+    release half of the stack is established by content rather than by
+    assuming that "longer than the release" means "release first" -- which is
+    exactly the assumption an extension-only cache defeats.
+    """
+    A = np.load(p, mmap_mode="r")
+    if A.ndim != 2 or len(A) <= n_rel:
+        return None
+    head = np.asarray(A[:64])
+    for c in sorted(p.parent.glob("*.f16.npy")):
+        if c == p:
+            continue
+        B = np.load(c, mmap_mode="r")
+        if B.ndim != 2 or len(B) != n_rel or B.shape[1] != A.shape[1]:
+            continue
+        rec = prov.read(c) or {}
+        if not str(rec.get("row_space", "")).startswith("the release"):
+            continue
+        if np.array_equal(np.asarray(B[:64]), head):
+            return c
+    return None
+
+
+def match_by_sibling(p, n, n_rel, cands):
+    """Resolve a stack whose extension was never saved as a standalone file.
+
+    `pool_bal_bank25` is the case: it is the release followed by a *pooled*
+    `bank_ext`, and no `bank_ext_pool.f16.npy` was ever written, so matching
+    the tail against extension files on disk cannot succeed no matter how
+    many candidates share its length.
+
+    Two independent facts settle it without guessing. The head must be a
+    release-length artifact already resolved as the release, which fixes the
+    stack's orientation; and another bank of the *same total length and the
+    same release half* must already record which extension it carries. Both
+    have to hold, and the row space says which sibling supplied the answer,
+    so the inference is legible to whoever reads the sidecar later.
+    """
+    head = head_is_the_release(p, n_rel)
+    if head is None:
+        return None
+    for c in sorted(p.parent.glob("*.f16.npy")):
+        if c == p:
+            continue
+        B = np.load(c, mmap_mode="r")
+        if B.ndim != 2 or len(B) != n:
+            continue
+        got = prov.exts_of(c)
+        if len(got) != 1:
+            continue
+        hit = next((m for m in cands
+                    if artifact_stem(m)[:-len("_meta")] == got[0]), None)
+        if hit is not None:
+            return hit, "head verified against {}, extension from {}".format(
+                head.name, c.name)
+    return None
 
 
 def match_by_content(p, n, n_rel, cands):

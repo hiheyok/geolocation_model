@@ -24,6 +24,9 @@ Two conventions follow, and both are about scoping a question to one run:
 
 import json
 import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
 
 HEADER = "==== attempt"
 ATTEMPT = re.compile(r"^==== attempt \d+ at .*$", re.M)
@@ -59,6 +62,122 @@ def marker_identity(name, argv, release=None, **extra):
     return json.dumps(rec, sort_keys=True)
 
 
+# Recorded in the marker but never compared: the outputs are stamped *after*
+# the stage produced them, so they cannot be part of an identity computed
+# before it runs. They are verified separately, by `outputs_intact`.
+NOT_IDENTITY = ("outputs",)
+
+# Flags whose value names a file the stage READS, with the directory that
+# resolves it. Deliberately only the unambiguous ones: `--tag` means the
+# checkpoint to write under train.py and the checkpoint to read under
+# bootstrap.py, so guessing it wrong would either strand a stage forever or
+# certify one that never ran.
+INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
+               "--basis": "street", "--bank": "street", "--init": "ckpt"}
+
+
+def stage_inputs(argv):
+    """Paths a stage reads, derived from its own command line.
+
+    Item 70 was closed with an identity of name, argv and release, and that
+    covers a re-pointed stage but not a rebuilt one: the argv naming
+    `knn_pca768_bank70_...npz` is character for character the same argv
+    whether that file is the leaky cache or the clean rebuild. For the
+    same-sequence fix specifically, an older cache could be dropped in under
+    the same name and the rebuild stage would go on reporting satisfied.
+
+    So the identity stamps the *contents* of what the command names. Included
+    unconditionally: `dataset.parquet`, which defines row order for every
+    artifact downstream, and the entry script itself, so editing the
+    implementation invalidates results produced by the previous one.
+
+    The boundary worth stating: the entry script is stamped, its imports are
+    not. Stamping all of `src/` would invalidate every marker in the queue on
+    any edit, which in a research runner means re-running finished work several
+    times a day -- a cure that would simply be turned off.
+    """
+    import config
+    import safeio
+
+    paths = {}
+    if argv:
+        paths["code:" + str(argv[0])] = ROOT / str(argv[0])
+    paths["dataset.parquet"] = config.DATASET_PARQUET
+    for i, tok in enumerate(argv[:-1]):
+        where = INPUT_FLAGS.get(str(tok))
+        if where is None:
+            continue
+        val = str(argv[i + 1])
+        paths[str(tok) + " " + val] = (
+            config.STREET_CACHE / val if where == "street"
+            else config.CHECKPOINTS / (val + ".pt"))
+    return {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
+
+
+def stage_outputs(argv):
+    """Paths a stage is expected to have produced, stamped after it ran.
+
+    Only what actually exists is recorded, which is what keeps this safe: a
+    flag resolved to the wrong path simply goes unrecorded, rather than
+    becoming an output that can never be found and a stage that re-runs
+    forever.
+    """
+    import config
+    import safeio
+
+    out = {}
+    cand = []
+    for i, tok in enumerate(argv[:-1]):
+        val = str(argv[i + 1])
+        if str(tok) in ("--out", "--export"):
+            cand += [ROOT / val, config.STREET_CACHE / val,
+                     config.STREET_CACHE / (val + ".f16.npy")]
+        elif str(tok) == "--tag" and str(argv[0]).endswith("train.py"):
+            cand.append(config.CHECKPOINTS / (val + ".pt"))
+    for p in cand:
+        try:
+            if p.exists() and p.is_file():
+                out[p.name] = safeio.file_stamp(p)
+        except OSError:
+            pass
+    return out
+
+
+def outputs_intact(text):
+    """Whether every output a marker recorded is still there, unchanged.
+
+    Deleting a checkpoint and leaving its marker used to make the training
+    stage skip, so the run "succeeded" with no model at the end of it. The
+    same check catches an output replaced under its own name, which is the
+    dangerous direction for a rebuilt k-NN cache.
+
+    Returns (ok, why). A marker that recorded no outputs is not evidence of
+    anything, so it passes -- there is nothing to contradict.
+    """
+    import safeio
+
+    try:
+        rec = json.loads((text or "").strip())
+    except ValueError:
+        return True, ""
+    got = rec.get("outputs") or {}
+    if not isinstance(got, dict):
+        return True, ""
+    import config
+
+    for name, want in sorted(got.items()):
+        for root in (ROOT, config.CHECKPOINTS, config.STREET_CACHE, ROOT / "runs"):
+            p = root / name
+            if p.exists():
+                now = safeio.file_stamp(p)
+                if now != want:
+                    return False, "{} changed since it was written".format(name)
+                break
+        else:
+            return False, "{} is gone".format(name)
+    return True, ""
+
+
 def marker_matches(text, identity):
     """Whether a marker's contents describe this stage: True, False or None.
 
@@ -66,11 +185,40 @@ def marker_matches(text, identity):
     already on disk does. That is a third answer on purpose: treating those as
     a mismatch would re-run every finished stage in the queue, and treating
     them as a match without saying so is the hole being closed.
+
+    A marker that *looks* like the new format and does not parse is a
+    mismatch, not a legacy file. Marker writes were not atomic, so an
+    interrupted write leaves a truncated `{...` on disk -- and since the
+    caller reads None as satisfied, the stage that was killed mid-write would
+    be skipped as complete on the next run. Legacy markers do not begin with
+    a brace, so the two cases are separable and only one of them is old.
     """
     text = (text or "").strip()
     if not text.startswith("{"):
         return None
     try:
-        return json.loads(text) == json.loads(identity)
+        got, want = json.loads(text), json.loads(identity)
     except ValueError:
-        return None
+        return False
+    if not (isinstance(got, dict) and isinstance(want, dict)):
+        return False
+    drop = set(NOT_IDENTITY)
+    # A marker written before input stamping records name, argv and release
+    # and nothing else. Comparing it against an identity that also carries
+    # input stamps would mark every finished stage in the queue stale and
+    # re-run it, so the older record is compared on the fields it actually
+    # has -- the same migration the plain-text markers got, one convention
+    # later. It answers the weaker question, which is why it warns.
+    if "inputs" not in got:
+        drop.add("inputs")
+    return ({k: v for k, v in got.items() if k not in drop}
+            == {k: v for k, v in want.items() if k not in drop})
+
+
+def marker_is_pre_inputs(text):
+    """Whether a marker predates input stamping, so its match is the weak one."""
+    try:
+        rec = json.loads((text or "").strip())
+    except ValueError:
+        return False
+    return isinstance(rec, dict) and "inputs" not in rec

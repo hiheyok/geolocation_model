@@ -316,6 +316,32 @@ def main():
             return "legacy substring (predates the flag)"
         return "legacy substring" if v else "by module type"
 
+    # What the recorded seed actually covers. Arms trained before `neg_random`
+    # existed drew their sink negatives from OS entropy, so their seed fixed
+    # weight init, batch order and dropout but not the off-path tiles -- two
+    # runs of the same command saw different negatives. Saying so beside the
+    # numbers is the point: a table that reports a seed per arm invites the
+    # reader to assume the arms are reproducible to it.
+    def _negs(t):
+        v = torch.load(config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
+                       weights_only=False).get("neg_random")
+        if v is None:
+            return "OS entropy (predates the flag)"
+        return "OS entropy" if v else "seeded"
+
+    negs = {t: _negs(t) for t in tags}
+    if len(set(negs.values())) > 1:
+        L.append("**Sink negatives are not drawn the same way across these "
+                 "arms.** A seeded arm sees the same off-path tiles on a "
+                 "re-run; an OS-entropy arm does not, whatever seed it "
+                 "records.")
+        L.append("")
+        L.append("| arm | sink negatives |")
+        L.append("|---|---|")
+        for t in tags:
+            L.append("| `{}` | {} |".format(t, negs[t]))
+        L.append("")
+
     rules = {t: _rule(t) for t in tags}
     if len(set(rules.values())) > 1:
         L.append("**Weight-decay grouping differs between these arms.** "
