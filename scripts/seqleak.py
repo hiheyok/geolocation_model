@@ -64,6 +64,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--knn", default="knn_pca768_bank70_sequence_k32_"
                                      "bank_ext70.npz")
+    ap.add_argument("--verify", action="store_true",
+                    help="assert the cache is clean and exit non-zero if not; "
+                         "for checking a rebuild rather than measuring a leak")
     ap.add_argument("--ext", default="bank_ext70")
     ap.add_argument("--split", default="test")
     ap.add_argument("--k", type=int, default=16)
@@ -92,6 +95,19 @@ def main():
         len(q), a.split, a.k, idx.shape[1]))
 
     sk = same[:, :a.k]
+    if a.verify:
+        # A rebuild is only done when the number is zero. Checking the whole
+        # cached width, not just the k a model happens to read: a leaked row
+        # at rank 20 is still a leaked row the moment retr_k rises.
+        n_bad = int(same.sum())
+        print("verify: {:,} same-sequence neighbours across all {} cached "
+              "ranks".format(n_bad, same.shape[1]))
+        if n_bad:
+            raise SystemExit(
+                "cache is NOT clean: {:,} slots over {:,} queries still hold a "
+                "same-sequence row".format(n_bad, int(same.any(1).sum())))
+        print("verify: clean")
+        return
     print("same-sequence neighbours that exclusion should have removed")
     print("  {:.2%} of neighbour slots".format(sk.mean()))
     print("  {:.2%} of queries have at least one".format(sk.any(1).mean()))
