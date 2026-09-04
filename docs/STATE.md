@@ -112,8 +112,9 @@ corpus result from +1.34 to +1.33. **Immaterial to every paired contrast.**
 
 ## 4. Reviews
 
-`docs/REVIEW.md` — 86 items: **52 fixed, 8 refuted, 7 deferred, 18 open, 1
-forced a retraction.**
+`docs/REVIEW.md` — 86 items: **68 fixed, 8 refuted, 7 deferred, 2 open, 1
+forced a retraction.** The two still open (24, 39) both need a re-baseline
+decision and are in §5.
 `docs/REVIEW2.md` — 22 items: **all 22 fixed.**
 
 Round two found that **three of round one's forty were wrong**, two of them
@@ -122,8 +123,12 @@ file. Chief among them: `split_hash` hashed only each label's first character,
 so train and test were indistinguishable and the bootstrap row-parity guarantee
 was hollow. Now fixed, with the legacy digest kept so 122 checkpoints load.
 
-**Still open, REVIEW.md:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49, 60,
-61, 64, 67, 69 — eighteen independent items, no structural groups left.
+**Still open, REVIEW.md:** 24 and 39 only, both awaiting a re-baseline call.
+
+**The largest thing found closing them was not a review item as written.**
+Item 61 was stated conditionally — "*if* one real drive crosses the corpus
+boundary, same-sequence exclusion fails". It is the normal case, and it
+inflates the OSV-5M benchmark. See §3.
 **Still open, REVIEW2.md:** none.
 
 The last eight of round two closed on 2026-09-04, and each was checked by
@@ -159,9 +164,9 @@ logs were genuinely spliced across attempts.
 
 ## 5. Needs your decision — do not fix these silently
 
-Seven items change what a trained arm *is*, so fixing any makes future arms
+Eight items change what a trained arm *is*, so fixing any makes future arms
 incomparable with all 122 checkpoints on file. Each needs a re-baseline. **#29
-is done and under measurement; six remain.**
+is done and under measurement; #24 joined the list on 2026-09-04; seven remain.**
 
 * **#29 weight decay — fixed 2026-09-04, being measured now.** The rule was
   `"pos" in name`. Enumerated rather than assumed, and the line above was
@@ -186,6 +191,13 @@ is done and under measurement; six remain.**
   it invalidates today's fusion runs and the 33.1% init score.
 * **#31 sink coefficient** unconstrained (dormant — all checkpoints `sink_k=1`).
 * **#32 memory dropout** lacks inverted-dropout scaling.
+* **#24 multi-photo scoring** — the learned neighbour score is
+  `cos(q_pos(q_emb), k_pos(nbr_emb))` and one query embedding is supplied per
+  group, so candidates a *secondary* photograph retrieved are scored against a
+  photograph that did not retrieve them. Closing it means letting the
+  retrieval prior take a query embedding per neighbour: a shipped model's
+  interface, and it invalidates "several photos help a little" (+1.2 pp).
+  `multiquery.py` prints the caveat whenever a pos/dual arm runs at N>1.
 * **#39 RoPE** gives no relative position. Measured: with identical content at
   all 256 positions, the attention logit's within-offset spread is 0.845 of its
   overall spread as built, against 0.000 for the textbook arrangement. Live for

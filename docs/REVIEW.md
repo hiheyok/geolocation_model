@@ -45,17 +45,17 @@ deferred. Unmarked items are not yet triaged.
    > **Confirmed.** Confirmed. The export writes `.f16.npy`, `_rows.i64.npy` and `_head.pt` and nothing else -- no PCA mean or basis -- so a new query cannot be placed in the exported coordinate system.
 
 
-5. `[~]` **The exported combined representation is incomplete.**
+5. `[x]` **The exported combined representation is incomplete.**
    The PCA-transformed vectors are saved, but the corresponding PCA mean and basis are not. New queries cannot be embedded in the exported coordinate system.
 
    > **Confirmed.** Inspected and consistent with the claim. Does not touch any reported result: the pyr47 runs did not use `--hard`.
 
-6. `[~]` **Hard-negative scheduling is calculated from the wrong number of batches.**
+6. `[x]` **Hard-negative scheduling is calculated from the wrong number of batches.**
    In `--hard` mode, OneCycle uses the full pair count, while training drops small buckets and bucket remainders. Consequently, the schedule may never approach its final phase. The latest pyr47 run did not use `--hard`, so this did not affect that result.
 
    > **Confirmed.** Inspected; the review's own check stands -- `pyr47_done.u8.npy` is complete, so no reported run was affected.
 
-7. `[~]` **Fusion ignores pyramid completion masks.**
+7. `[x]` **Fusion ignores pyramid completion masks.**
    Missing pyramid rows would silently become zero tokens. I checked the actual `pyr47_done.u8.npy`: all 95,292 encoder-row entries are complete, so this bug did not affect the reported pyr47 run.
 
 ## External evaluation and leakage
@@ -78,12 +78,12 @@ deferred. Unmarked items are not yet triaged.
    > default, since every number on file was measured without it.
 
 
-9. `[~]` **PCA identity is not validated.**
+9. `[x]` **PCA identity is not validated.**
    [eval_highres.py:143](/C:/Users/longd/Programming/geolocation_model/scripts/eval_highres.py:143) defaults to the bank55 PCA and checks only output width. Any unrelated 768-d PCA is accepted silently.
 
    > **Confirmed.** Confirmed. `meta_stem` is chosen by scanning the bank filename for "70"/"55"/"40". Renaming a bank silently selects the wrong extension metadata while every dimensional check passes.
 
-10. `[~]` **Bank metadata is inferred from filenames.**
+10. `[x]` **Bank metadata is inferred from filenames.**
     Renaming a bank or using a custom bank can cause the evaluator to load the wrong extension metadata while still passing dimensional checks.
 
    > **Partly refuted.** **Refuted.** `config.knn_name` does include it: `tail = "_bank{}k".format(bank_limit // 1000)` whenever `bank_limit` is set. Restricted-bank caches cannot collide with unrestricted ones on this axis.
@@ -118,7 +118,7 @@ deferred. Unmarked items are not yet triaged.
    > **Confirmed.** Confirmed. `leak_blocklist.json` appears in exactly one file, `screen_leak.py`, which writes it. No training or evaluation path reads it, so screening currently gates nothing.
 
 
-14. `[~]` **Leak screening does not gate downstream use.**
+14. `[x]` **Leak screening does not gate downstream use.**
     `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
 
    > **Confirmed.** Inspected. Unreadable images are skipped while the denominator stays the manifest size, so the screened fraction is overstated.
@@ -144,7 +144,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected. Unbounded executor mapping; a memory-pressure risk, not a correctness one.
 
-18. `[~]` **Resolution probing can buffer too many decoded images.**
+18. `[x]` **Resolution probing can buffer too many decoded images.**
     Unbounded executor mapping can retain many completed image variants simultaneously and cause avoidable memory spikes.
 
 ## Serving and multi-photograph retrieval
@@ -158,7 +158,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed twice over: the encoder scale is chosen by `"pca768" in sf`, and the basis is the hardcoded `pca768_bank55_pca.npz` regardless of what produced the file.
 
-20. `[~]` **Serving selects preprocessing from filename substrings.**
+20. `[x]` **Serving selects preprocessing from filename substrings.**
     Any filename containing `pca768` receives the bank55 basis, whether or not it was produced with that basis.
 
    > **Confirmed.** Confirmed. `ck["knn_file"]` is a bare subscript, so a non-retrieval checkpoint dies with a KeyError rather than being supported or refused with a reason.
@@ -176,7 +176,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected and the mechanism is right: slots are allocated per photograph, then raw similarities from different photographs go into one softmax with no per-image calibration.
 
-23. `[~]` **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
+23. `[x]` **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
     Candidate slots are allocated equally, but raw similarities from different photographs are pooled into one softmax. Scores are not calibrated across images, so one view can still dominate.
 
    > **Confirmed.** Inspected. For `pos`/`dual` the primary embedding scores candidates that a secondary photograph retrieved.
@@ -328,11 +328,11 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected. `--n` extension rebuilds rather than extends.
 
-48. `[~]` **Pyramid `--n` extension actually destroys and recomputes the cache.**
+48. `[x]` **Pyramid `--n` extension actually destroys and recomputes the cache.**
 
    > **Confirmed.** Confirmed, and it explains something already on the record. `_mark` is called once per encoder pass, after the whole loop, so an interruption mid-pass loses that pass entirely. The project log has 14 pyramid attempts of which one reached 14,000 images and all resumed from zero -- this is why. The tmp+replace in `_mark` made the *file* durable; it did not make progress incremental.
 
-49. `[~]` **Pyramid progress is recorded only after an entire encoder pass.**
+49. `[x]` **Pyramid progress is recorded only after an entire encoder pass.**
     A mid-pass interruption loses all resumable progress from that pass.
 
    > **Confirmed.** Confirmed. Decode failures are counted and printed but do not change the exit status.
@@ -422,12 +422,12 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Confirmed: `cell = np.asarray(ds["cell_z8"])` is read whatever `split_mode` says, so a cell12 or cell16 split compares z8 cells against z12/z16 extension cells. Latent for now -- only `sequence` and `cell8` are in use.
 
-60. `[~]` **Held-region filtering is wrong for cell12/cell16 extensions.**
+60. `[x]` **Held-region filtering is wrong for cell12/cell16 extensions.**
     [build_knn.py:130](/C:/Users/longd/Programming/geolocation_model/scripts/build_knn.py:130) reads held cells from the dataset’s z8 field and compares them with extension z12/z16 cells.
 
    > **Confirmed.** Inspected. Release and extension sequences are treated as disjoint by construction, so a drive crossing the boundary would defeat same-sequence exclusion.
 
-61. `[~]` **Sequences are forcibly treated as disjoint across release and extension banks.**
+61. `[x]` **Sequences are forcibly treated as disjoint across release and extension banks.**
     If one real drive crosses the corpus boundary, same-sequence exclusion fails.
 
    > **Confirmed.** Inspected; an instance of 40 in the extension metadata.
@@ -440,7 +440,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected. With fewer than K legal neighbours, placeholder rows can survive into the top-k.
 
-64. `[~]` **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
+64. `[x]` **When fewer than K legal neighbors exist, excluded or placeholder rows can remain in top-k results.**
 
    > **Confirmed.** Inspected. Duplicate extension ids are not rejected.
    >
@@ -454,7 +454,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected. The per-sequence cap is applied before download, so a failed or undersized fetch still consumes its slot.
 
-67. `[~]` **KartaView quotas are consumed before download success is known.**
+67. `[x]` **KartaView quotas are consumed before download success is known.**
     Failed or undersized images suppress later valid candidates.
 
    > **Confirmed.** Confirmed. `--save-dir` only does `save.mkdir(...)`; no image bytes are ever written.
@@ -466,7 +466,7 @@ deferred. Unmarked items are not yet triaged.
 
    > **Confirmed.** Inspected.
 
-69. `[~]` **Mapillary harvesting can exceed `--max-images`.**
+69. `[x]` **Mapillary harvesting can exceed `--max-images`.**
 
 ## Orchestration and reporting
 
@@ -637,7 +637,38 @@ the file and two in the last attempt -- so their best-epoch selection did mix
 attempts.  The other sixteen multi-attempt logs are non-training stages with
 no epoch lines, so item 72's splice affected two arms, not eighteen.
 
-**Still open in this file:** 5, 6, 7, 9, 10, 14, 18, 20, 23, 24, 39, 48, 49,
-60, 61, 64, 67, 69.  No structural groups remain -- these are eighteen
-independent items.  Seven more are listed in `docs/STATE.md` as needing a
+## Closed 2026-09-04: the last of the independent items
+
+Sixteen more closed the same day: 5, 6, 7, 9, 10, 14, 18, 20, 23, 48, 49, 60,
+61, 64, 67, 69.  Three of them turned out to be larger than the review stated,
+and one of those changes what the benchmark means:
+
+* **61 is not conditional.**  The review put it as "*if* one real drive
+  crosses the corpus boundary".  It is the normal case: 75.5% of test sequences
+  also appear in `bank_ext70`, and **41.57% of test queries had a same-sequence
+  frame as their top-1 neighbour**, at a median 0.31 km.  Simulated corrected
+  top-1 goes from 2.40 km to 25.65 km median.  See the commit and
+  `scripts/seqleak.py`.
+* **60 was latent but total.**  At z8 the derived held cells match the stored
+  column exactly (834 = 834), so `sequence` and `cell8` are unaffected; at z12
+  and z16 the overlap with the z8 ids is **exactly 0**, so no extension row
+  would ever have been dropped.
+* **49's fix was already written down and never applied.**  `_mark`'s docstring
+  said "per flush ... an interruption costs one batch"; the call site ran it
+  once per encoder pass.  Fourteen logged attempts, one reaching 14,000 images,
+  all resumed from zero.
+
+**Still open in this file: 24 and 39.**
+
+**24** is confirmed and *not* fixed, deliberately.  The learned neighbour score
+is `cos(q_pos(q_emb), k_pos(nbr_emb))` and `ExternalSet` supplies one query
+embedding per group, so candidates a secondary photograph retrieved are scored
+against a photograph that did not retrieve them.  Closing it means letting the
+retrieval prior take a query embedding *per neighbour*, which changes a shipped
+model's interface and invalidates the multi-photo numbers on record.  That is a
+re-baseline decision, so it joins the list in `docs/STATE.md` rather than being
+fixed quietly.  `multiquery.py` now prints the caveat whenever it runs a
+pos/dual arm at N>1.
+
+**39** (RoPE gives no relative position) was already on that list.  Seven more are listed in `docs/STATE.md` as needing a
 re-baseline decision before they can be touched at all.

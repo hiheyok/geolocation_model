@@ -91,7 +91,7 @@ def unit3(lat, lon):
                      np.cos(lat * p) * np.sin(lon * p), np.sin(lat * p)], 1)
 
 
-def merge_candidates(take, idx32, sim32, K, how):
+def merge_candidates(take, idx32, sim32, K, how, calib="top1"):
     """Which neighbours the extra photographs actually get to contribute.
 
     `global` ranks every photograph's 32 candidates together and keeps the best
@@ -103,10 +103,24 @@ def merge_candidates(take, idx32, sim32, K, how):
     `rr` gives each photograph an equal share by rank and deduplicates, so a
     bank row two photographs both found does not vote twice. At N=1 the two are
     identical, so the baseline is untouched either way.
+
+    **Equal slots are not equal weight** (item 23). `rr` hands each photograph
+    the same number of slots and then carries each candidate's *raw* cosine
+    into a single softmax downstream. Similarity scale varies per photograph --
+    that is the very fact `rr` exists to work around -- so a photograph whose
+    best match is 0.72 has its candidates suppressed against one whose best is
+    0.95, and the allocation it was given back is spent. `calib="top1"`
+    subtracts each photograph's own top-1, so every photograph's best candidate
+    enters at 0 and only its internal structure survives, which is what "equal
+    share" has to mean for a softmax. `calib="none"` reproduces the runs on
+    record, including the +1.2 pp second-angle result.
     """
+    off = np.zeros(len(sim32), dtype=np.float64)
+    if calib == "top1":
+        off = sim32.max(axis=1).astype(np.float64)
     if how == "global":
         ci = idx32[take].reshape(-1)
-        cs = sim32[take].reshape(-1)
+        cs = (sim32[take] - off[take, None]).reshape(-1)
         o = np.argsort(-cs)[:K]
         return ci[o], cs[o]
     seen, oi, os_ = set(), [], []
@@ -119,12 +133,12 @@ def merge_candidates(take, idx32, sim32, K, how):
                 continue
             seen.add(b)
             oi.append(b)
-            os_.append(float(sim32[t, r]))
+            os_.append(float(sim32[t, r] - off[t]))
         if len(oi) >= K:
             break
     if len(oi) < K:                     # heavy overlap: top up from the pool
         ci = idx32[take].reshape(-1)
-        cs = sim32[take].reshape(-1)
+        cs = (sim32[take] - off[take, None]).reshape(-1)
         for j in np.argsort(-cs):
             if len(oi) >= K:
                 break
@@ -134,9 +148,14 @@ def merge_candidates(take, idx32, sim32, K, how):
             seen.add(b)
             oi.append(b)
             os_.append(float(cs[j]))
-    while len(oi) < K:                  # fewer than K distinct rows exist
+    while len(oi) < K:
+        # Fewer than K distinct rows exist. The padding used to repeat the last
+        # candidate at its own score, which makes one bank row vote twice --
+        # the exact double-count `rr` deduplicates to avoid, reintroduced two
+        # lines later. Repeat the index (it has to be a legal row) but at a
+        # score no softmax gives weight to.
         oi.append(oi[-1])
-        os_.append(os_[-1])
+        os_.append(-1e4)
     return np.array(oi), np.array(os_)
 
 
@@ -245,6 +264,13 @@ def main():
     ap.add_argument("--data", default="E:/data/kartaview_hr")
     ap.add_argument("--radius", type=float, default=100.0, help="metres")
     ap.add_argument("--sizes", default="1,2,4,8")
+    ap.add_argument("--calib", default="top1", choices=("top1", "none"),
+                    help="calibrate each photograph's similarities before "
+                         "they are pooled into one softmax. Equal slots are "
+                         "not equal weight: a photograph whose best match is "
+                         "0.72 is suppressed against one whose best is 0.95, "
+                         "which spends the equal share rr just handed it. "
+                         "'none' reproduces the runs on record.")
     ap.add_argument("--groups", type=int, default=400,
                     help="cap; the harvest supplies 339 full groups at 100 m")
     ap.add_argument("--order", default="diverse", choices=("diverse", "near"),
@@ -262,6 +288,20 @@ def main():
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model, ck, _ = load_model(a.tag, dev)
+    if ck.get("retr_mode") in ("pos", "dual"):
+        # Item 24, stated rather than papered over. The learned term is
+        # cos(q_pos(q_emb), k_pos(nbr_emb)) and ExternalSet supplies ONE query
+        # embedding per group -- the primary photograph's -- so candidates a
+        # secondary photograph retrieved are scored against a picture that did
+        # not retrieve them. Fixing it means letting the prior take a query
+        # embedding per neighbour, which changes a shipped model's interface,
+        # so it is not done here. Every N>1 number from this script under
+        # pos/dual carries that caveat.
+        print("caveat: --tag {} uses retr_mode={!r}, whose learned neighbour "
+              "score is computed against the PRIMARY photograph's embedding "
+              "for every candidate, including those a secondary photograph "
+              "retrieved (review item 24, open). The similarity term is "
+              "unaffected.".format(a.tag, ck.get("retr_mode")), flush=True)
     bank_file = a.bank or ck.get("street_file")
     dim = 768 if "768" in bank_file else 1536
     sizes = [int(x) for x in a.sizes.split(",")]
@@ -410,7 +450,8 @@ def main():
             # the *same* photograph against the same ground truth and the only
             # thing that changes is how many others voted with it.
             take = members[:N]
-            ci, cs = merge_candidates(take, idx32, sim32, K_use, a.merge)
+            ci, cs = merge_candidates(take, idx32, sim32, K_use, a.merge,
+                                      a.calib)
             anchors.append(members[0])
             nidx.append(ci)
             nsim.append(cs)
