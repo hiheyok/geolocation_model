@@ -160,13 +160,23 @@ logs were genuinely spliced across attempts.
 ## 5. Needs your decision — do not fix these silently
 
 Seven items change what a trained arm *is*, so fixing any makes future arms
-incomparable with all 122 checkpoints on file. Each needs a re-baseline.
+incomparable with all 122 checkpoints on file. Each needs a re-baseline. **#29
+is done and under measurement; six remain.**
 
-* **#29 weight decay** — the rule is `"pos" in name`, which exempts exactly
-  `retr.q_pos.weight` and `retr.k_pos.weight`, 196,608 parameters, 3.7% of the
-  model. Those are the **learned retrieval keys**, worth +4.1 pp on record. So
-  the branch this whole session regularises has been training with no decay,
-  unintentionally. **Most likely of the seven to have moved a result.**
+* **#29 weight decay — fixed 2026-09-04, being measured now.** The rule was
+  `"pos" in name`. Enumerated rather than assumed, and the line above was
+  wrong: it caught **three** ndim-2 tensors, not two. Two are
+  `retr.q_pos.weight` and `retr.k_pos.weight` — `nn.Linear` projections, the
+  **learned retrieval keys**, 196,608 parameters, 3.7% of the model, worth
+  +4.1 pp on record, and the branch `--retr-drop` exists to regularise. The
+  third is `map.pos.weight`, a real `nn.Embedding` that *should* be exempt, so
+  simply deleting the clause would have been a second bug. Now classified by
+  module type: `nn.Embedding` covers `map.pos`, `state.step` and `GeoMem.emb`
+  (retiring the `"geo."` clause), `ndim <= 1` covers the norms, biases and the
+  `retr.w_pos` scalar. One other change: `geo.q_geo`, a dense Linear the geo
+  clause also exempted, now decays — 8,192 parameters, geo arms only.
+  `--wd-legacy` restores the old rule so both sides can be run fresh at one
+  seed; see §6.
 * **#28 `quality()`** sees the unmasked top-1 similarity even when
   `--retr-drop` hid that neighbour.
 * **#27 `--save-opt`** writes optimizer state nothing loads; scheduler and RNG
@@ -183,7 +193,31 @@ incomparable with all 122 checkpoints on file. Each needs a re-baseline.
 
 ---
 
-## 6. Best next experiment
+## 6. Running now: the #29 re-baseline
+
+`scripts/wd29.py`, launched 2026-09-04 00:45, ~3 h of GPU plus evaluation.
+Two full d768/3.50M/p=0.7 ladders — e2 -> e4 -> e6, two epochs a rung with
+`--init` between, exactly how `d768-b350-e6-drop70` was built — one with the
+fixed grouping and one with `--wd-legacy`, **both at `--seed 0`**.
+
+Both sides are trained fresh on purpose. Every one of the 122 checkpoints
+predates `--seed`, so scoring a new seeded arm against the shipping one would
+differ in the seed as well as the rule — and the seed is not small here: two
+seeds of one configuration differ by 18 km on the median. Pairing a seed
+difference with a treatment difference is exactly the mistake the corpus
+caveat made, where the error turned out to be correlated with the treatment.
+
+Then a paired bootstrap over `wd29-fix-e6`, `wd29-legacy-e6` and the shipping
+arm on the sequence benchmark, plus KartaView at 5,000. `bootstrap` now labels
+any table whose arms disagree on the grouping rule. Read `<25 km`, not the
+median — the median swings 300 km between epochs.
+
+Outputs: `runs/BOOTSTRAP_wd29.md`, `runs/wd29_fix.npz`, `runs/wd29_legacy.npz`,
+logs in `runs/logs/wd29-*.log`, runner log `runs/logs/wd29_runner.log`.
+
+---
+
+## 7. Best next experiment
 
 **An auxiliary coarse street-only head.** Two independent measurements point at
 it: step 0 carries 84.3% of the mean error, and with retrieval off the visual
@@ -199,7 +233,7 @@ the whole story.
 
 ---
 
-## 7. Tools written this session
+## 8. Tools written this session
 
 `scripts/parity_report.py` — the whole external table from the exports.
 `scripts/pair_npz.py` — paired bootstrap over two exported error arrays.
@@ -216,7 +250,7 @@ Tests: `test_checkpoint_contract.py`, `test_split_hash_and_cache.py`,
 
 ---
 
-## 8. Hardware and environment
+## 9. Hardware and environment
 
 * RTX 3070, 8 GB. Training is **GPU-bound**, 92–96% at 165–176 W. The fusion
   head runs 97% at 236 W with 6.9/8 GB resident. **Never stack GPU jobs** —
@@ -230,7 +264,7 @@ Tests: `test_checkpoint_contract.py`, `test_split_hash_and_cache.py`,
 
 ---
 
-## 9. Rules learned the hard way
+## 10. Rules learned the hard way
 
 * **A fix is not done until it is tested against the failure it prevents.**
   Round two found three wrong fixes and every one had never been run against
@@ -255,5 +289,9 @@ Tests: `test_checkpoint_contract.py`, `test_split_hash_and_cache.py`,
   `Start-Process` with output redirected to a file, polled afterwards.
 * **`git checkout <file>` discards uncommitted work.** Lost the `overnight.py`
   edits that way; commit before sabotage-testing.
+* **Never `git stash`.** It swept a session's uncommitted work out from under
+  a diagnostic on 2026-09-04. Recovered with `stash pop`, but the safe form of
+  "what did this look like before my change?" is `git show <rev>:<path>` to a
+  scratch file, never anything that touches the working tree.
 * The **2,000-image selection set is not evidence**; it picks checkpoints.
 * **A wide interval means get more data, not weaken the claim.**
