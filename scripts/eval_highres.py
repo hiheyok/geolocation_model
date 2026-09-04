@@ -87,8 +87,18 @@ def tile_for_vec(lat, lon, z):
             np.clip((y * n).astype(np.int64), 0, n - 1))
 
 
-def embed(paths, dev, batch=16):
-    """The shipping street pipeline: 3 crops at 224 through both encoders."""
+def embed(paths, dev, batch=16, match_bank=False):
+    """The shipping street pipeline: 3 crops at 224 through both encoders.
+
+    match_bank reproduces what embed_street.py does when it builds the
+    bank: a JPEG draft decode at a reduced DCT scale, and a bf16 autocast
+    forward. Without it the queries reach the same similarity space
+    through a different pipeline than the rows they are matched against.
+    Measured over 300 images, the two embeddings differ by cosine 0.993
+    on average and 0.926 at worst -- small next to a top-1 bank
+    similarity of 0.71, but systematic, and only a paired run says
+    whether it moves the metric.
+    """
     import timm
     from PIL import Image
     out = {}
@@ -103,7 +113,10 @@ def embed(paths, dev, batch=16):
             for s in range(0, len(paths), batch):
                 crops = []
                 for p in paths[s:s + batch]:
-                    im = Image.open(p).convert("RGB")
+                    im = Image.open(p)
+                    if match_bank:
+                        im.draft("RGB", (224, 224))
+                    im = im.convert("RGB")
                     w, h = im.size
                     sc = 224 / min(w, h)
                     im = im.resize((max(224, round(w * sc)),
@@ -115,7 +128,10 @@ def embed(paths, dev, batch=16):
                                          np.uint8) for l in lefts]
                 t = torch.from_numpy(np.stack(crops)).to(dev)
                 t = t.permute(0, 3, 1, 2).float() / 255.0
-                Z.append(net((t - mean) / std).float().cpu().numpy())
+                with torch.autocast(dev, dtype=torch.bfloat16,
+                                    enabled=(match_bank and dev == "cuda")):
+                    z = net((t - mean) / std)
+                Z.append(z.float().cpu().numpy())
         Z = np.concatenate(Z).reshape(len(paths), 3, D_ENC)
         out[mname] = Z
         print("  {:<7} {:,} images in {:.0f}s".format(mname, len(paths),
@@ -144,6 +160,9 @@ def main():
                     help="PCA basis, used only when the bank is narrower than "
                          "the pooled vector")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--match-bank", action="store_true",
+                    help="embed queries the way embed_street builds the "
+                         "bank: JPEG draft decode and bf16 autocast")
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
@@ -178,7 +197,7 @@ def main():
             break
     print("bank {}   addresses {}".format(bank_file, meta_stem), flush=True)
 
-    E = embed(paths, dev)
+    E = embed(paths, dev, match_bank=a.match_bank)
     # equal-norm join, mean-pool over crops, then the SAVED PCA basis -- but
     # only for a projected bank. A 1536-d arm (pool_bal_*) stores the pooled
     # vector itself, so projecting it would compare a 768-d query against a

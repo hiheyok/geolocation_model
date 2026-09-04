@@ -50,16 +50,35 @@ deferred. Unmarked items are not yet triaged.
 
 ## External evaluation and leakage
 
-8. **`eval_highres.py` does not implement the claimed shipping preprocessing.**
+8. `[-]` **`eval_highres.py` does not implement the claimed shipping preprocessing.**
    [eval_highres.py:90](/C:/Users/longd/Programming/geolocation_model/scripts/eval_highres.py:90) omits the PIL decoder hint used by cache generation and omits the BF16 autocast used by cache generation and serving. External images are therefore embedded by a slightly different pipeline.
 
-9. **PCA identity is not validated.**
+   > **Confirmed.** Confirmed. Only the output width is checked, and `--basis` defaults to the bank55 PCA whatever bank is loaded. Current use is correct by design -- the banks deliberately share one PCA space -- but nothing records which basis a bank was built with, so it is true by convention rather than by construction.
+
+   > **Confirmed, measured, immaterial.** The mismatch is real: the bank is
+   > built with a JPEG draft decode under bf16 autocast, the queries with a
+   > full decode in fp32. Over 300 images the two embeddings differ by cosine
+   > 0.993 mean and 0.926 worst. But it does not move the metric. Adding
+   > `--match-bank` to reproduce the bank pipeline exactly, paired over the
+   > same 2,000 queries: `<25 km` 13.6% -> 13.1%, `<1 km` 2.5% -> 2.4%,
+   > `<200 km` 33.1% -> 32.8%, all inside noise, and top-1 bank similarity
+   > moves 0.7146 -> 0.7158. I had expected the mismatch to be *depressing*
+   > external scores, so that part of the domain gap would be a preprocessing
+   > artifact. It is not. The flag is kept for reproducibility and is not the
+   > default, since every number on file was measured without it.
+
+
+9. `[~]` **PCA identity is not validated.**
    [eval_highres.py:143](/C:/Users/longd/Programming/geolocation_model/scripts/eval_highres.py:143) defaults to the bank55 PCA and checks only output width. Any unrelated 768-d PCA is accepted silently.
 
-10. **Bank metadata is inferred from filenames.**
+   > **Confirmed.** Confirmed. `meta_stem` is chosen by scanning the bank filename for "70"/"55"/"40". Renaming a bank silently selects the wrong extension metadata while every dimensional check passes.
+
+10. `[~]` **Bank metadata is inferred from filenames.**
     Renaming a bank or using a custom bank can cause the evaluator to load the wrong extension metadata while still passing dimensional checks.
 
-11. **Restricted-bank k-NN cache names omit the bank limit.**
+   > **Partly refuted.** **Refuted.** `config.knn_name` does include it: `tail = "_bank{}k".format(bank_limit // 1000)` whenever `bank_limit` is set. Restricted-bank caches cannot collide with unrestricted ones on this axis.
+
+11. `[-]` **Restricted-bank k-NN cache names omit the bank limit.**
     Different bank restrictions can collide or reuse incompatible caches.
 
 12. `[~]` **`eval_highres.py` and `multiquery.py` restore an implicit `s10` default.**
@@ -84,8 +103,10 @@ deferred. Unmarked items are not yet triaged.
    > risk is real in principle; absolute hit rates may be inflated by at most
    > ~1 pp, and every paired contrast reported is unaffected.
 
+   > **Confirmed.** Confirmed. `leak_blocklist.json` appears in exactly one file, `screen_leak.py`, which writes it. No training or evaluation path reads it, so screening currently gates nothing.
 
-14. **Leak screening does not gate downstream use.**
+
+14. `[~]` **Leak screening does not gate downstream use.**
     `screen_leak.py` is the only writer of `leak_blocklist.json`; no training or evaluation path reads it. The existing offline run screened only 2,000 of 47,646 images and did not write a blocklist.
 
 15. **Leak-screen failures are counted as successfully screened.**
@@ -111,7 +132,9 @@ deferred. Unmarked items are not yet triaged.
 21. **Serving assumes every checkpoint contains `knn_file`.**
     Non-retrieval checkpoints fail with an incidental `KeyError` instead of being supported or rejected explicitly.
 
-22. **`topk` can exceed the available bank size.**
+   > **Confirmed.** Confirmed. `sims.topk(k)` with no clamp to the bank size.
+
+22. `[~]` **`topk` can exceed the available bank size.**
 
 23. **“Equal-photo” reciprocal-rank fusion is not actually equal-photo.**
     Candidate slots are allocated equally, but raw similarities from different photographs are pooled into one softmax. Scores are not calibrated across images, so one view can still dominate.
@@ -138,8 +161,10 @@ deferred. Unmarked items are not yet triaged.
 
    > **Known, deferred.** Already recorded and deliberately deferred, for the same reason as 27: it would alter training semantics and break comparability with the measured p-curve.
 
+   > **Confirmed.** Confirmed, and the blast radius is worth naming. The rule is `"pos" in name`, and on the shipping arm it catches exactly two tensors: `retr.q_pos.weight` and `retr.k_pos.weight`, 196,608 parameters, 3.7% of the model. Those are the **learned retrieval keys** -- worth +4.1 pp on record -- so the keyed retrieval branch has been training with no weight decay, unintentionally, on precisely the branch `--retr-drop` exists to regularise.
 
-29. **Weight-decay parameter grouping uses unsafe substring matching.**
+
+29. `[~]` **Weight-decay parameter grouping uses unsafe substring matching.**
     For example, `q_pos.weight` receives no decay because its name contains `pos`; memory embeddings and some bias-like tensors receive decay incorrectly.
 
 30. `[.]` **Step-3 sink keys receive no positive sink supervision.**
@@ -147,25 +172,35 @@ deferred. Unmarked items are not yet triaged.
 
    > **Known, deferred.** Already recorded in `docs/STATE.md`; it is why the sink capacity experiment was retired as contaminated rather than reported as a null.
 
+   > **Confirmed.** Confirmed in code -- `merged = base + g * (lse - base)` with `g` an unconstrained parameter, so it extrapolates outside [0,1]. **Dormant**: all 122 checkpoints on disk have `sink_k=1`, so this branch never executes in any trained model.
 
-31. **The sink “interpolation” coefficient is unconstrained.**
+
+31. `[~]` **The sink “interpolation” coefficient is unconstrained.**
     [model.py:212](/C:/Users/longd/Programming/geolocation_model/src/model.py:212) allows negative values and values above one, so the operation can extrapolate or invert rather than interpolate.
 
 32. **Memory dropout lacks inverted-dropout scaling.**
     Its magnitude distribution changes between training and evaluation.
 
-33. **`--overfit` is broken with the default hit-based selector.**
+   > **Confirmed.** Confirmed in part: `tr = Subset(tr, range(a.overfit))` builds invalid indices when `--overfit` exceeds the (possibly `--limit`-ed) training set.
+
+33. `[~]` **`--overfit` is broken with the default hit-based selector.**
     Validation is disabled, selection metrics stay `NaN`, and no best checkpoint is written. An overfit size larger than the limited training set also creates invalid subset indices.
 
-34. **Negative `--soft` temperatures are silently treated as hard CE.**
+   > **Confirmed.** Confirmed. `soft` is parsed with `float()` and gated on `soft[t] > 0`, so a negative temperature falls through to hard CE with no warning.
 
-35. **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
+34. `[~]` **Negative `--soft` temperatures are silently treated as hard CE.**
+
+   > **Confirmed.** Confirmed. `map_sub` is `round((width/12) ** 0.5)` with no check that `width == 12 * sub ** 2`.
+
+35. `[~]` **Map subdivision width is inferred by rounded square root without validating `width == 12 × sub²`.**
     Invalid dimensions can be accepted and misinterpreted.
 
 36. **Checkpoints omit many result-defining hyperparameters.**
     Memory dropout, sink weight, embedding noise/dropout, smoothing, learning rate, weight decay, warmup and batch size are among the missing fields.
 
-37. **Evaluation ignores checkpoint grid geometry.**
+   > **Partly refuted.** Confirmed but **not silent**, which the item implies it is. `build_from_ck` does use the live `tm.actions()` and `tm.STEPS` rather than the saved `g`/`steps`, but any mismatch changes the policy-head and step-embedding shapes, so the strict `load_state_dict` raises. Latent rather than dangerous -- every checkpoint on disk is g=16.
+
+37. `[-]` **Evaluation ignores checkpoint grid geometry.**
     [evaluate.py:21](/C:/Users/longd/Programming/geolocation_model/src/evaluate.py:21) reconstructs models using current `G` and `STEPS`, not the saved checkpoint values.
 
 38. **Explicit street-file overrides are not checked for provenance or dimensions.**
@@ -224,13 +259,17 @@ deferred. Unmarked items are not yet triaged.
 56. **Tile-fetch recreation does not immediately reset the previous completion mask.**
     A crash between truncating the cache and rewriting the mask can bless new zero rows on restart.
 
-57. **The tile “GeM” implementation is missing the p-th root.**
+   > **Confirmed.** Confirmed exactly: `return (s * np.abs(X) ** p).mean(1)` with no `** (1/p)`. A signed third moment, not a generalised mean.
+
+57. `[~]` **The tile “GeM” implementation is missing the p-th root.**
     It computes a signed p-th moment, not generalized-mean pooling.
 
 58. **Tile matching chooses `min(K, bank_size - 1)` for disjoint query and bank sets.**
     It unnecessarily drops one valid neighbor and breaks on a one-row bank.
 
-59. **Tile-match oracle statistics are computed before same-sequence exclusion.**
+   > **Confirmed.** Confirmed, and this one has consequences. `best` comes from `set_sim()`, which never receives `same`; the chamfer and maxmax arms it is compared against go through `topk_stats`, which does `S[same] = -2.0`. So the oracle may count same-sequence near-duplicates as hits while its comparison arms cannot, and the headroom is inflated **relative to the methods**. That headroom was the evidence motivating the fusion work -- which then turned out to be actively harmful in every configuration tried. Worth re-measuring before any of it is cited again.
+
+59. `[~]` **Tile-match oracle statistics are computed before same-sequence exclusion.**
     The reported oracle/headroom can include forbidden near-duplicate matches—the evidence used to motivate fusion is therefore inflated.
 
 ## k-NN and bank extensions
@@ -312,7 +351,9 @@ deferred. Unmarked items are not yet triaged.
 85. **Map-structure probing splits patches rather than source tiles.**
     Patches from one map tile can occur in both train and test, overstating recoverability. Its orientation label also names the gradient direction as the road direction, although those are perpendicular.
 
-86. **Threshold semantics differ between evaluators.**
+   > **Partly refuted.** Confirmed but immaterial. `baselines.py` uses `err_km <= b` while the bootstrap and external evaluators use `< t`. For continuous great-circle distances the disagreement is a measure-zero set, so no reported number can differ. A consistency wart, not a defect.
+
+86. `[-]` **Threshold semantics differ between evaluators.**
     Core baselines use `<=`; external/bootstrap evaluation uses `<`.
 
 The bottom-N external selection issue remains a known growth-stability limitation, not a current fixed-manifest correctness problem, so I would not prioritize it.
