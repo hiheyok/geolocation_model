@@ -76,8 +76,48 @@ bound on how much of the published number was the leak. §7 is measuring the
 difference right now.
 
 **KartaView is unaffected** (no same-drive frames in the bank) and is the
-selection benchmark: drop70 13.4% / 435.7 km, drop90 14.0% / 390.0 km,
-d1536-drop30 12.3% / 492.0 km, d1536 11.2% / 532.5 km.
+selection benchmark. Full table, every row on the corrected protocol —
+**3,400,180 bank rows**, i.e. the release's val and test images excluded from
+the corpus:
+
+| arm | `<25 km` | median |
+|---|---|---|
+| `d768-b350-e6-drop90` | 14.0% | 390.0 km |
+| **`clean-drop70-e6`** (clean bank, but see §7) | **13.5%** | **420.6 km** |
+| `d768-b350-e6-drop70` (shipping) | 13.4% | 435.7 km |
+| `d1536-b350-e6-drop70` | 12.8% | 467.4 km |
+| `d768-b350-e6-drop50` | 12.6% | 468.1 km |
+| `d768-b350-e6-drop70-sub2` | 12.5% | 459.7 km |
+| `wd29-legacy-e6` | 12.4% | 466.2 km |
+| `wd29-fix-e6` | 12.3% | 462.0 km |
+| `d1536-b350-e6-drop30` | 12.3% | 492.0 km |
+| `d768-b350-e6-drop30` | 12.1% | 503.1 km |
+| `d768-b265-e6` (on bank70) | 12.0% | 486.9 km |
+| `d1536-b350-e6` | 11.2% | 532.5 km |
+| `d768-b350-e6-drop10` | 11.1% | 515.9 km |
+
+**The two benchmarks disagree in sign about the clean-trained arm.** Against
+`wd29-fix-e6`, which it is matched to, `clean-drop70-e6` is **−2.5 to −4.6 pp
+on OSV-5M** and **+1.2 pp with a 42 km better median on KartaView**. KartaView
+is the benchmark the leak never touched. The reading that fits: training
+against a leaking bank taught the model to lean on near-duplicate neighbours,
+which still partly pays on OSV-5M and does not transfer to external imagery at
+all. **Not yet a claim** — the checkpoint carries the §7 confound, it is a
+point estimate at roughly 1.8 SE, and no paired interval exists (below).
+
+**The `runs/hr_*.npz` exports are all from the SUPERSEDED protocol** — written
+09-02, searching all 3,500,000 bank rows. The `hrfix-*` re-runs on 09-03
+excluded val/test and are the numbers above, but they exported no per-image
+errors. So **no paired KartaView interval can be computed for any arm on
+record**, and any bootstrap mixing an `hr_*.npz` with a current run is
+comparing across protocols. I made exactly that mistake once; the `<1 km`
+"separated" result it produced was an artifact. Two arms need re-exporting
+under the corrected protocol before the §7 comparison can carry an interval:
+`d768-b350-e6-drop70` and `wd29-fix-e6`, ~16 min each.
+
+Note also `hrfix-b265.log` (2,750,000 rows) and `hrfix-b350.log` (3,500,000)
+kept the old bank despite the name; their 12.1% / 11.6% are not on this
+protocol and are excluded from the table.
 
 ---
 
