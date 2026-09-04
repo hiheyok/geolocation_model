@@ -254,6 +254,25 @@ def main():
         for t, d in known:
             L.append("| `{}` | {} |".format(t, d))
         L.append("")
+    # Which weight-decay grouping each arm was trained under. Not a refusal:
+    # comparing the two rules IS the experiment for review item 29. But a table
+    # that pools arms trained under different rules without saying so is how a
+    # protocol change gets read as a result, so it is stated whenever the arms
+    # disagree.
+    rules = {t: ("legacy substring" if torch.load(
+        config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
+        weights_only=False).get("wd_legacy") else "by module type")
+        for t in tags}
+    if len(set(rules.values())) > 1:
+        L.append("**Weight-decay grouping differs between these arms.** "
+                 "The substring rule exempted the learned retrieval keys "
+                 "(196,608 parameters, 3.7% of the model) from decay.")
+        L.append("")
+        L.append("| arm | weight-decay grouping |")
+        L.append("|---|---|")
+        for t in tags:
+            L.append("| `{}` | {} |".format(t, rules[t]))
+        L.append("")
     L.append("| contrast | median diff, 95% CI | | <25km diff, 95% CI | |")
     L.append("|---|---|---|---|---|")
     for x, y in itertools.combinations(tags, 2):

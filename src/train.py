@@ -41,18 +41,65 @@ def _map_sub(width):
     return sub
 
 
-def param_groups(model, wd):
-    """No decay on norms, biases or embeddings."""
+def param_groups_legacy(model, wd):
+    """The pre-2026-09-04 rule, kept so the change can be measured.
+
+    Not a fallback and not reachable by default: the only caller is
+    `--wd-legacy`, which exists because the 122 checkpoints on file were
+    trained unseeded, so scoring a new seeded arm against one of them would
+    confound the seed with the treatment. Both sides of the comparison have to
+    be run fresh under one seed, and that needs the old behaviour to still be
+    expressible.
+    """
     decay, no_decay = [], []
     for name, p in model.named_parameters():
         if not p.requires_grad:
             continue
-        # "geo" is a sparsely refreshed embedding table: decoupled decay runs
-        # on every step regardless of gradient, so leaving it here would shrink
-        # rows in proportion to how rarely their parent tile is sampled -- an
-        # occupancy bias arriving through a hyperparameter, not the mechanism.
         rare = p.ndim <= 1 or "pos" in name or "step" in name or "geo." in name
         (no_decay if rare else decay).append(p)
+    return [{"params": decay, "weight_decay": wd},
+            {"params": no_decay, "weight_decay": 0.0}]
+
+
+def param_groups(model, wd):
+    """No decay on norms, biases or embeddings.
+
+    Classified by what a tensor *is*, not by what its name contains. The rule
+    used to be `"pos" in name or "step" in name or "geo." in name`, and the
+    substring did not mean what it read as: it caught `retr.q_pos.weight` and
+    `retr.k_pos.weight`, which are `nn.Linear` projections -- the **learned
+    retrieval keys**, 196,608 parameters and 3.7% of the shipping arm, worth
+    +4.1 pp on record. So the branch `--retr-drop` exists to regularise was
+    the one branch training with no weight decay at all, unintentionally, and
+    nothing about the run said so.
+
+    The type test reproduces every exemption that was intended and no others.
+    Enumerated on the shipping arm: `nn.Embedding` catches `map.pos` (65,536)
+    and `state.step` (640), and `p.ndim <= 1` catches the 46 norms and biases
+    plus the `retr.w_pos` scalar. That is every exemption the old rule made on
+    this arm except the two retrieval projections.
+
+    Two arms change, not one. The old "geo." clause also caught `geo.q_geo`, a
+    dense `nn.Linear` evaluated on every step, which the sparse-table reason
+    below does not cover -- so it now decays too. That is 8,192 parameters on
+    the geo arms only; `GeoMem.emb` itself is an `nn.Embedding` and stays
+    exempt through the type test, so the clause is narrowed to what its own
+    justification supports rather than dropped.
+
+    The sparse-table reason still holds and is why `nn.Embedding` is exempt at
+    all: decoupled decay runs on every step regardless of gradient, so
+    decaying a table shrinks each row in proportion to how rarely its parent
+    tile is sampled -- an occupancy bias arriving through a hyperparameter
+    rather than through the mechanism.
+    """
+    sparse = {id(q) for mod in model.modules()
+              if isinstance(mod, torch.nn.Embedding)
+              for q in mod.parameters(recurse=False)}
+    decay, no_decay = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        (no_decay if p.ndim <= 1 or id(p) in sparse else decay).append(p)
     return [{"params": decay, "weight_decay": wd},
             {"params": no_decay, "weight_decay": 0.0}]
 
@@ -234,6 +281,11 @@ def build_parser():
     ap.add_argument("--limit", type=int, default=0,
                     help="train on a random N-image subset; for learning curves. "
                          "Scale --epochs inversely to hold optimizer steps fixed.")
+    ap.add_argument("--wd-legacy", action="store_true",
+                    help="restore the pre-2026-09-04 substring rule for "
+                         "weight-decay grouping, which exempted the learned "
+                         "retrieval keys. Only for measuring the change; the "
+                         "122 checkpoints on file were trained this way.")
     ap.add_argument("--seed", type=int, default=0,
                     help="seeds weight init, loader shuffling and dropout. "
                          "Without it two identical commands differed in "
@@ -511,7 +563,16 @@ def main():
     rep, total = param_report(model)
     print("\n" + rep + "\n")
 
-    opt = torch.optim.AdamW(param_groups(model, a.wd), lr=a.lr, betas=(0.9, 0.95))
+    # Named, and printed, because the grouping decides what 3.7% of this model
+    # is regularised as -- and for six months nothing said which rule was in
+    # force or that it had put the learned retrieval keys in the wrong group.
+    pg = param_groups_legacy if a.wd_legacy else param_groups
+    groups = pg(model, a.wd)
+    print("weight dec {}  {:,} decayed, {:,} exempt".format(
+        "LEGACY substring rule" if a.wd_legacy else "by module type",
+        sum(q.numel() for q in groups[0]["params"]),
+        sum(q.numel() for q in groups[1]["params"])), flush=True)
+    opt = torch.optim.AdamW(groups, lr=a.lr, betas=(0.9, 0.95))
     total_steps = max(1, a.epochs * math.ceil(len(tr) / a.batch))
     warm = min(a.warmup, max(1, total_steps // 10))
 
@@ -582,6 +643,7 @@ def main():
                   "epoch": ep, "val_loss": mva["loss"],
                   "val_km": km, "val_hit": hit, "select": a.select,
                   "sel_n": a.sel_n, "sel_k": a.sel_k, "seed": a.seed,
+                  "wd_legacy": a.wd_legacy, "wd": a.wd,
                   # Result-defining settings that used to live only in the
                   # runner's argv. Two arms trained at different learning
                   # rates were indistinguishable from their checkpoints, so
