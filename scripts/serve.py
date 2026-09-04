@@ -172,7 +172,9 @@ def _neighbours(q):
         blk = B[lo:lo + step]
         blk = blk if blk.device.type == dev else blk.to(dev, non_blocking=True)
         sims[lo:lo + step] = (qn.to(dev) @ blk.T).float().flatten().cpu()
-    return sims.topk(k)
+    # A request for more neighbours than the bank holds is a RuntimeError
+    # from torch, not a useful answer.
+    return sims.topk(min(k, sims.shape[-1]))
 
 
 @torch.no_grad()

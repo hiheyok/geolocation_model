@@ -94,7 +94,10 @@ def topk_stats(S, lat, lon, qi, bi, same):
     """(nq, nbank) similarity -> per-query top-1 error and any-of-K hit."""
     S = S.copy()
     S[same] = -2.0
-    k = min(K, S.shape[1] - 1)
+    # min(K, n) not n-1: the -1 assumed the query is inside the bank, which
+    # is only true when the two sets are the same. Here they are disjoint, so
+    # it silently dropped one legal neighbour and gave k=0 on a one-row bank.
+    k = min(K, S.shape[1])
     j = np.argpartition(-S, k, axis=1)[:, :k]
     o = np.argsort(-np.take_along_axis(S, j, 1), axis=1)
     got = np.take_along_axis(j, o, 1)
@@ -114,12 +117,20 @@ def dense_sim(Q, B, dev, block=8192):
     return out
 
 
-def set_sim(Qt, Bt, dev, block=3072):
+def set_sim(Qt, Bt, dev, block=3072, same=None):
     """Chamfer, max-max, and per-query-tile best bank row.
 
     Qt (nq, tq, d) and Bt (nb, tb, d) hold unit-ish tokens.  For a bank block
     the full (nq*tq, nb*tb) table is formed once and reduced three ways, which
     keeps the arithmetic on the GPU and the peak at a few hundred MB.
+
+    `same` (nq, nb) excludes same-sequence bank rows here rather than later.
+    The chamfer and max-max arms were masked downstream by topk_stats, but the
+    per-tile argmax feeding the oracle was not -- so the oracle could count a
+    near-duplicate frame from the query's own drive as a hit while the methods
+    it is compared against could not, and the headroom was inflated relative to
+    them. Masking before the reduction is idempotent for the other two arms,
+    which topk_stats masks again anyway.
     """
     nq, tq, d = Qt.shape
     nb, tb, _ = Bt.shape
@@ -133,6 +144,9 @@ def set_sim(Qt, Bt, dev, block=3072):
         b = torch.from_numpy(l2(Bt[s:e]).reshape((e - s) * tb, d))
         S = (q @ b.to(dev, torch.float16).T).float().view(nq, tq, e - s, tb)
         per_tile = S.amax(3)                       # (nq, tq, blk)
+        if same is not None:
+            per_tile = per_tile.masked_fill(
+                torch.from_numpy(same[:, s:e]).to(dev)[:, None, :], -2.0)
         cham[:, s:e] = per_tile.mean(1).cpu().numpy()
         mmax[:, s:e] = per_tile.amax(1).cpu().numpy()
         v, i = per_tile.max(2)                     # best bank row per query tile
@@ -203,7 +217,7 @@ def main():
         emit("{} mean".format(name),
              *topk_stats(dense_sim(pooled[:nq], pooled[nq:], dev),
                          lat, lon, qi, bi, same))
-        cham, mmax, best = set_sim(X[:nq], X[nq:], dev, a.block)
+        cham, mmax, best = set_sim(X[:nq], X[nq:], dev, a.block, same)
         emit("{} chamfer".format(name), *topk_stats(cham, lat, lon, qi, bi, same))
         emit("{} maxmax".format(name), *topk_stats(mmax, lat, lon, qi, bi, same))
 

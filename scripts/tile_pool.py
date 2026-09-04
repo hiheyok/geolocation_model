@@ -88,9 +88,12 @@ def pool(T, scheme, d_enc=768):
     elif scheme == "tnorm":
         X = l2(X)
     if scheme == "gem":
+        # The p-th root is what makes this a generalised *mean*. Without it
+        # this returned a signed third moment, which is not scale-equivalent
+        # to the inputs and is not what the arm claims to measure.
         p = 3.0
-        s = np.sign(X)
-        return (s * np.abs(X) ** p).mean(1)
+        m = (np.sign(X) * np.abs(X) ** p).mean(1)
+        return np.sign(m) * np.abs(m) ** (1.0 / p)
     return X.mean(1)
 
 

@@ -25,6 +25,22 @@ from dataset import GeoStepDataset, gather_nbr, street_table
 from model import GeoAgent, param_report
 
 
+def _map_sub(width):
+    """Sub-patch factor from a token width, refusing anything illegal.
+
+    A rounded square root accepts any width at all: 13 tokens becomes sub=1
+    and 47 becomes sub=2, both silently, and the checkpoint then describes a
+    map representation the cache does not hold.
+    """
+    sub = int(round((width / 12) ** 0.5))
+    if sub < 1 or 12 * sub * sub != width:
+        raise SystemExit(
+            "map token width {} is not 12 * sub^2 for any integer sub; the "
+            "cache and the model disagree about the map representation."
+            .format(width))
+    return sub
+
+
 def param_groups(model, wd):
     """No decay on norms, biases or embeddings."""
     decay, no_decay = [], []
@@ -342,6 +358,11 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     steps = tm.STEPS
     soft = [float(v) for v in str(a.soft).split(",")]
+    if any(v < 0 for v in soft):
+        raise SystemExit(
+            "--soft {!r} has a negative temperature. Soft labels are gated on "
+            "`> 0`, so a negative value silently trains hard cross-entropy "
+            "under a name that says otherwise.".format(a.soft))
     soft = soft * steps if len(soft) == 1 else soft
     if len(soft) != steps:
         raise SystemExit("--soft needs 1 or {} values".format(steps))
@@ -372,6 +393,11 @@ def main():
         pick = np.linspace(0, len(va) - 1, a.val_n).astype(np.int64)
         va = Subset(va, np.unique(pick).tolist())
     if a.overfit:
+        if a.overfit > len(tr):
+            raise SystemExit(
+                "--overfit {} exceeds the {} training rows available (after "
+                "--limit), so the subset would index past the end."
+                .format(a.overfit, len(tr)))
         tr = Subset(tr, list(range(a.overfit)))
         va = tr
         va_ds = None
@@ -515,9 +541,8 @@ def main():
                   "retr_mode": a.retr_mode, "d_key": a.d_key,
                   "retr_drop": a.retr_drop, "sink_k": a.sink_k,
                   "map_cache": a.map_cache,
-                  "map_sub": int(round(((tr.dataset if hasattr(tr, "dataset")
-                                         else tr).tokens.shape[-1] / 12)
-                                       ** 0.5)),
+                  "map_sub": _map_sub((tr.dataset if hasattr(tr, "dataset")
+                                       else tr).tokens.shape[-1]),
                   "retr_tau": a.retr_tau, "knn_file": knn_file,
                   "enc_gate": a.enc_gate,
                   "geo": a.geo, "d_geo": a.d_geo,
