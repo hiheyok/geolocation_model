@@ -69,6 +69,32 @@ def provenance(tag, split, dev="cpu"):
     return (ck.get("release"), mode, ck.get("split_hash"))
 
 
+def tag_of_err_cache(name):
+    """Recover the tag from an error-cache filename, stamp or not."""
+    import re
+    m = re.match(r"^(.*?)(?:_[0-9a-f]{12})?_(?:test|val|train)_\d+r_k\d+_d\d+$",
+                 name.replace(".npy", ""))
+    return m.group(1) if m else name
+
+
+def find_err_cache(tag, split="test", n=5000, beam_k=2, score_steps=3):
+    """The newest cached error array for a tag, stamped or not.
+
+    The checkpoint stamp added on 2026-09-03 changed these filenames from
+    `<tag>_<split>_...` to `<tag>_<stamp>_<split>_...`, which silently broke
+    every reader that built the old name by hand -- marathon fell back to
+    validation data, and digest parsed the stamp into the tag. One resolver so
+    the format is written down once.
+    """
+    tail = "{}_{}r_k{}_d{}.npy".format(split, n, beam_k, score_steps)
+    # The glob's `*` also matches the empty string, so it already covers the
+    # pre-stamp layout. Appending that path after the sort, as the first
+    # version did, made the oldest file win every time.
+    hits = list(CACHE.glob("{}_*{}".format(tag, tail)))
+    hits = [h for h in hits if tag_of_err_cache(h.name) == tag]
+    return max(hits, key=lambda p: p.stat().st_mtime) if hits else None
+
+
 def errors_for(tag, split, n, beam_k, score_steps, dev, source,
                retr_off=False):
     """Per-image great-circle error, cached by (tag+checkpoint, split, n, k, depth)."""

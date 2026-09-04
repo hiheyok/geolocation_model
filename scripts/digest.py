@@ -30,7 +30,8 @@ OUT = RUNS / "FINAL.md"
 def arm_rows():
     rows = []
     for p in sorted(ERRS.glob("*_test_5000r_k2_d3.npy")):
-        tag = p.name.replace("_test_5000r_k2_d3.npy", "")
+        from bootstrap import tag_of_err_cache
+        tag = tag_of_err_cache(p.name)
         e = np.load(p)
         meta = {}
         ck = config.CHECKPOINTS / (tag + ".pt")

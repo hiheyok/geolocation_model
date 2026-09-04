@@ -257,6 +257,10 @@ def run_stage(st, state, deadline):
         if rc == 0:
             st.marker().write_text("{:.0f}s\n".format(el), encoding="utf-8")
             state["done"][st.name] = {"secs": el, "at": hhmm(now())}
+            # A retry that succeeds must clear the earlier failure, or the
+            # summary reports the stage as both done and failed and the
+            # failure count never falls.
+            state["failed"].pop(st.name, None)
             save_state(state)
             log("ok     {}  {:.1f} min   {}".format(
                 st.name, el / 60, SAMPLER.summary(st.name) if SAMPLER else ""))
