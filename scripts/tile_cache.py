@@ -94,6 +94,45 @@ def tile_uint8(blob, gc, gr):
     return out
 
 
+def check_resume(meta, want_grid, want_src, stem, explicit_src):
+    """Refuse to extend a cache that was built to different terms.
+
+    A resume writes new rows into an existing memmap and keeps the old ones, so
+    both halves have to mean the same thing.  Two ways they silently do not:
+
+    * **grid** -- 3x2 and 2x3 both hold six tiles, so a cache built as one and
+      resumed as the other passes every count-based check downstream while the
+      tokens are transposed.  The geometry has to be compared, not the product.
+    * **row source** -- `rows` holds *indices into an image list*.  Resume a
+      release cache against `bank_ext.parquet` and index 41,000 addresses a
+      different photograph in each half.  Shapes agree, the mask agrees, and
+      every row is a real embedding of a real image.
+
+    `explicit_src` is what keeps the second check from failing open.  Metadata
+    written before `rows_parquet` existed can only describe a release cache --
+    there was no other way to build one -- so a default-source run may resume
+    it.  A `--parquet` run may not: that is the exact case the field was added
+    to catch, and reading silence as agreement would let it straight through.
+    """
+    had = tuple(int(v) for v in meta["grid"]) if "grid" in meta.files else None
+    if had is not None and had != tuple(want_grid):
+        raise SystemExit(
+            "cache {} was built at grid {}x{} and this run wants {}x{}; "
+            "both hold {} tiles, so nothing downstream would notice. "
+            "Delete it or use --out.".format(
+                stem, had[0], had[1], want_grid[0], want_grid[1],
+                had[0] * had[1]))
+    src = (str(meta["rows_parquet"]) if "rows_parquet" in meta.files
+           else (None if explicit_src else config.DATASET_PARQUET.name))
+    if src != want_src:
+        raise SystemExit(
+            "cache {} was built over {} and this run wants {}; `rows` is "
+            "indices into that list, so resuming would mix two row spaces. "
+            "Delete it or use --out.".format(
+                stem, src or "an unrecorded image list (it pre-dates "
+                "--parquet, so it is a release cache)", want_src))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=120000,
@@ -113,8 +152,27 @@ def main():
                          "it if RAM is tighter than a 2.5 GB shard.")
     ap.set_defaults(preload=True)
     ap.add_argument("--out", default=None, help="stem, default tile{n_tiles}")
+    ap.add_argument("--parquet", default=None,
+                    help="image list to tile instead of the release's "
+                         "dataset.parquet; needs zip_name. This is how the "
+                         "3M-row bank extension gets tiled: build_bank_ext.py "
+                         "writes bank_ext{,2,3,4}.parquet with zip_name "
+                         "already materialised, in the same row order as "
+                         "bank_ext70_meta.npz.")
     ap.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+
+    # Same guard embed_street.py carries, for the same reason. `tile6` is the
+    # release cache every pyramid number on record was measured against, and a
+    # run over a different image list is not that cache: without --out it would
+    # leave a file of the right name and the wrong rows, and `sel` -- which is
+    # indices into whatever list was read -- would silently address the wrong
+    # images. The row space is not recoverable from the file afterwards.
+    if a.parquet and not a.out:
+        raise SystemExit(
+            "--parquet tiles a different image list than the release, but "
+            "there is no --out, so it would overwrite the release's own tile "
+            "cache in place. Name it: --out <stem>.")
 
     import pyarrow.parquet as pq
     import timm
@@ -125,6 +183,7 @@ def main():
     # as the other and every count-based check passes. The geometry has to be
     # compared, not the product.
     _want_grid = (gc, gr)
+    _want_src = a.parquet or config.DATASET_PARQUET.name
     n_tile = gc * gr
     stem = a.out or "tile{}".format(n_tile)
     emb_p = config.STREET_CACHE / (stem + ".f16.npy")
@@ -132,17 +191,11 @@ def main():
     done_p = config.STREET_CACHE / (stem + "_done.u8.npy")
     meta_p = config.STREET_CACHE / (stem + "_meta.npz")
     if meta_p.exists():
-        _m = np.load(meta_p, allow_pickle=True)
-        _had = tuple(int(v) for v in _m["grid"]) if "grid" in _m.files else None
-        if _had is not None and _had != _want_grid:
-            raise SystemExit(
-                "cache {} was built at grid {}x{} and this run wants {}x{}; "
-                "both hold {} tiles, so nothing downstream would notice. "
-                "Delete it or use --out.".format(
-                    stem, _had[0], _had[1], _want_grid[0], _want_grid[1],
-                    _had[0] * _had[1]))
+        check_resume(np.load(meta_p, allow_pickle=True), _want_grid,
+                     _want_src, stem, explicit_src=bool(a.parquet))
 
-    zn = np.asarray(pq.read_table(config.DATASET_PARQUET,
+    rows_src = config.PROCESSED / a.parquet if a.parquet else config.DATASET_PARQUET
+    zn = np.asarray(pq.read_table(rows_src,
                                   columns=["zip_name"])["zip_name"]).astype("U40")
     n = min(a.n, len(zn))
     sel = np.sort(np.random.default_rng(a.seed).permutation(len(zn))[:n])
@@ -198,7 +251,8 @@ def main():
                 "and rebuild.".format(n - maskio.complete(done), n, done_p.name))
         np.savez(meta_p, release=config.RELEASE, grid=np.array([gc, gr]),
                  tile_px=S, encoders=np.array([DINO, SIGLIP]), seed=a.seed,
-                 n=n, layout="(n, n_tiles, dino768|siglip768)")
+                 n=n, layout="(n, n_tiles, dino768|siglip768)",
+                 rows_parquet=_want_src)
         print("nothing to do; {:,} rows verified complete, metadata rewritten"
               .format(n), flush=True)
         return
@@ -299,7 +353,7 @@ def main():
     el = time.time() - t0
     np.savez(meta_p, release=config.RELEASE, grid=np.array([gc, gr]),
              tile_px=S, encoders=np.array([DINO, SIGLIP]), seed=a.seed, n=n,
-             layout="(n, n_tiles, dino768|siglip768)")
+             layout="(n, n_tiles, dino768|siglip768)", rows_parquet=_want_src)
     print("\nembedded {:,} in {:.0f}s ({:.1f} ms/img), {} unreadable".format(
         state["done"], el, 1000 * el / max(state["done"], 1), state["bad"]),
         flush=True)
