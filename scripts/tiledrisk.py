@@ -118,8 +118,15 @@ def main():
                 len(plan) - plan.index(st)))
             break
         run_stage(st, state, deadline)
-    O.SAMPLER.stop()
-    log("tiledrisk done")
+    # `Sampler` exposes a `stop_flag` Event, not a `stop()` method. Calling the
+    # method that does not exist raised AFTER every stage had finished, so no
+    # result was lost -- but the script died on a traceback instead of logging
+    # its completion line, and the monitor watching for that line never fired.
+    # Nobody read the result for six hours and the GPU sat idle. A completion
+    # signal that only appears on the happy path is not a completion signal.
+    O.SAMPLER.stop_flag.set()
+    log("{} done. {} stages recorded, {} failed".format(
+        "tiledrisk", len(state["done"]), len(state["failed"])))
 
 
 if __name__ == "__main__":

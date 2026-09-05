@@ -64,20 +64,39 @@ EXT_PQ = "bank_ext.parquet"
 EXT_TILES = "tile6_ext"
 EXT_ROWS = 750000
 
-# arm -> (release 1536-d cache, extension 1536-d cache, tile stem or None)
+# Arm names say what is in the vector.
+#
+#   L0    = 3 full-height crops @224, mean-pooled per encoder      (incumbent)
+#   L1    = the 3x2 grid of 224 tiles, pooled the same way
+#   L0L1  = l2((L0 + L1) / 2), the equal blend
+#
+# The 400,180-row run that preceded this called the blend "MIX", which says a
+# mixture happened but not of what or in what proportion. Its artifacts keep
+# that name because three checkpoints record `pyr768_mix.f16.npy` and
+# `knn_pyr768_mix_...` as literal strings, and those strings are what
+# `knnmeta.check` and `GeoStepDataset` compare -- renaming the caches would
+# make every one of them refuse to load, and editing a checkpoint's recorded
+# provenance to match a rename is the laundering pattern REVIEW4 #2 is about.
+# So: `pyrMIX` == `pyrL0L1`, and only the new artifacts get the honest name.
+#
+# arm -> (release 1536-d cache, extension 1536-d cache, tile stem, out prefix)
 ARMS = {
-    "pyrL0": ("pyr_l0", "pyr_l0_ext", None),
-    "pyrMIX": ("pyr_mix", "pyr_mix_ext", EXT_TILES),
+    "pyrL0": ("pyr_l0", "pyr_l0_ext", None, "pyr_l0"),
+    "pyrL0L1": ("pyr_mix", "pyr_l0l1_ext", EXT_TILES, "pyr_l0l1"),
 }
-LADDER = {n: ["{}115-e{}".format(n, e) for e in (2, 4, 6)] for n in ARMS}
+BASIS = {"pyrL0": "pyr768_l0_pca.npz", "pyrL0L1": "pyr768_mix_pca.npz"}
+LADDER = {n: ["{}-b115-e{}".format(n, e) for e in (2, 4, 6)]
+          for n in ARMS}
 
 
 def stacked(arm):
-    return "{}_b115".format(ARMS[arm][0])
+    return "{}_b115".format(ARMS[arm][3])
 
 
 def projected(arm):
-    return "{}768_b115.f16.npy".format(arm.lower())
+    # Matches the 400k caches' shape, `pyr768_l0.f16.npy`, with the bank size
+    # appended: pyr768_l0_b115.f16.npy, pyr768_l0l1_b115.f16.npy.
+    return "pyr768_{}_b115.f16.npy".format(ARMS[arm][3].split("_", 1)[1])
 
 
 def rung(tag, street, init):
@@ -123,7 +142,7 @@ def main():
     # share one basis, so the paired contrast -- the only thing being claimed
     # -- is unaffected; the levels are slightly optimistic.
     for arm, street in (("pyrL0", "pyr768_l0.f16.npy"),
-                        ("pyrMIX", "pyr768_mix.f16.npy")):
+                        ("pyrL0L1", "pyr768_mix.f16.npy")):
         plan.append(Stage(
             "tilebig-knn-cell8-" + arm,
             ["scripts/build_knn.py", "--street-file", street,
@@ -143,7 +162,7 @@ def main():
                "--out", EXT_TILES, "--n", str(EXT_ROWS), "--grid", "3x2"],
               release=REL, est=4 * 3600, retries=2, critical=True),
     ]
-    for arm, (rel_c, ext_c, tstem) in ARMS.items():
+    for arm, (rel_c, ext_c, tstem, _pfx) in ARMS.items():
         pool = ["scripts/pool_pyramid.py", "--src", "bank_ext_dual.f16.npy",
                 "--out", ext_c + ".f16.npy"]
         if tstem:
@@ -163,8 +182,7 @@ def main():
             "tilebig-proj-" + arm,
             ["scripts/project_street.py", "--src", stacked(arm) + ".f16.npy",
              "--out", projected(arm), "--dim", "768",
-             "--basis", "pyr768_{}_pca.npz".format(
-                 "l0" if arm == "pyrL0" else "mix")],
+             "--basis", BASIS[arm]],
             release=REL, est=10 * 60, retries=2, critical=True))
         plan.append(Stage(
             "tilebig-knn-" + arm,
@@ -178,7 +196,8 @@ def main():
         "tilebig-knngap",
         ["scripts/knn_gap.py",
          "--a", config.knn_name(projected("pyrL0"), "sequence", ext="bank_ext"),
-         "--b", config.knn_name(projected("pyrMIX"), "sequence", ext="bank_ext"),
+         "--b", config.knn_name(projected("pyrL0L1"), "sequence",
+                                ext="bank_ext"),
          "--ranks", "1,16,32"],
         release=REL, est=5 * 60, retries=1))
     # Interleaved, so a window that closes early leaves a comparable pair.
@@ -203,8 +222,15 @@ def main():
                 len(plan) - plan.index(st)))
             break
         run_stage(st, state, deadline)
-    O.SAMPLER.stop()
-    log("tilebig done")
+    # `Sampler` exposes a `stop_flag` Event, not a `stop()` method. Calling the
+    # method that does not exist raised AFTER every stage had finished, so no
+    # result was lost -- but the script died on a traceback instead of logging
+    # its completion line, and the monitor watching for that line never fired.
+    # Nobody read the result for six hours and the GPU sat idle. A completion
+    # signal that only appears on the happy path is not a completion signal.
+    O.SAMPLER.stop_flag.set()
+    log("{} done. {} stages recorded, {} failed".format(
+        "tilebig", len(state["done"]), len(state["failed"])))
 
 
 if __name__ == "__main__":
