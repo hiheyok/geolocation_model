@@ -48,6 +48,7 @@ measure the wrong thing; a person photographing their surroundings turns around.
 import argparse
 import json
 import os
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -205,6 +206,36 @@ def build_groups(lat, lon, seq, radius, need, want, seed, how):
     return groups
 
 
+def query_stamp(data, pick):
+    """Fingerprint everything that decides what the cached query vectors mean.
+
+    Not just which images they came from: a different image root, PCA basis,
+    encoder scale or release produces different embeddings for the same ids,
+    and the cache used to hand them back as if they matched.
+
+    The manifest stamp covers the *list*, not the pixels. Replacing, correcting
+    or re-downloading an image under the same manifest left the build looking
+    identical, so the old embedding came back although a fresh run would read
+    different pixels -- and because the ids and coordinates are unchanged, none
+    of the cache's other checks could tell. REVIEW4 #21.
+
+    So one stat per selected image, aggregated in `pick` order, using the same
+    size-and-mtime convention `file_stamp` uses everywhere else. That catches a
+    replaced or re-downloaded file, which is the failure being guarded. It
+    would not catch a byte-identical rewrite with a preserved mtime, and
+    hashing 5,000 JPEGs on every cache lookup to close that is the wrong trade
+    for an accidental-rebuild guard.
+    """
+    h = hashlib.sha256()
+    for i in pick:
+        h.update(safeio.file_stamp(Path(data) / "img" / (i + ".jpg")).encode())
+        h.update(b"|")
+    return "{}|{}|{}|{}|{}|{}|{}".format(
+        data, safeio.file_stamp(Path(data) / "manifest.jsonl"),
+        BASIS, safeio.file_stamp(config.STREET_CACHE / BASIS),
+        SIGLIP_SCALE, config.RELEASE, h.hexdigest()[:16])
+
+
 def cached_queries(data, pick, dev, stem):
     """Embed once, reuse. Three separate runs re-embedded the same images."""
     p = config.STREET_CACHE / (stem + ".f16.npy")
@@ -221,18 +252,16 @@ def cached_queries(data, pick, dev, stem):
     # mean, not its filename. Rebuilding the PCA basis or replacing the images
     # under the same path used to leave the cache valid, so the run silently
     # mixed vectors from two different bases.
-    stamp = "{}|{}|{}|{}|{}|{}".format(
-        data, safeio.file_stamp(Path(data) / "manifest.jsonl"),
-        BASIS, safeio.file_stamp(config.STREET_CACHE / BASIS),
-        SIGLIP_SCALE, config.RELEASE)
+    stamp = query_stamp(data, pick)
     if p.exists() and q.exists():
         m = np.load(q, allow_pickle=True)
         same_build = str(m["stamp"]) == stamp if "stamp" in m.files else False
         if not same_build:
             # Say it. A silent re-embed of 5,000 images looks like a slow run,
             # and the reason it is re-embedding is the thing worth knowing.
-            print("query cache was built under a different basis, image root "
-                  "or release; re-embedding", flush=True)
+            print("query cache was built under a different basis, image "
+                  "root, release, or set of image files; re-embedding",
+                  flush=True)
         if (same_build and len(m["image_id"]) == len(pick)
                 and (m["image_id"] == np.array(pick)).all()):
             print("reusing cached query embeddings, {:,}".format(len(pick)),
