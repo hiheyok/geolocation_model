@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import knnmeta
 import provenance as prov
 import splits as sp
 import tile_math as tm
@@ -74,13 +75,22 @@ def load_everything(tag, dev, bank_gpu):
     knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
     if "bank_rows" in knn:
-        rows = knn["bank_rows"]
         # provenance.bank_ext, not a bare np.load: check_split above
         # validates the checkpoint against the release, but the extension
         # metadata is a separately replaceable file, and a mismatched one
         # attaches another release's z16 addresses to valid bank rows --
         # plausible coordinates, wrong place, nothing to notice it.
         m = prov.bank_ext(ext, config.RELEASE) if ext else None
+        # Validated rather than read: the server had no check on this file at
+        # all, so a stale or replaced cache of the right name selected a
+        # different bank while serving carried on normally, and a negative row
+        # wrapped to the end instead of being refused. REVIEW4 #14. The bound
+        # is release + extension, not the release alone -- bank rows run past
+        # len(labels) whenever there is an extension, which is what the n_ext
+        # count below is counting.
+        rows = knnmeta.bank_rows(
+            knn, len(labels) + (len(m["x16"]) if m is not None else 0),
+            ck["knn_file"])
     else:
         from build_knn import bank_rows_for
         rows, m = bank_rows_for(ds, labels, mode, ext or None)

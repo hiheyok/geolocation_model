@@ -19,6 +19,47 @@ below. Findings are ordered by impact, not by file.
 
 > **Triage, 2026-09-04 13:45.** Read this before working the list.
 >
+> **UPDATE 2026-09-05 05:05. 11 fixed: #3, #4, #5, #11, #12, #14, #17, #19,
+> #20, #21, and half of #1.**
+>
+> **#19 fixed.** `tile_cache` now digests the ids at the rows it covers, in
+> cache order, and re-derives that from the current list on every resume;
+> `pool_pyramid` re-checks it on consumption, reading the parquet the metadata
+> names, because a digest that is written and never read is not a guard.
+> Missing metadata is reported and allowed rather than refused -- `tile6`
+> predates both fields and holds 500,000 finished rows -- but never treated as
+> agreement. The regression the review asks for is in both places: reorder a
+> same-length synthetic dataset, keep the cache files, require resume *and*
+> consumption to fail. `tests/test_tile_rows_parquet.py`,
+> `tests/test_pool_pyramid.py`; 445 pass.
+>
+> **#14 fixed, and it carries most of #1.** `src/knnmeta.py` is the shared
+> validator the review asks for, wired into `serve.py`, `eval_highres.py` and
+> `multiquery.py`. It adds two checks nothing had: a negative `bank_rows` entry
+> wrapped to the end of the bank instead of being refused, and the cache's
+> `bank_ext` is now compared against the street file's recorded extensions --
+> **by ordered id digest, not by name**, because a bank recording four stems
+> and a cache naming the combined `bank_ext70` are the same corpus and a name
+> comparison would reject production. Verified against live artifacts.
+> `tests/test_knnmeta.py`, 18 cases.
+>
+> **#21 fixed.** The query cache now aggregates one `file_stamp` per *selected*
+> image into its stamp, so replacing a JPEG under an unchanged manifest
+> re-embeds. The size-and-mtime blind spot is pinned by its own test rather
+> than papered over. `tests/test_query_stamp.py`, 9 cases. 475 pass.
+>
+> **#1 half done. The remaining half is blocked until the current chain
+> finishes.**
+> `knnmeta.check_ext` implements the comparison, but `src/dataset.py` does not
+> yet call it --
+> `src/dataset.py:139` validates the *street file's* extension list through
+> `prov.exts_of`, and `:314` reads the *k-NN cache's* `bank_ext`. Grep confirms
+> the two are never compared, so the review's scenario stands exactly as
+> written. It is directly on the path `scripts/tilebig.py` takes
+> (`build_knn --bank-ext`), so it is next. `src/dataset.py` is imported by the
+> training chain running now, and editing a file mid-chain is what voided
+> `seqfix2`; the fix lands in the tiling window, hours before any rung starts.
+>
 > **7 fixed so far: #3, #4, #5, #11, #12, #17, #20** (`[x]` below). All are in
 > files the running chain does not import. It guards the KartaView benchmark, which is
 > the selection benchmark and which `seqfix3` is about to measure against, so
@@ -359,7 +400,7 @@ artifact, and prove consumers reject the mixed generation.
 
 ## Medium severity
 
-### 14. Serving and external evaluators bypass the k-NN cache checks used by the dataset
+### 14. `[x]` Serving and external evaluators bypass the k-NN cache checks used by the dataset
 
 `GeoStepDataset` validates a k-NN cache's split mode/hash, street filename,
 query count, width, and neighbour range before use. The direct consumers do
@@ -472,7 +513,7 @@ The loader should require each image's step vector to equal
 by that verified order. A test should permute rows only within each image and
 require both training and serving loaders to refuse the file.
 
-### 19. `tile_cache` resume identity is numeric row position, not image identity
+### 19. `[x]` `tile_cache` resume identity is numeric row position, not image identity
 
 [`tile_cache.py:144-178`](../scripts/tile_cache.py#L144) derives a seeded set of
 dataset row numbers and stores only those integers. On resume it proves merely
@@ -517,7 +558,7 @@ is append-stable but produces a variable count; selecting the lowest fixed `n`
 cannot provide both properties. Tests should append low-hash IDs and assert the
 declared protocol does not silently change its cohort.
 
-### 21. Multiquery cache invalidation fingerprints the manifest but not the image bytes
+### 21. `[x]` Multiquery cache invalidation fingerprints the manifest but not the image bytes
 
 The stamp in [`multiquery.py:219-240`](../scripts/multiquery.py#L219) includes
 the data path, manifest file stamp, PCA basis, scale, and release. It does not

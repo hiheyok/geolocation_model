@@ -68,6 +68,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
 import maskio
+import provenance as prov
 from embed_street import slurp
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
@@ -133,6 +134,43 @@ def check_resume(meta, want_grid, want_src, stem, explicit_src):
                 "--parquet, so it is a release cache)", want_src))
 
 
+def check_rows_identity(meta, rows_old, ids_now, stem):
+    """Do the rows this cache already holds still name the same photographs?
+
+    `rows` is a set of *positions* in an image list. Positions are not identity:
+    rebuild or reorder the list at the same length and the seeded selection is
+    numerically identical, every old tile embedding is retained, and each one
+    now sits under a row that names a different photograph. The completion mask
+    proves some tensor was written, never whose.
+
+    Nothing downstream can catch it. `pool_pyramid` and `fuse_head` read current
+    coordinates, split labels and crop embeddings at `sel` and pair them with
+    the tile embeddings at the matching cache positions -- so every row is a
+    real image's crops beside another image's tiles, at the right shape, with a
+    complete mask. REVIEW4 #19.
+
+    So the digest is taken over the ids at the rows the cache covers, in cache
+    order, and re-derived from the current list on every resume. A cache with no
+    recorded digest predates the field: it is reported and allowed, because
+    refusing would strand `tile6` and its 500,000 finished rows, but it is
+    never treated as agreement.
+    """
+    if "rows_digest" not in meta.files:
+        print("warning: {} records no rows digest (it predates the field), so "
+              "its {:,} existing rows cannot be shown to still name the images "
+              "they were embedded from".format(stem, len(rows_old)), flush=True)
+        return
+    want = str(meta["rows_digest"])
+    got = prov.rows_digest(ids_now[rows_old])
+    if got != want:
+        raise SystemExit(
+            "{} covers {:,} rows whose image ids no longer match what it was "
+            "built from ({} now, {} recorded). The row numbers are the same, "
+            "so every count and every mask still agrees -- the images behind "
+            "them changed. Delete the cache and rebuild it."
+            .format(stem, len(rows_old), got, want))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=120000,
@@ -195,8 +233,9 @@ def main():
                      _want_src, stem, explicit_src=bool(a.parquet))
 
     rows_src = config.PROCESSED / a.parquet if a.parquet else config.DATASET_PARQUET
-    zn = np.asarray(pq.read_table(rows_src,
-                                  columns=["zip_name"])["zip_name"]).astype("U40")
+    _src_tbl = pq.read_table(rows_src, columns=["zip_name", "image_id"])
+    zn = np.asarray(_src_tbl["zip_name"]).astype("U40")
+    ids_now = np.asarray(_src_tbl["image_id"])
     n = min(a.n, len(zn))
     sel = np.sort(np.random.default_rng(a.seed).permutation(len(zn))[:n])
 
@@ -205,6 +244,9 @@ def main():
     # larger --n at the same seed, and which is checked rather than assumed.
     if rows_p.exists():
         old = np.load(rows_p)
+        if meta_p.exists():
+            check_rows_identity(np.load(meta_p, allow_pickle=True), old,
+                                ids_now, stem)
         if not np.isin(old, sel, assume_unique=True).all():
             sys.exit("existing {} is not a subset of the new selection; "
                      "delete it or use a different --out".format(rows_p.name))
@@ -252,7 +294,8 @@ def main():
         np.savez(meta_p, release=config.RELEASE, grid=np.array([gc, gr]),
                  tile_px=S, encoders=np.array([DINO, SIGLIP]), seed=a.seed,
                  n=n, layout="(n, n_tiles, dino768|siglip768)",
-                 rows_parquet=_want_src)
+                 rows_parquet=_want_src,
+                 rows_digest=prov.rows_digest(ids_now[sel]))
         print("nothing to do; {:,} rows verified complete, metadata rewritten"
               .format(n), flush=True)
         return
@@ -353,7 +396,8 @@ def main():
     el = time.time() - t0
     np.savez(meta_p, release=config.RELEASE, grid=np.array([gc, gr]),
              tile_px=S, encoders=np.array([DINO, SIGLIP]), seed=a.seed, n=n,
-             layout="(n, n_tiles, dino768|siglip768)", rows_parquet=_want_src)
+             layout="(n, n_tiles, dino768|siglip768)", rows_parquet=_want_src,
+             rows_digest=prov.rows_digest(ids_now[sel]))
     print("\nembedded {:,} in {:.0f}s ({:.1f} ms/img), {} unreadable".format(
         state["done"], el, 1000 * el / max(state["done"], 1), state["bad"]),
         flush=True)
