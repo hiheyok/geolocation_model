@@ -64,6 +64,12 @@ def main():
     ap.add_argument("--ranks", default="1,32",
                     help="comma-separated: top-1, and any-of-k")
     ap.add_argument("--split-mode", default="sequence")
+    ap.add_argument("--flows", action="store_true",
+                    help="split each net gain into the queries it wins and "
+                         "the ones it loses. A net figure cannot tell a small "
+                         "consistent shift from the residue of two large "
+                         "opposing flows, and those imply very different "
+                         "things about whether an agent can use the change.")
     a = ap.parse_args()
 
     ds = pq.read_table(config.DATASET_PARQUET)
@@ -105,6 +111,31 @@ def main():
                 100 * ((err[a.b] < t).mean() - (err[a.a] < t).mean()),
                 lo, hi, " " if lo * hi > 0 else "~"))
         print("%-34s %9s %s\n" % ("b - a", "", " ".join(cells)))
+
+    if a.flows:
+        for ranks in (int(r) for r in a.ranks.split(",")):
+            ea, _ = load(a.a, lat, lon, te, ranks)
+            eb, _ = load(a.b, lat, lon, te, ranks)
+            print("--- flows, any-of-{} ---".format(ranks))
+            for t in THRESH[:3]:
+                ha, hb = ea < t, eb < t
+                win, loss = int((~ha & hb).sum()), int((ha & ~hb).sum())
+                n = len(te)
+                print("  <{:>4g} km  won {:>6,} ({:.2f}%)  lost {:>6,} "
+                      "({:.2f}%)  net {:+.2f} pp  ratio {:.2f}x".format(
+                          t, win, 100 * win / n, loss, 100 * loss / n,
+                          100 * (win - loss) / n, win / max(loss, 1)))
+            moved = (ea >= 25) & (eb < 25)
+            if moved.any():
+                # Are the wins rescues or refinements? A representation that
+                # rescues 6,000 km errors is doing something different from one
+                # that nudges 30 km errors under the line, and only the second
+                # is what "finer features" is usually taken to mean.
+                print("  of the {:,} queries crossing 25 km, the baseline's "
+                      "error was median {:,.0f} km, p90 {:,.0f} km".format(
+                          int(moved.sum()), float(np.median(ea[moved])),
+                          float(np.percentile(ea[moved], 90))))
+            print()
 
     print("~ spans zero. {:,} bank rows, same rows in both tables."
           .format(int(za["bank_n"])))
