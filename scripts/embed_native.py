@@ -18,10 +18,20 @@ The model's conditioning input is compared to nothing, so nothing constrains it
 to match a bank -- and it has only ever been fed 224-derived vectors.
 
     DINOv2 /14 at 518   its exact training resolution
-    SigLIP /16 at 512   the frame's own pixel height, no resampling
+    SigLIP /16 at 512   `..._siglip_512.v2_webli`, trained at 512
 
 against the 224 the pipeline has always forced -- 44% of linear resolution,
 ~80% of pixels discarded.
+
+**Both encoders are checkpoints actually trained at these sizes.** The obvious
+mistake here, and one I made first, is to keep the shipping
+`vit_base_patch16_siglip_224.v2_webli` and pass `img_size=512`: timm accepts it
+and interpolates the position embeddings, so it runs and produces plausible
+vectors from a model that has never seen a 32x32 token grid. That is not native
+resolution, it is a 224 model extrapolating, and calling it native would make
+any null result unreadable -- "more pixels do not help" and "this checkpoint
+cannot use them" look identical. timm ships a real 512 variant of the same
+family and the same v2_webli weights, so there is no reason to interpolate.
 
 **bf16 weights and torch.compile are used here and that is deliberate.**
 `runs/TILEBENCH.md` rejected them for extending `tile6` because they move the
@@ -66,12 +76,56 @@ from embed_street import slurp, preprocess       # noqa: E402
 # are joined. Forcing a shared size means a multiple of lcm(14,16)=112, which
 # lands on 448 -- 14% below DINOv2's grid and an upsample for SigLIP.
 ENCODERS = [("vit_base_patch14_dinov2.lvd142m", 14, 518),
-            ("vit_base_patch16_siglip_224.v2_webli", 16, 512)]
+            ("vit_base_patch16_siglip_512.v2_webli", 16, 512)]
 D_ENC = 768
 
 
 def nrm(t):
     return t / t.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+
+
+def settings(a, ids):
+    """Everything that decides what a row of this cache contains."""
+    return {"rows_parquet": (a.parquet or config.DATASET_PARQUET.name),
+            "rows_digest": prov.rows_digest(ids),
+            "crops": str(a.crops),
+            "encoders": ",".join(e[0] for e in ENCODERS),
+            "sizes": ",".join(str(e[2]) for e in ENCODERS)}
+
+
+def check_resume(meta, want, stem):
+    """Refuse to keep rows that were built to different terms.
+
+    A resume retains every row the mask marks done and fills only the rest, so
+    the retained rows have to mean what this run means. The shape cannot say:
+    every encoder is mean-pooled to 768 regardless of crop count, so a 3-crop
+    and a 5-crop cache are both (n, 1536), and any same-length image list gives
+    the same n.
+
+    Two silent corruptions that closes. Re-using `--out` with a different
+    same-length `--parquet` keeps completed rows from the *old* image list and
+    fills the rest from the new one -- one cache, two corpora, a valid binary
+    mask. And re-using it with a different `--crops` returns "nothing to do"
+    when the mask is full, so the requested representation is never built and
+    the stale one is served under its name.
+
+    Metadata is written before the first forward for exactly this reason: if it
+    were only written on success, an interrupted run -- the one case resume
+    exists for -- would have nothing to check against.
+    """
+    if meta is None:
+        raise SystemExit(
+            "{} exists but has no metadata, so what its finished rows contain "
+            "cannot be established. It predates this check or its run was "
+            "killed before writing one. Delete it and rebuild.".format(stem))
+    for k, v in sorted(want.items()):
+        had = str(meta[k]) if k in meta.files else None
+        if had != v:
+            raise SystemExit(
+                "{} was built with {}={} and this run wants {}. Resuming would "
+                "keep the finished rows on the old terms and fill the rest on "
+                "the new ones, in one cache with a valid mask. Delete it or "
+                "use --out.".format(stem, k, had, v))
 
 
 def main():
@@ -109,18 +163,27 @@ def main():
     done_p = config.STREET_CACHE / (a.out + "_done.u8.npy")
     meta_p = config.STREET_CACHE / (a.out + "_meta.npz")
     d_out = 2 * D_ENC
+    want = settings(a, ids)
     if emb_p.exists():
         E = np.lib.format.open_memmap(emb_p, mode="r+")
         if E.shape != (n, d_out):
             raise SystemExit("{} is {} and this run wants {}; delete it or "
                              "use --out".format(emb_p.name, E.shape,
                                                 (n, d_out)))
+        check_resume(np.load(meta_p, allow_pickle=True) if meta_p.exists()
+                     else None, want, a.out)
         done = maskio.load_mask(done_p, n, a.out)
     else:
         E = np.lib.format.open_memmap(emb_p, mode="w+", dtype=np.float16,
                                       shape=(n, d_out))
         done = np.zeros(n, np.uint8)
     np.save(done_p, done)
+    # Published before the first forward, not after the last: the metadata is
+    # what a resume checks against, and a run that only writes it on success
+    # leaves the interrupted case -- the only case resume is for -- unverifiable.
+    np.savez(meta_p, release=config.RELEASE, complete=False,
+             layout="(n, dino768|siglip768) native-res crop mean, CONDITIONING "
+                    "ONLY -- never a retrieval bank", **want)
     todo = np.flatnonzero(done != 1)
     print("{}  {:,} rows, {:,} to embed, {:.2f} GB".format(
         a.out, n, len(todo), E.nbytes / 1e9), flush=True)
@@ -205,13 +268,9 @@ def main():
     np.save(done_p, done)
     if not maskio.is_complete(done, n):
         raise SystemExit("{:,} rows unfilled".format(n - maskio.complete(done)))
-    np.savez(meta_p, release=config.RELEASE, crops=a.crops,
-             encoders=np.array([e[0] for e in ENCODERS]),
-             sizes=np.array([e[2] for e in ENCODERS]),
-             rows_parquet=(a.parquet or config.DATASET_PARQUET.name),
-             rows_digest=prov.rows_digest(ids),
+    np.savez(meta_p, release=config.RELEASE, complete=True,
              layout="(n, dino768|siglip768) native-res crop mean, CONDITIONING "
-                    "ONLY -- never a retrieval bank")
+                    "ONLY -- never a retrieval bank", **want)
     prov.write(emb_p, ids, release=config.RELEASE,
                row_space=("the release" if not a.parquet
                           else "the rows of " + a.parquet),

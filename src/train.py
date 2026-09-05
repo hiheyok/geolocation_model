@@ -407,6 +407,45 @@ def build_parser():
     return ap
 
 
+# Parameters that a source checkpoint may legitimately lack. Each is
+# zero-initialised, so absent from the source it is exactly the identity and
+# this architecture is a strict superset of that one -- the older checkpoint
+# transfers without loss. Anything else missing is a real mismatch.
+ADDITIVE = {
+    "street.gate", "geo.emb.weight", "geo.gate",
+    "geo.q_geo.weight", "geo.q_geo.bias",
+    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is exactly this
+    # architecture with the extras switched off
+    "sink_ext", "sink_ext_b", "sink_ext_g",
+    # the conditioning adapter: cond_gate is zero, so the whole block
+    # contributes nothing until trained and an unconditioned checkpoint loads
+    # bit-identically. Without these listed here the adapter's own intended
+    # command -- fine-tune the incumbent on a conditioned cache -- exits as an
+    # architecture mismatch, which is what REVIEW5 #6 caught. The unit test
+    # passed because it called load_state_dict directly and never came through
+    # this filter; test_cond_adapter now calls init_from itself.
+    "street.cond_gate", "street.cond_proj.weight", "street.cond_proj.bias",
+    "street.cond_norm.weight", "street.cond_norm.bias",
+}
+
+
+def init_from(model, state, tag):
+    """Load a source checkpoint into `model`, allowing only additive gaps.
+
+    The one place `--init` compatibility is decided, so a test can exercise the
+    real policy rather than PyTorch's raw loader.
+    """
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    missing = [k for k in missing if k not in ADDITIVE]
+    if missing or unexpected:
+        raise SystemExit(
+            "{} does not match this architecture: {} missing, {} unexpected"
+            .format(tag, len(missing), len(unexpected))
+            + (" (missing: " + ", ".join(sorted(missing)[:4]) + ")"
+               if missing else ""))
+    return missing, unexpected
+
+
 def main():
     a = build_parser().parse_args()
     check_args(a)
@@ -559,20 +598,7 @@ def main():
     if a.init:
         prev = torch.load(config.CHECKPOINTS / (a.init + ".pt"),
                           map_location=dev, weights_only=False)
-        missing, unexpected = model.load_state_dict(prev["model"], strict=False)
-        # A zero-init gate absent from the source is exactly the identity, so
-        # this architecture is a strict superset of that one and the older
-        # checkpoint transfers without loss. Anything else is a real mismatch.
-        additive = {"street.gate", "geo.emb.weight", "geo.gate",
-                    "geo.q_geo.weight", "geo.q_geo.bias",
-                    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is
-                    # exactly this architecture with the extras switched off
-                    "sink_ext", "sink_ext_b", "sink_ext_g"}
-        missing = [k for k in missing if k not in additive]
-        if missing or unexpected:
-            raise SystemExit(
-                "{} does not match this architecture: {} missing, {} "
-                "unexpected".format(a.init, len(missing), len(unexpected)))
+        init_from(model, prev["model"], a.init)
         prev_epochs = prev.get("epochs_total", prev.get("epoch", 0))
         print("init from  {}  (its epoch {}, {} epochs of training so far)"
               .format(a.init, prev.get("epoch"), prev_epochs))

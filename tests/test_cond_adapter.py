@@ -132,6 +132,44 @@ def test_an_old_checkpoint_loads_and_only_the_adapter_is_new():
     assert not unexpected
 
 
+def test_the_production_init_path_accepts_the_adapter():
+    """REVIEW5 #6, and the reason the previous test was not enough.
+
+    `--init` does not use `load_state_dict` directly: it filters the missing
+    keys against an allowlist and exits on anything outside it. The adapter's
+    five keys were not on that list, so the experiment's own intended command
+    -- fine-tune the incumbent on a conditioned cache -- exited as an
+    architecture mismatch while the suite stayed green, because the test above
+    called PyTorch's loader and never came through the filter.
+
+    This calls exactly what `train.main` calls.
+    """
+    from train import init_from
+    torch.manual_seed(0)
+    src = agent().state_dict()
+    torch.manual_seed(0)
+    init_from(agent(d_cond=D_C), src, "incumbent")     # must not raise
+
+
+def test_the_production_init_path_still_rejects_a_real_mismatch():
+    """The allowlist must not have become a blanket pass."""
+    from train import init_from
+    torch.manual_seed(0)
+    src = agent().state_dict()
+    del src["street.proj.weight"]                      # not an additive key
+    with pytest.raises(SystemExit, match="does not match this architecture"):
+        init_from(agent(d_cond=D_C), src, "broken")
+
+
+def test_the_production_init_path_rejects_unexpected_parameters():
+    from train import init_from
+    torch.manual_seed(0)
+    src = agent().state_dict()
+    src["street.nonsense"] = torch.zeros(3)
+    with pytest.raises(SystemExit, match="does not match this architecture"):
+        init_from(agent(d_cond=D_C), src, "extra")
+
+
 def test_the_retrieval_prior_never_sees_the_conditioning_block():
     """The learned keys live in the bank's space, which has no conditioning."""
     m = agent(d_cond=D_C, retr=True, retr_mode="dual")
