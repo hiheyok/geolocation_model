@@ -157,6 +157,87 @@ D_ENC = 768
 
 
 @torch.no_grad()
+def great_circle_km(a1, o1, a2, o2):
+    p = np.pi / 180.0
+    d = (np.sin((a2 - a1) * p / 2) ** 2 + np.cos(a1 * p) * np.cos(a2 * p)
+         * np.sin((o2 - o1) * p / 2) ** 2)
+    return 2 * 6371.0088 * np.arcsin(np.sqrt(min(max(d, 0.0), 1.0)))
+
+
+def load_panel(dev):
+    """Two banks over the same rows: crops only, and crops + tiles.
+
+    The point of the panel is that these differ ONLY in the representation.
+    Same images, same split, same width (1536), so a difference in what comes
+    back is the representation and nothing else.
+
+    Restricted to the rows `tile_cache.py` has actually tiled -- 120,000 of
+    the release, of which the split's train side is the bank. The shipping
+    bank is 3.4M rows and 2.8% of it has tiles, so this cannot be the agent's
+    bank; it is a side-by-side lookup, and it is labelled as one.
+    """
+    import pyarrow.parquet as pq
+    from osv_pyramid import load_tokens_blocked, level_vectors
+
+    sel = np.load(config.STREET_CACHE / "tile6_rows.i64.npy")
+    ds = pq.read_table(config.DATASET_PARQUET)
+    labels, _ = sp.read(ds, STATE["ck"].get("split_mode", sp.PRIMARY))
+    keep = np.flatnonzero(labels[sel] == "train")
+
+    X = load_tokens_blocked(sel)
+    lv = level_vectors(X, [0] * 3 + [1] * (X.shape[1] - 3), dev)
+    crops = lv[0][keep]
+    mix = (lv[0][keep] + lv[1][keep]) / 2.0
+    mix /= np.linalg.norm(mix, axis=1, keepdims=True).clip(1e-6)
+
+    rows = sel[keep]
+    STATE["panel"] = {
+        "crops": torch.from_numpy(crops.astype(np.float32)).to(dev),
+        "both": torch.from_numpy(mix.astype(np.float32)).to(dev),
+        "lat": np.asarray(ds["lat"], np.float64)[rows],
+        "lon": np.asarray(ds["lon"], np.float64)[rows],
+        "n": len(rows),
+    }
+    print("panel      {:,} tiled bank rows, crops and crops+tiles at 1536-d"
+          .format(len(rows)), flush=True)
+
+
+def panel_query(blob, dev):
+    """The uploaded image as both representations, 1536-d each.
+
+    Assembled exactly the way the bank rows were: per-token L2, then the mean
+    within a level, then L2 per encoder. Query and bank have to be built the
+    same way or the comparison is between two spaces rather than two
+    representations.
+    """
+    from tile_cache import tile_uint8
+
+    nrm = lambda v: v / v.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+    per = []
+    # no_grad, not merely eval(): without it every request builds a graph it
+    # never frees, and the first .numpy() on the result raises instead of
+    # answering -- which is exactly how this failed the first time.
+    with torch.no_grad():
+        for (m_, mean, std) in STATE["encs"]:
+            mu = torch.as_tensor(mean, device=dev).view(1, 3, 1, 1)
+            sd = torch.as_tensor(std, device=dev).view(1, 3, 1, 1)
+            x = torch.from_numpy(
+                preprocess(blob, crops=3, mean=mean, std=std)).to(dev)
+            t = torch.from_numpy(
+                tile_uint8(blob, 3, 2).astype(np.float32) / 255.0)
+            t = ((t.permute(0, 3, 1, 2).to(dev)) - mu) / sd
+            with torch.autocast(dev, dtype=torch.bfloat16,
+                                enabled=(dev == "cuda")):
+                fc = m_(x).float()
+                ft = m_(t).float()
+            per.append((nrm(nrm(fc).mean(0, keepdim=True)),
+                        nrm(nrm(ft).mean(0, keepdim=True))))
+
+    l0 = nrm(torch.cat([c for c, _ in per], dim=1))
+    l1 = nrm(torch.cat([t for _, t in per], dim=1))
+    return l0, nrm((l0 + l1) / 2.0)
+
+
 def embed(blob):
     """Upload bytes -> exactly the vector this checkpoint's bank is made of.
 
@@ -334,6 +415,42 @@ def build_app():
         out["secs"] = round(time.time() - t0, 2)
         return JSONResponse(out)
 
+    @app.post("/compare")
+    async def do_compare(request: Request):
+        """Same image, same rows, two representations -- nothing else differs.
+
+        Deliberately NOT the agent. The agent runs on the 3.4M shipping bank,
+        of which 2.8% has tiles; this looks up a 96k tiled subset. So the two
+        lists here are comparable to each other and not to /locate.
+        """
+        if "panel" not in STATE:
+            return JSONResponse({"error": "started without --tiles-panel"},
+                                status_code=503)
+        ct = request.headers.get("content-type", "")
+        if ct.startswith("multipart/form-data"):
+            form = await request.form()
+            blob = await next(iter(form.values())).read()
+        else:
+            blob = await request.body()
+        t0 = time.time()
+        P, dev = STATE["panel"], STATE["dev"]
+        q_crops, q_both = panel_query(blob, dev)
+        out = {}
+        for name, q, B in (("crops", q_crops, P["crops"]),
+                           ("crops_tiles", q_both, P["both"])):
+            sims = (B @ q.reshape(-1, 1)).reshape(-1)
+            v, j = torch.topk(sims, 5)
+            j = j.cpu().numpy()
+            out[name] = [{"lat": float(P["lat"][r]), "lon": float(P["lon"][r]),
+                          "sim": float(x)} for r, x in zip(j, v.cpu().numpy())]
+        # how far apart the two answers are, which is the thing to look at
+        a, b = out["crops"][0], out["crops_tiles"][0]
+        out["top1_gap_km"] = round(float(great_circle_km(
+            a["lat"], a["lon"], b["lat"], b["lon"])), 1)
+        out["bank"] = P["n"]
+        out["secs"] = round(time.time() - t0, 3)
+        return JSONResponse(out)
+
     @app.get("/map/{z}/{x}/{y}.png")
     def map_tile(z: int, x: int, y: int):
         # proxied so the page never needs to reach the tile server itself
@@ -351,12 +468,19 @@ def main():
     ap.add_argument("--tag", default="s10_n400k_e2")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--tiles-panel", action="store_true",
+                    help="also serve /compare: the same image looked up under "
+                         "crops and under crops+tiles, over the 96k bank rows "
+                         "that have tiles cached. A side-by-side of the "
+                         "representation, not a change to the agent.")
     ap.add_argument("--bank-gpu", action="store_true",
                     help="hold the bank in VRAM; only for the smaller banks")
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     load_everything(a.tag, dev, a.bank_gpu)
+    if a.tiles_panel:
+        load_panel(dev)
     import uvicorn
     print("\n  http://{}:{}\n".format(a.host, a.port), flush=True)
     uvicorn.run(build_app(), host=a.host, port=a.port, log_level="warning")

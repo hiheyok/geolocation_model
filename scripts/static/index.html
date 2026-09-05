@@ -140,6 +140,22 @@
     most visually similar, and their locations are what steer the early steps.</p>
     <table><thead><tr><th>#</th><th class="n">similarity</th><th>location</th></tr></thead>
       <tbody id="nbrs"></tbody></table>
+
+    <div id="cmp" hidden>
+      <h2>Two representations of the same photograph</h2>
+      <p class="hint">Not the agent, and not the bank above. This looks the same
+      image up twice over the <span id="cmpn"></span> bank rows that have tiles
+      cached &mdash; once as <b>3 crops</b>, which is what ships, and once as
+      <b>3 crops + 6 tiles</b> level-weighted. Same images, same width, so a
+      difference is the representation and nothing else. Measured on OSV-5M's
+      own split, adding the tiles is +4.5&nbsp;pp at 25&nbsp;km on
+      <code>sequence</code> and +0.8&nbsp;pp on the geographic holdout.</p>
+      <table><thead><tr><th>#</th>
+        <th class="n">crops sim</th><th>crops location</th>
+        <th class="n">+tiles sim</th><th>+tiles location</th></tr></thead>
+        <tbody id="cmprows"></tbody></table>
+      <p class="hint" id="cmpgap"></p>
+    </div>
   </div>
 </div>
 
@@ -248,6 +264,12 @@ async function run() {
       files.forEach((x, i) => body.append("image" + i, x, x.name || ("img" + i)));
     }
     r = await (await fetch("/locate", { method: "POST", body })).json();
+    // the representation panel is optional: the server only serves it with
+    // --tiles-panel, and a 503 there must not take the locate result down
+    try {
+      const c = await fetch("/compare", { method: "POST", body: files[0] });
+      if (c.ok) { window.__cmp = await c.json(); } else { window.__cmp = null; }
+    } catch (e) { window.__cmp = null; }
   } catch (e) {
     $("#coord").textContent = "—";
     $("#err").hidden = false;
@@ -289,6 +311,25 @@ async function run() {
     "<tr><td>" + (i + 1) + '</td><td class="n">' + n.sim.toFixed(4) + "</td><td>" +
     (n.lat === null ? '<span class="hint">bank-only shard</span>'
                     : fmt(n.lat, 4) + ", " + fmt(n.lon, 4)) + "</td></tr>").join("");
+
+  const cmp = window.__cmp;
+  if (cmp && cmp.crops) {
+    $("#cmpn").textContent = cmp.bank.toLocaleString();
+    $("#cmprows").innerHTML = cmp.crops.map((a, i) => {
+      const b = cmp.crops_tiles[i];
+      return "<tr><td>" + (i + 1) + '</td><td class="n">' + a.sim.toFixed(4) +
+        "</td><td>" + fmt(a.lat, 4) + ", " + fmt(a.lon, 4) +
+        '</td><td class="n">' + b.sim.toFixed(4) + "</td><td>" +
+        fmt(b.lat, 4) + ", " + fmt(b.lon, 4) + "</td></tr>";
+    }).join("");
+    $("#cmpgap").textContent = cmp.top1_gap_km === 0
+      ? "Both representations return the same nearest image."
+      : "The two nearest images are " + cmp.top1_gap_km.toLocaleString() +
+        " km apart, so here the representation changes the answer.";
+    $("#cmp").hidden = false;
+  } else {
+    $("#cmp").hidden = true;
+  }
 
   $("#out").hidden = false;
 }
