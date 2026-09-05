@@ -99,7 +99,11 @@ def tile_positions(stem, want):
     if done.ndim > 1:
         done = done.min(axis=1)
     have = rows[done == 1]
-    pos = np.full(int(want.max()) + 1, -1, np.int64)
+    # Sized by both, not just `want`: the cache may legitimately cover rows the
+    # caller did not ask for (a 750k cache queried for 400k of it), and sizing
+    # this by the request alone makes writing the map itself go out of bounds.
+    pos = np.full(int(max(rows.max(initial=-1), want.max(initial=-1))) + 1,
+                  -1, np.int64)
     pos[rows] = np.arange(len(rows))
     missing = np.setdiff1d(want, have, assume_unique=False)
     if len(missing):
