@@ -189,7 +189,14 @@ class Stage:
         return MARKS / (self.name + ".done")
 
     def identity(self):
-        return runlog.marker_identity(self.name, self.argv, self.release)
+        return runlog.marker_identity(self.name, self.argv, self.release,
+                                      inputs=runlog.stage_inputs(self.argv))
+
+    def record(self):
+        """The identity plus what the stage actually produced, for the marker."""
+        rec = json.loads(self.identity())
+        rec["outputs"] = runlog.stage_outputs(self.argv)
+        return json.dumps(rec, sort_keys=True)
 
     def satisfied(self):
         """A marker counts only if it marked *this* stage.
@@ -202,12 +209,19 @@ class Stage:
         """
         m = self.marker()
         if m.exists():
-            same = runlog.marker_matches(
-                m.read_text(encoding="utf-8", errors="replace"),
-                self.identity())
+            text = m.read_text(encoding="utf-8", errors="replace")
+            same = runlog.marker_matches(text, self.identity())
             if same is False:
-                log("stale  {}  (marker records different arguments; "
-                    "re-running)".format(self.name))
+                log("stale  {}  (marker records different arguments or "
+                    "inputs; re-running)".format(self.name))
+                return False
+            # A marker is a claim that an output exists. Deleting a checkpoint
+            # and leaving its marker used to skip the training stage, and an
+            # output swapped under its own name -- an older k-NN cache dropped
+            # over a clean rebuild -- was invisible for the same reason.
+            ok, why = runlog.outputs_intact(text)
+            if not ok:
+                log("stale  {}  ({}; re-running)".format(self.name, why))
                 return False
             if same is None:
                 # Every marker written before today is a bare duration. Trust
@@ -215,9 +229,12 @@ class Stage:
                 # that it proves the stage ran, not that it ran like this.
                 log("note   {}  (marker predates the argument stamp)"
                     .format(self.name))
+            elif runlog.marker_is_pre_inputs(text):
+                log("note   {}  (marker predates input stamping, so a rebuilt "
+                    "input would not show)".format(self.name))
             return True
         if self.check is not None and self.check():
-            self.marker().write_text(self.identity(), encoding="utf-8")
+            safeio.write_text(self.marker(), self.record())
             return True
         return False
 
@@ -303,7 +320,10 @@ def run_stage(st, state, deadline):
         if SAMPLER:
             SAMPLER.stage = "idle"
         if rc == 0:
-            st.marker().write_text(st.identity(), encoding="utf-8")
+            # atomic: a marker half-written by an interrupt reads back as
+            # a corrupt identity, and the stage it belongs to is the one
+            # that was killed -- exactly the run that must not be skipped
+            safeio.write_text(st.marker(), st.record())
             state["done"][st.name] = {"secs": el, "at": hhmm(now())}
             # A retry that succeeds must clear the earlier failure, or the
             # summary reports the stage as both done and failed and the

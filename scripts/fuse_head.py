@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+import maskio
 import provenance as prov
 import safeio
 import splits as sp
@@ -196,8 +197,12 @@ def require_written(donep, n, stem):
         raise SystemExit(
             "{} is {} but {}.f16.npy holds {:,} rows; they describe "
             "different builds".format(donep.name, d.shape, stem, n))
-    bad = int((~(d.astype(bool).all(-1) if d.ndim == 2 else d.astype(bool)))
-              .sum())
+    # `astype(bool)` is the bug this shares with tile_cache: it reads any
+    # nonzero value as written, so a 2 left by a torn write certifies a
+    # zero-filled row and this check agrees with it. A completion mask is
+    # binary or it is not a completion mask.
+    maskio.check_mask(d, donep.name)
+    bad = int((~((d == 1).all(-1) if d.ndim == 2 else (d == 1))).sum())
     if bad:
         raise SystemExit(
             "{:,} of {:,} {} rows were never written (zero fill). Finish "

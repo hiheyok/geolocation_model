@@ -206,3 +206,66 @@ def test_an_unrelated_digest_matches_nothing():
 
 def test_a_missing_digest_matches_nothing():
     assert sp.hash_matches("sequence", LABELS, None) is None
+
+
+# --- the error cache must depend on its retrieval inputs, not just the arm ---
+#
+# `ckpt_stamp` identifies the weights.  The per-image errors also depend on the
+# kNN cache and the bank those weights are scored against, and the key covered
+# neither -- so rebuilding the kNN cache left every cached array valid-looking
+# and stale.  Not hypothetical: on 2026-09-04 the cache was rebuilt to remove
+# same-sequence leakage and the re-measurement returned in six seconds with the
+# pre-rebuild numbers, to four significant figures.
+
+def _arm(tmp_path, monkeypatch, knn_bytes=b"a", street_bytes=b"b"):
+    import torch
+    import bootstrap as B
+    ck_dir, street = tmp_path / "ck", tmp_path / "street"
+    ck_dir.mkdir(exist_ok=True)
+    street.mkdir(exist_ok=True)
+    (street / "k.npz").write_bytes(knn_bytes)
+    (street / "s.f16.npy").write_bytes(street_bytes)
+    torch.save({"knn_file": "k.npz", "street_file": "s.f16.npy"},
+               ck_dir / "arm.pt")
+    monkeypatch.setattr(B.config, "CHECKPOINTS", ck_dir)
+    monkeypatch.setattr(B.config, "STREET_CACHE", street)
+    return B, street
+
+
+def test_the_key_changes_when_the_knn_cache_is_rebuilt(tmp_path, monkeypatch):
+    B, street = _arm(tmp_path, monkeypatch)
+    before = B.inputs_stamp("arm")
+    (street / "k.npz").write_bytes(b"rebuilt, different contents")
+    assert B.inputs_stamp("arm") != before, \
+        "a rebuilt kNN cache must invalidate the cached errors"
+
+
+def test_the_key_changes_when_the_bank_changes(tmp_path, monkeypatch):
+    B, street = _arm(tmp_path, monkeypatch)
+    before = B.inputs_stamp("arm")
+    (street / "s.f16.npy").write_bytes(b"a different bank entirely")
+    assert B.inputs_stamp("arm") != before
+
+
+def test_the_key_is_stable_when_nothing_moved(tmp_path, monkeypatch):
+    B, _ = _arm(tmp_path, monkeypatch)
+    assert B.inputs_stamp("arm") == B.inputs_stamp("arm")
+
+
+def test_an_arm_with_no_retrieval_keeps_its_existing_key(tmp_path, monkeypatch):
+    """Invalidating non-retrieval arms would recompute them for no reason."""
+    import torch
+    import bootstrap as B
+    ck_dir = tmp_path / "ck2"
+    ck_dir.mkdir()
+    torch.save({"epoch": 1}, ck_dir / "arm.pt")
+    monkeypatch.setattr(B.config, "CHECKPOINTS", ck_dir)
+    assert B.inputs_stamp("arm") == ""
+
+
+def test_a_tag_survives_a_round_trip_through_the_new_key(tmp_path, monkeypatch):
+    """The resolver parses the tag back out of the filename, and the key just
+    grew a field. A parser that missed it would fold the stamp into the tag."""
+    import bootstrap as B
+    name = "d768-b350-e6-drop70_a0fa1e3331d4_i6669982f_test_5000r_k2_d3.npy"
+    assert B.tag_of_err_cache(name) == "d768-b350-e6-drop70"

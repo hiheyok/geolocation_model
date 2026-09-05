@@ -287,10 +287,16 @@ def build_parser():
                          "retrieval keys. Only for measuring the change; the "
                          "122 checkpoints on file were trained this way.")
     ap.add_argument("--seed", type=int, default=0,
-                    help="seeds weight init, loader shuffling and dropout. "
-                         "Without it two identical commands differed in "
-                         "initialisation, batch order and dropout masks, and "
-                         "the checkpoint recorded nothing to explain why.")
+                    help="seeds weight init, loader shuffling, dropout and "
+                         "the sink negatives. Without it two identical "
+                         "commands differed in initialisation, batch order, "
+                         "dropout masks and off-path tiles, and the "
+                         "checkpoint recorded nothing to explain why.")
+    ap.add_argument("--neg-random", action="store_true",
+                    help="draw sink negatives from OS entropy instead of from "
+                         "--seed. Restores the old behaviour: each image then "
+                         "sees different off-path tiles every epoch, at the "
+                         "cost of a run that cannot be reproduced.")
     ap.add_argument("--overfit", type=int, default=0,
                     help="train and eval on the same N images; loss must reach ~0")
     ap.add_argument("--tag", default="g16")
@@ -435,8 +441,15 @@ def main():
         knn_file = config.knn_name(a.street_file, a.split_mode)
     kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0,
               cache=a.map_cache)
+    # Train negatives are seeded from --seed, not from OS entropy. They used
+    # to take the default neg_random=True, so `np.random.default_rng(None)`
+    # ran inside each __getitem__ and drew from the OS -- independent of both
+    # np.random.seed and torch.manual_seed, and with workers also dependent on
+    # scheduling. Two runs recording the same seed saw different off-path
+    # tiles, which is the whole shipping configuration (--neg 4).
     tr = GeoStepDataset("train", street_file=a.street_file, n_neg=a.neg,
-                        split_mode=a.split_mode, **kn)
+                        split_mode=a.split_mode, **kn,
+                        neg_random=a.neg_random, neg_seed=a.seed)
     # val negatives are seeded, so sink accuracy is measured on the same tiles
     # every epoch and across arms
     va = GeoStepDataset("val", street_file=a.street_file, n_neg=a.neg,
@@ -445,8 +458,9 @@ def main():
     # capture before any Subset wrapping -- the stamp belongs to the benchmark,
     # not to whatever slice of it this run happened to use
     # Seed before anything samples: weight init, the shuffling loader and
-    # dropout all draw from these. Sink negatives were already deterministic
-    # (neg_random=False, neg_seed=11), so they are not part of this.
+    # dropout all draw from these. This comment used to claim sink negatives
+    # were already deterministic; that was true of the val set only, and the
+    # train set took the OS-entropy default. They are seeded from --seed above.
     torch.manual_seed(a.seed)
     np.random.seed(a.seed)
     if torch.cuda.is_available():
@@ -643,6 +657,11 @@ def main():
                   "epoch": ep, "val_loss": mva["loss"],
                   "val_km": km, "val_hit": hit, "select": a.select,
                   "sel_n": a.sel_n, "sel_k": a.sel_k, "seed": a.seed,
+                  # Whether the recorded seed actually covers the negatives.
+                  # Every checkpoint written before this field exists was
+                  # trained with them drawn from OS entropy, so its seed
+                  # describes less of the run than it appears to.
+                  "neg_random": a.neg_random,
                   "wd_legacy": a.wd_legacy, "wd": a.wd,
                   # Result-defining settings that used to live only in the
                   # runner's argv. Two arms trained at different learning

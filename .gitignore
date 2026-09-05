@@ -58,3 +58,4 @@ runs/errs_prebug/
 # Tooling scratch.
 .pytest_cache/
 .claude/
+*.partial.npy

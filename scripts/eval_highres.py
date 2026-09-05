@@ -49,6 +49,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config
 import provenance as prov
+import safeio
 import names
 import tile_math as tm
 from dataset import street_table
@@ -172,6 +173,14 @@ def main():
                     help="PCA basis, used only when the bank is narrower than "
                          "the pooled vector")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cohort", default="",
+                    help="frozen list of image ids to score. Defaults to "
+                         "<data>/cohort_seed<seed>_n<n>.json, written on the "
+                         "first run and replayed after. Hash-ranking alone is "
+                         "not append-stable: taking the n smallest hashes "
+                         "means a newly harvested id that hashes low joins and "
+                         "evicts someone, so two runs at the same --n and "
+                         "--seed can score different benchmarks.")
     ap.add_argument("--match-bank", action="store_true",
                     help="embed queries the way embed_street builds the "
                          "bank: JPEG draft decode and bf16 autocast")
@@ -202,14 +211,43 @@ def main():
               "(scripts/screen_leak.py --write-blocklist)".format(a.data),
               flush=True)
     ids = sorted(recs)
-    # Pick by hashing the id, not by permuting the manifest. The harvest grew
-    # 18,812 -> 47,646 overnight and `permutation(len(ids))[:n]` silently
-    # selected a different thousand images, so two runs that both reported
-    # "n=1000, seed 0" scored different sets and were compared as though they
-    # were the same benchmark. Hash selection is stable as the manifest grows:
-    # an image's membership depends only on its own id.
-    key = np.array([zlib.crc32((str(a.seed) + i).encode()) for i in ids])
-    pick = [ids[i] for i in np.argsort(key)[:a.n]]
+    # Pick by hashing the id, not by permuting the manifest: `permutation(
+    # len(ids))[:n]` silently selected a different thousand images when the
+    # harvest grew 18,812 -> 47,646, so two runs both reporting "n=1000,
+    # seed 0" scored different sets and were compared as one benchmark.
+    #
+    # Hashing fixes the ordering but NOT the membership, and the comment here
+    # used to claim otherwise. Taking the n smallest hashes means membership
+    # depends on the global nth value: every newly harvested id that hashes
+    # below it joins and evicts someone. At the sizes above with n=1000 that
+    # is an expected 39.5% overlap, not stability. A hash *threshold* would be
+    # append-stable but gives a variable count; you cannot have both from a
+    # rule alone.
+    #
+    # So the cohort is frozen as an artifact instead. The first run at a given
+    # (seed, n) writes the ids it chose; every later run replays that file, and
+    # the digest is printed and exported so two numbers can be shown to be the
+    # same benchmark rather than assumed to be.
+    cohort_p = Path(a.cohort) if a.cohort else \
+        Path(a.data) / "cohort_seed{}_n{}.json".format(a.seed, a.n)
+    if cohort_p.exists():
+        pick = [str(i) for i in json.loads(cohort_p.read_text(encoding="utf-8"))]
+        missing = [i for i in pick if i not in recs]
+        if missing:
+            raise SystemExit(
+                "{} names {:,} images the manifest no longer holds (e.g. {}). "
+                "The frozen cohort cannot be scored; re-harvest them or start "
+                "a new cohort under a different --seed/--n."
+                .format(cohort_p.name, len(missing), missing[0]))
+        how = "replayed from " + cohort_p.name
+    else:
+        key = np.array([zlib.crc32((str(a.seed) + i).encode()) for i in ids])
+        pick = [ids[i] for i in np.argsort(key)[:a.n]]
+        safeio.write_text(cohort_p, json.dumps(pick))
+        how = "selected by hash and frozen into " + cohort_p.name
+    cohort_digest = prov.rows_digest(np.asarray(pick))
+    print("cohort     {:,} ids, digest {}  ({}; manifest holds {:,})"
+          .format(len(pick), cohort_digest, how, len(ids)), flush=True)
     paths = [str(Path(a.data) / "img" / (i + ".jpg")) for i in pick]
     lat = np.array([recs[i]["lat"] for i in pick], np.float64)
     lon = np.array([recs[i]["lon"] for i in pick], np.float64)
@@ -363,14 +401,28 @@ def main():
     if a.export:
         np.savez(a.export, err=e,
                  image_id=np.array(pick),
+                 # so a later paired comparison can prove the two runs scored
+                 # the same benchmark rather than assume it from --n/--seed
+                 cohort=cohort_digest,
                  tag=a.tag, bank=bank_file)
         print("wrote " + a.export)
     print("")
     print("Compare against this checkpoint's own row in the matching "
           "BOOTSTRAP_*.md. Do not hardcode it here: that printed one "
           "arm's OSV-5M number under another arm's name.")
-    print("A gap here is domain shift, not overfitting: these images are not in "
-          "the bank\nand share no sequence with anything in it.")
+    # This used to end "a gap here is domain shift, not overfitting". Half of
+    # that reading is now known to be wrong: on 2026-09-04 the OSV-5M side was
+    # found to serve same-sequence frames as neighbours (41.6% of test queries
+    # had a same-drive top-1, at a median 0.31 km), so a large part of the gap
+    # is the OSV-5M number being inflated rather than this one being depressed.
+    # The clause that IS still true is the one about these images.
+    print("These images are not in the bank and share no sequence with "
+          "anything in it,")
+    print("so this number carries no same-sequence leakage. Until the kNN "
+          "cache is rebuilt")
+    print("with the fix from review item 61, the OSV-5M side does, and the "
+          "gap between")
+    print("them is not purely domain shift.")
 
 
 if __name__ == "__main__":

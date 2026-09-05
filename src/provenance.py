@@ -158,6 +158,34 @@ def carry(src, dst, n, **extra):
     return d
 
 
+def exts_of(path):
+    """Every bank extension a stacked artifact records, in stacked order.
+
+    `ext_of` answers with one, which is all a single-extension stack has. The
+    documented growth path appends to an already stacked base
+    (`release ++ ext ++ ext2`), and a reader that sees only the first one
+    cannot reconstruct the row space at all: it computes a shorter expected
+    length and rejects a bank that is perfectly well formed.
+    """
+    rec = read(path) or {}
+    return re.findall(r"(bank_ext\w*)_meta\.npz", str(rec.get("row_space", "")))
+
+
+def stacked_on_release(path):
+    """Whether a sidecar claims this artifact is the release followed by exts.
+
+    The distinction the loader needs is not length. An extension-only cache
+    (`bank_ext_bal.f16.npy`, 750,000 rows) is *longer* than the 500,000-row
+    release and holds none of its images, so any rule that reads "longer than
+    the release" as "release plus something" hands the first 500,000
+    extension rows over as the release's images -- valid shapes, valid
+    indices, every photograph paired with another photograph's embedding.
+    Only the recorded row space separates the two.
+    """
+    rec = read(path) or {}
+    return str(rec.get("row_space", "")).startswith("release ++")
+
+
 def ext_of(path):
     """Which bank extension a stacked artifact records, or None.
 

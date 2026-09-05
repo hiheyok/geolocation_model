@@ -6,10 +6,10 @@ iteration.  The teacher-forced prefix is a pure function of (lat, lon), so the
 rows are independent and no rollout is needed.
 """
 
+import hashlib
+import os
 import sys
 from pathlib import Path
-
-import os
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -91,6 +91,64 @@ def gather_nbr(table, rows, dev):
     return table[idx].to(dev, non_blocking=True).float()
 
 
+def _check_street_rows(path, name, all_ids, n_street, digest):
+    """Classify what row space a street cache claims, then check it.
+
+    The rule used to be `if len(street) == len(dataset.parquet)`, and every
+    other length was accepted unchecked. That is not a narrow gap. This
+    repository holds standalone 750,000-row `bank_ext*_*.f16.npy` files which
+    contain **no release rows at all** and are *longer* than the 500,000-row
+    release, so a length heuristic cannot even tell them apart: passing one as
+    `--street-file` made the first 500,000 extension rows serve as the release
+    images. Shapes are valid, indices are in range, and every photograph is
+    paired with another photograph's embedding.
+
+    So classify from the recorded row space, which is the only thing that
+    knows, and check all three cases:
+
+    * exact release length -- must be this release's ids, in order;
+    * a stack -- must be the release ids followed by each recorded
+      extension's ids, in the recorded order;
+    * anything else -- refused, because a dataset indexed by release row
+      cannot address it at all.
+
+    A missing sidecar stays a warning for the release-length case (every
+    artifact predates the convention) but is a refusal for a longer file:
+    there, the sidecar is not corroborating the layout, it is the only thing
+    that *determines* it.
+    """
+    import config
+
+    if n_street == len(all_ids):
+        prov.check(path, all_ids, name, digest=digest)
+        return
+    if not prov.stacked_on_release(path):
+        rec = prov.read(path)
+        raise SystemExit(
+            "{} holds {:,} rows but the release has {:,}, and its provenance "
+            "does not say it is the release followed by bank extensions ({}). "
+            "A cache that is not release-addressed cannot be a --street-file: "
+            "row i here is not image i, so every image would be scored "
+            "against another image's embedding with nothing out of range to "
+            "notice. Stack it with scripts/stack_bank.py, or run "
+            "scripts/backfill_prov.py if the file is right and only the "
+            "sidecar is missing."
+            .format(name, n_street, len(all_ids),
+                    "no sidecar" if rec is None
+                    else "row space: " + str(rec.get("row_space"))))
+    parts, stems = [all_ids], prov.exts_of(path)
+    for stem in stems:
+        parts.append(np.asarray(prov.bank_ext(stem, config.RELEASE)["image_id"]))
+    want = sum(len(p) for p in parts)
+    if want != n_street:
+        raise SystemExit(
+            "{} holds {:,} rows but the release ({:,}) plus its recorded "
+            "extensions {} come to {:,}. The stack and its metadata are from "
+            "different builds; rebuild it with scripts/stack_bank.py."
+            .format(name, n_street, len(all_ids), stems, want))
+    prov.check_stack(path, parts, name)
+
+
 def _check_fetched(done_p, tok_row, zs, n_neg, split):
     """An unfetched tile is a zero row, and a zero row is a legal histogram.
 
@@ -108,17 +166,31 @@ def _check_fetched(done_p, tok_row, zs, n_neg, split):
     if not done_p.exists():
         return                      # caches written before the mask existed
     done = np.load(done_p)
-    if len(done) != len(zs):
+    if done.ndim != 1 or len(done) != len(zs):
         raise SystemExit(
             "map cache is inconsistent: {} index rows but a {}-row done mask "
             "({}). Rebuild the cache; a stale mask cannot be interpreted."
-            .format(len(zs), len(done), done_p))
+            .format(len(zs), getattr(done, "shape", "?"), done_p))
+    # The producer writes 0 or 1 and validates it; this consumer defined
+    # "fetched" as `!= 0`, so any other value -- a 2 from a half-migrated
+    # writer, a 255 from a torn or misinterpreted file -- certified an
+    # all-zero token row as complete. Beam inference already required == 1,
+    # so the same cache could train on a blank tile and fetch it live at
+    # evaluation, with the two paths disagreeing and neither complaining.
+    bad = np.unique(done[(done != 0) & (done != 1)])
+    if len(bad):
+        raise SystemExit(
+            "map cache completion mask holds {} that is neither 0 nor 1 ({}). "
+            "A non-binary mask cannot be read as 'fetched': rebuild it with "
+            "fetch_tiles, which writes only 0 or 1."
+            .format("values " + ", ".join(str(int(v)) for v in bad[:5]),
+                    done_p))
 
     used = np.unique(tok_row)
     if n_neg > 0:
         # sibling negatives descend into arbitrary z4/z8 tiles
         used = np.union1d(used, np.flatnonzero(zs <= 8))
-    miss = used[done[used] == 0]
+    miss = used[done[used] != 1]
     if len(miss):
         raise SystemExit(
             "map cache is incomplete: {:,} of the {:,} tiles the {!r} split "
@@ -136,6 +208,9 @@ class GeoStepDataset(Dataset):
         street_file = street_file or config.STREET_DEFAULT
         self.g, self.steps = g, steps
         self.n_neg, self.neg_seed, self.neg_random = n_neg, neg_seed, neg_random
+        # keeps train and val negative streams apart even at equal seeds
+        self._split_entropy = int.from_bytes(
+            hashlib.sha256(str(split).encode()).digest()[:4], "big")
         self.n_actions = g * g
         cache = Path(cache) if cache else config.MAP_CACHE
 
@@ -159,11 +234,8 @@ class GeoStepDataset(Dataset):
         self._tokens_path, index_p, done_p = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
         self.dim_street = self.street.shape[1]
-        # A bank extension holds no release rows and is addressed separately,
-        # so only a full-length cache is claiming to be this release's rows.
-        if len(self.street) == len(all_ids):
-            prov.check(self._street_path, all_ids, street_file,
-                       digest=self.rows_digest)
+        _check_street_rows(self._street_path, street_file, all_ids,
+                           len(self.street), self.rows_digest)
 
         # map token cache + (z,x,y) -> row
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
@@ -337,6 +409,28 @@ class GeoStepDataset(Dataset):
         self.street = np.load(self._street_path, mmap_mode="r")
         self.tokens = np.load(self._tokens_path, mmap_mode="r")
 
+    def neg_rng(self, i):
+        """The stream image `i`'s off-path tiles are drawn from.
+
+        A pure function of (split, seed, index) -- deliberately not of the
+        epoch or of the worker. This runs inside spawned, persistent loader
+        workers, so anything epoch-varying would have to cross a process
+        boundary that is set up once per run, and anything worker-local makes
+        the result depend on `--workers`. The cost is that an image sees the
+        same off-path tiles every epoch; the benefit is that a recorded seed
+        reproduces the run, which it did not before: the train set took
+        `neg_random=True`, so `default_rng(None)` seeded from OS entropy for
+        every item, independent of both `np.random.seed` and
+        `torch.manual_seed`.
+
+        The split is mixed in so train and val do not draw the same stream at
+        equal seeds.
+        """
+        if self.neg_random:
+            return np.random.default_rng(None)
+        return np.random.default_rng(
+            np.random.SeedSequence([self.neg_seed, i, self._split_entropy]))
+
     def sample_negatives(self, i, n_neg, rng):
         """Off-path views: sibling tiles that do NOT contain the true point.
 
@@ -391,8 +485,7 @@ class GeoStepDataset(Dataset):
             out["nbr_row"] = torch.from_numpy(nb.astype(np.int64))
             out["self_row"] = int(self.rows[i])
         if self.n_neg:
-            rng = np.random.default_rng(None if self.neg_random
-                                        else (self.neg_seed * 1000003 + i))
+            rng = self.neg_rng(i)
             r, nx, ny, st = self.sample_negatives(i, self.n_neg, rng)
             out["neg_tokens"] = torch.from_numpy(
                 np.asarray(self.tokens[r], dtype=np.float32))
