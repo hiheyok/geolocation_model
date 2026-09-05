@@ -177,14 +177,17 @@ def load_panel(dev):
     bank; it is a side-by-side lookup, and it is labelled as one.
     """
     import pyarrow.parquet as pq
-    from osv_pyramid import load_tokens_blocked, level_vectors
+    from osv_pyramid import complete_rows, load_tokens_blocked, level_vectors
 
-    sel = np.load(config.STREET_CACHE / "tile6_rows.i64.npy")
+    # Finished rows only. tile_cache grows in place, so a cache caught during
+    # a pass is mostly zero fill, and a zero row L2-normalises to a
+    # unit-length nothing that ranks like a real vector.
+    sel, pos = complete_rows("tile6")
     ds = pq.read_table(config.DATASET_PARQUET)
     labels, _ = sp.read(ds, STATE["ck"].get("split_mode", sp.PRIMARY))
     keep = np.flatnonzero(labels[sel] == "train")
 
-    X = load_tokens_blocked(sel)
+    X = load_tokens_blocked(sel, pos)
     lv = level_vectors(X, [0] * 3 + [1] * (X.shape[1] - 3), dev)
     crops = lv[0][keep]
     mix = (lv[0][keep] + lv[1][keep]) / 2.0

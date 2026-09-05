@@ -49,6 +49,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config                                    # noqa: E402
+import maskio                                    # noqa: E402
 import splits as sp                              # noqa: E402
 from tile_pool import l2, paired                 # noqa: E402
 from tile_match import dense_sim, topk_stats     # noqa: E402
@@ -58,7 +59,34 @@ THRESH = (1, 25, 200, 750, 2500)
 D_ENC = 768
 
 
-def load_tokens_blocked(sel, block=8192):
+def complete_rows(stem="tile6"):
+    """(release row ids, their positions in the cache) for FINISHED rows only.
+
+    `tile_cache.py` grows in place: `--n 500000` immediately extends the array
+    and the rows file to 500,000 and then fills the new entries, so a cache
+    caught mid-pass is 500,000 rows of which most are the zero fill. That is a
+    legal resume state and it is also a trap -- a zero row L2-normalises to a
+    unit-length nothing that no metric can distinguish from a real vector.
+
+    `fuse_head.load_tokens` guards this with `require_written`. The blocked
+    loader here did not, and the first partially-grown cache it met would have
+    built a bank that was 76% zeros. Reading the mask and keeping only the
+    finished rows makes every consumer correct during a pass rather than only
+    between passes.
+    """
+    rows = np.load(config.STREET_CACHE / (stem + "_rows.i64.npy"))
+    done_p = config.STREET_CACHE / (stem + "_done.u8.npy")
+    if not done_p.exists():
+        return rows, np.arange(len(rows))
+    d = maskio.load_mask(done_p, len(rows), stem)
+    pos = np.flatnonzero((d == 1).all(-1) if d.ndim == 2 else (d == 1))
+    if len(pos) < len(rows):
+        print("{}: {:,} of {:,} rows written; using the finished ones"
+              .format(stem, len(pos), len(rows)), flush=True)
+    return rows[pos], pos
+
+
+def load_tokens_blocked(sel, pos=None, block=8192):
     """(n, 9, 2, 768) fp16: 3 crops then 6 tiles, per-token L2 -- in blocks.
 
     Same result as `fuse_head.load_tokens`, which builds it in one shot and
@@ -71,6 +99,8 @@ def load_tokens_blocked(sel, block=8192):
     T_all = np.load(config.STREET_CACHE / "tile6.f16.npy", mmap_mode="r")
     h = C_all.shape[1] // 2
     nc = h // D_ENC
+    if pos is None:
+        pos = np.arange(len(sel))
     n, nt = len(sel), T_all.shape[1]
     out = np.empty((n, nc + nt, 2, D_ENC), np.float16)
     for s in range(0, n, block):
@@ -78,7 +108,7 @@ def load_tokens_blocked(sel, block=8192):
         C = np.asarray(C_all[sel[s:e]], np.float32)
         C = np.stack([C[:, :h].reshape(-1, nc, D_ENC),
                       C[:, h:].reshape(-1, nc, D_ENC)], axis=2)
-        T = np.asarray(T_all[s:e], np.float32)
+        T = np.asarray(T_all[pos[s:e]], np.float32)
         T = np.stack([T[:, :, :D_ENC], T[:, :, D_ENC:]], axis=2)
         X = np.concatenate([C, T], axis=1)
         X /= np.linalg.norm(X, axis=-1, keepdims=True).clip(1e-6)
@@ -126,7 +156,7 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     t0 = time.time()
 
-    sel_rows = np.load(config.STREET_CACHE / "tile6_rows.i64.npy")
+    sel_rows, tile_pos = complete_rows("tile6")
     ds = pq.read_table(config.DATASET_PARQUET)
     lat = np.asarray(ds["lat"], np.float64)[sel_rows]
     lon = np.asarray(ds["lon"], np.float64)[sel_rows]
@@ -157,7 +187,7 @@ def main():
     print("{:,} same-sequence bank cells masked\n".format(int(same.sum())),
           flush=True)
 
-    X = load_tokens_blocked(sel_rows)
+    X = load_tokens_blocked(sel_rows, tile_pos)
     level_of = [0] * 3 + [1] * (X.shape[1] - 3)
     print("tokens {}  levels {}  in {:.0f}s".format(
         tuple(X.shape), np.bincount(level_of), time.time() - t0), flush=True)
