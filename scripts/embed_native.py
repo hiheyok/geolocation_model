@@ -41,8 +41,11 @@ pass, is never compared to another cache by cosine, and is consumed only by a
 head that trains on whatever it is given -- so the seam argument does not apply
 and the 1.218x is free. Needs `triton-windows` and MSVC on PATH.
 
-Resumable: a done-mask marks finished rows, so a stop costs whatever is in
-flight rather than the whole run.
+Resumable per encoder and per shard. The done-mask carries one column per
+encoder, because the two passes are sequential and a single column cannot say
+that DINOv2 finished a row while SigLIP has not. It is flushed at every shard
+boundary: written only at the end, a nine-hour pass is all-or-nothing, and a
+death at hour eight loses all of it.
 
     OSV_RELEASE=s10 py scripts/embed_native.py --out cond_native
 """
@@ -177,12 +180,17 @@ def main():
         check_resume(np.load(meta_p, allow_pickle=True) if meta_p.exists()
                      else None, want, a.out)
         done = maskio.load_mask(done_p, n, a.out)
+        if done.ndim == 1:                      # pre-2026-09-05 single column
+            done = np.repeat(done[:, None], len(ENCODERS), axis=1)
     else:
         E = np.lib.format.open_memmap(emb_p, mode="w+", dtype=np.float16,
                                       shape=(n, d_out))
-        done = np.zeros(n, np.uint8)
+        # One column per encoder. A row is finished only when both have
+        # written it, and the two passes are sequential, so a single column
+        # cannot express the state this run is actually in.
+        done = np.zeros((n, len(ENCODERS)), np.uint8)
     np.save(done_p, done)
-    todo = np.flatnonzero(done != 1)
+    todo = np.flatnonzero(done.min(axis=1) != 1)
     # Published before the first forward, not after the last: the metadata is
     # what a resume checks against, and a run that only writes it on success
     # leaves the interrupted case -- the only case resume is for -- unverifiable.
@@ -229,14 +237,28 @@ def main():
                 net = eager
         col = slice(enc_i * D_ENC, (enc_i + 1) * D_ENC)
 
+        # Per encoder: only the rows THIS encoder still owes. Resuming after
+        # DINOv2 finished must not re-run it.
+        mine = np.flatnonzero(done[:, enc_i] != 1)
+        if not len(mine):
+            print("{} already complete".format(spec), flush=True)
+            del net
+            torch.cuda.empty_cache()
+            continue
         by_zip = defaultdict(list)
-        for i in todo:
+        for i in mine:
             by_zip[zn[i].split("/")[0]].append((int(i), zn[i]))
         t0, seen = time.time(), 0
         pool = ThreadPoolExecutor(a.workers)
 
         def prep(blob):
-            return preprocess(blob, size=size, crops=a.crops, mean=mu, std=sd)
+            # float16 in the worker. preprocess returns float32, so a batch of
+            # 16 images at 3 crops of 518 is a 154 MB host allocation and copy
+            # on the main thread before every submission -- which is where the
+            # GPU dips to 60%. Casting here halves it and moves the work off
+            # the thread that feeds the card.
+            return preprocess(blob, size=size, crops=a.crops,
+                              mean=mu, std=sd).astype(np.float16)
 
         with torch.no_grad():
             for shard, items in sorted(by_zip.items()):
@@ -265,6 +287,7 @@ def main():
                         v = nrm(f.mean(1)).cpu().numpy().astype(np.float16)
                         for k, r in enumerate(rows):
                             E[r, col] = v[k]
+                            done[r, enc_i] = 1
                         seen += len(rows)
                         # Every 200 batches, but always the first few: a
                         # short run used to print nothing at all, so a smoke
@@ -277,12 +300,17 @@ def main():
                                           el * (len(todo) - seen) / max(seen, 1)),
                                   flush=True)
                 del zf
+                # At every shard boundary, not once at the end. Writing the
+                # mask only on success made a 9 h pass all-or-nothing: a death
+                # at hour eight lost everything, and the docstring's promise
+                # that a stop costs "whatever is in flight" was simply false.
+                E.flush()
+                np.save(done_p, done)
         pool.shutdown()
         del net
         torch.cuda.empty_cache()
         print("{} done in {:.0f}s".format(spec, time.time() - t0), flush=True)
 
-    done[todo] = 1
     E.flush()
     np.save(done_p, done)
     if not maskio.is_complete(done, n):
