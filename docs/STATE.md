@@ -529,54 +529,78 @@ Worth benchmarking **before** the rebuild, where 20% is 4 h of 19 h.
 
 ---
 
-## 9. RUNNING NOW, and the decision it feeds
+## 9. ANSWERED: build tiles, not resolution
 
-**`scripts/resmatch.py --rows 50000 --queries 3000`** — four **matched** banks
+`scripts/resmatch.py --rows 50000 --queries 3000` -- four **matched** banks
 (query and bank built identically, because §8d showed nothing else is
-informative), 39,831 bank rows, 3,000 held-out queries:
+informative), 39,831 bank rows, 3,000 held-out queries. Full write-up in
+`runs/RESMATCH.md`.
 
-1. crops @224 — the incumbent
-2. crops + tiles @224 — the +2.63 pp arm
-3. **crops @518/512** — each encoder at its own native size, **no PCA in the
-   path** (1536-d throughout)
-4. native crops + 224 tiles — is there headroom left once resolution is fixed
+| arm | median km | `<1km` | `<25km` | `<200km` |
+|---|---|---|---|---|
+| 1  crops @224 (incumbent) | 392.4 | 1.2% | 19.8% | 39.9% |
+| **2  crops+tiles @224** | **342.1** | 1.3% | **21.1%** | **42.9%** |
+| 3  crops @518/512 native | 418.5 | **1.5%** | 19.4% | 39.3% |
+| 4  native crops + 224 tiles | 370.2 | **1.6%** | 20.8% | 41.8% |
 
-Log `runs/logs/resmatch.log`. A Monitor is armed on the result lines. DINOv2
-was at 44,816/50,000 when this was written; SigLIP follows, then scoring.
-~15 min remaining.
+```
+2  crops+tiles @224      +0.17~  +1.27[+0.4,+2.2]  +3.00[+1.7,+4.3]
+3  crops @518/512 native +0.37   -0.37[-1.4,+0.7]~ -0.57[-2.0,+0.9]~
+4  native crops + 224 t. +0.40   +0.97[-0.1,+2.0]~ +1.90[+0.6,+3.3]
+```
 
-### What each outcome means
+**Arm 3 closes two open questions at once.** It is matched, so "the query was
+mismatched against a 224 bank" is out; and it has **no PCA in the path**, so
+"the basis was fitted on 224-derived vectors" is out. Both were live
+explanations for the -3.27 pp at 448 (§8e). With both removed, native
+resolution is still flat-to-negative at every threshold from 25 km up and its
+median is *worse* than the incumbent's. **More pixels of the same framing do not
+carry more locatable signal.** Note this also rules out "the encoder was never
+trained on more pixels" *for this arm*: 518 is exactly DINOv2's training
+resolution, so it is the encoder at home, not extrapolating.
 
-| result | build | extension cost |
-|---|---|---|
-| arm 3 >= arm 2 | crops at native resolution | ~60 h (see §8g) |
-| arm 4 > both | resolution *and* tiles | more still |
-| arm 2 best | tiles at 224 | **~19 h** |
-| 3 and 4 ~ arm 1 | resolution inert | tiles path |
+**The one exception points the other way, and is not closed.** `<1 km` is the
+only threshold where resolution wins, and it wins in **both** arms that use it
+(+0.37, +0.40, separated) while tiles do nothing there (+0.17 ~). Finer sampling
+buys discrimination among near-duplicates. That is a 1.2% base on a 39,831-row
+bank where near-duplicates barely exist -- but the shipping bank is 3.4M and
+lives much more in that regime (top-1 alone is 56.4% `<25 km` there). **The one
+result here a denser bank could amplify rather than dilute. Re-measure it after
+the rebuild.**
 
-Arm 3 doubles as the diagnostic for two open questions: it is matched (so it
-separates "resolution is useless" from "the query was mismatched") and it has
-**no PCA** (so it rules the 224-fitted basis in or out as the cause of the
--3.27 pp).
+**Arm 4 answers "why not both": no.** +0.97 pp is *below* arm 2's +1.27 and no
+longer separated. Resolution does not complement tiles, it dilutes them, at ~3x
+the cost (§8g). Caveat in its favour: it mixes native crops with *224* tiles, so
+its ceiling is higher than measured -- but it does not currently clear arm 2 at
+all.
 
-**Caveats to apply to whatever comes back.** The bank is 39,831 rows and §8f
-shows the tiles gain *grows* with bank size, so arm 2 is measured near its
-weakest — read a close result as favouring tiles more than it looks. And arm 4
-mixes native crops with 224 tiles (tiling at native is another 6 large
-forwards), so if arm 4 wins its true ceiling is higher than measured.
+**DECISION: tiles at 224, the ~19 h extension pass.** Read +1.27 pp as a
+**floor**: §8f measured the matched gain *growing* with density (+1.80 at 25k ->
++2.60 at 400k) and this bank is 39,831 rows, so arm 2 is measured near its
+weakest. Do not splice the two series -- different subset, split and query set.
 
 ---
 
 ## 9b. Next steps, in order
 
-1. **Read `resmatch`** and pick what to rebuild.
-2. **Write the id-to-shard addressing.** Needed **either way**: the extension
-   metadata (`bank_ext70_meta.npz`) has `image_id`, `x16`, `y16`, `sequence`
-   and a *shard list* — no `zip_name`. Images are reachable as
-   `<shard>/<image_id>.jpg` across 60 zips of 50,001 entries each (verified),
-   but the per-image mapping has to be built by reading the zip directories.
-   `tile_cache.py` reads `zip_name` from `dataset.parquet`, so it covers the
-   500k release and **cannot touch the 3M extension**.
+1. ~~Read `resmatch` and pick what to rebuild.~~ **Done: tiles at 224 (§9).**
+2. ~~Write the id-to-shard addressing.~~ **Already built — a claim of mine
+   corrected.** I looked at `bank_ext70_meta.npz` (which really does carry only
+   `image_id`, `x16`, `y16`, `sequence` and a shard list) and concluded the
+   per-image mapping had to be reconstructed by reading 60 zip directories. It
+   does not: `build_bank_ext.py:113` writes a **parquet beside** the npz with
+   `zip_name` already materialised as `<shard>/<image_id>.jpg`.
+
+       data/processed/s10/bank_ext{,2,3,4}.parquet   750,000 rows each
+
+   Concatenated in that order they are **3,000,000 rows in the exact row order
+   of `bank_ext70_meta.npz`** (`np.array_equal` on `image_id`: True), covering
+   all 60 shards. So the remaining work is not a build but a flag:
+   `tile_cache.py:145` hardcodes `config.DATASET_PARQUET`, and wants a
+   `--rows-parquet` that defaults to it and is recorded in the cache metadata.
+   Spot-checked 200 random paths across 15 shards: **200/200 readable, 0
+   missing.** **Same shape as §6: I checked the artefact that *names* the
+   thing rather than every artefact the thing is written to.**
 3. **Benchmark `torch.compile`** before committing (§8i) — the only untested
    throughput lever, and 20% is 4 h of 19 h.
 4. **Rebuild** at the winner: release + extension, PCA refit **on the training
