@@ -29,7 +29,7 @@ class GeoAgent(nn.Module):
                  map_loop=False, mem="none", d_mem=64, mem_drop=0.0,
                  retr=False, retr_tau=0.07, retr_mode="scalar", d_key=128,
                  nbr_drop=0.0,
-                 enc_gate=False, geo="none", d_geo=128):
+                 enc_gate=False, geo="none", d_geo=128, d_cond=0):
         super().__init__()
         self.n_actions = n_actions
         self.n_regions = n_actions          # z4 cells and actions are the same grid
@@ -83,7 +83,15 @@ class GeoAgent(nn.Module):
         # projection.  See StreetProj -- the encoders win at different spatial
         # scales and the steps decide at different spatial scales, so a single
         # shared ratio is leaving something on the table.
-        self.street = StreetProj(d_street, d, n_steps=n_steps if enc_gate else 0)
+        # d_street is the RETRIEVAL width. When d_cond is set the dataset hands
+        # a wider tensor -- retrieval block first, conditioning appended -- and
+        # StreetProj splits it. Retrieval never sees the conditioning block:
+        # the k-NN cache was built on the retrieval file alone, which is the
+        # entire point of the decoupling (runs/PYR_LEVELS.md measured that
+        # putting extra detail *into* the retrieval vector is churn without
+        # gain).
+        self.street = StreetProj(d_street, d, n_steps=n_steps if enc_gate else 0,
+                                 d_cond=d_cond)
         # A learned key per map tile, added to the policy readout. See GeoMem:
         # absolute geography reaches the logits nowhere else, since the map keys
         # are built from mask content and the query is shared across candidates.
@@ -239,6 +247,14 @@ class GeoAgent(nn.Module):
         """
         if self.retr is None or nbrs is None:
             return None
+        # The learned retrieval keys live in the BANK's space. The conditioning
+        # block has no counterpart in the bank -- that is what decoupling means
+        # -- so it is dropped before the key projection. Doing it here rather
+        # than at each call site is deliberate: this function's docstring
+        # records that beam.search once had its own version and silently
+        # omitted a_pos and a_neg.
+        if self.street.d_cond:
+            street = street[..., :self.street.d_in]
         K = nbrs[0].shape[1]
         rep = lambda t: (t.unsqueeze(1).expand(t.shape[0], per_image, K)
                          .reshape(-1, K))

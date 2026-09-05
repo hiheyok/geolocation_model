@@ -29,7 +29,13 @@ def build_from_ck(ck, dev="cpu"):
     """
     # Infer the street width from the checkpoint so older files stay loadable.
     d_street = ck["model"]["street.proj.weight"].shape[1]
-    m = GeoAgent(d_street=d_street, n_actions=tm.actions(), n_steps=tm.STEPS + 1,
+    # Inferred, not recorded: a conditioned checkpoint carries the adapter's
+    # weights, so its presence and width are readable off the state dict, and
+    # a checkpoint saved before the adapter existed loads unchanged.
+    d_cond = (ck["model"]["street.cond_proj.weight"].shape[1]
+              if "street.cond_proj.weight" in ck["model"] else 0)
+    m = GeoAgent(d_street=d_street, d_cond=d_cond,
+                 n_actions=tm.actions(), n_steps=tm.STEPS + 1,
                  map_layers=ck.get("map_layers", 0),
                  pool=ck.get("pool", "mean"), n_pool_q=ck.get("pool_q", 4),
                  pos=ck.get("pos", "learned"),
@@ -51,7 +57,7 @@ def build_from_ck(ck, dev="cpu"):
                  d_geo=ck.get("d_geo", 128)).to(dev)
     m.load_state_dict(ck["model"])
     m.eval()
-    return m, d_street
+    return m, d_street + d_cond
 
 
 def check_release(ck, what="this checkpoint"):

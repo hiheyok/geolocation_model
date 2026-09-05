@@ -71,10 +71,33 @@ class StreetProj(nn.Module):
     the identity and a checkpoint saved without one loads into this unchanged.
     """
 
-    def __init__(self, d_in=768, d=512, n_steps=0, n_blocks=2):
+    def __init__(self, d_in=768, d=512, n_steps=0, n_blocks=2, d_cond=0):
         super().__init__()
         self.proj = nn.Linear(d_in, d)
         self.norm = nn.LayerNorm(d)
+        self.d_in = d_in
+        # Conditioning rides in the same tensor, appended after the retrieval
+        # vector, and is split off here. Keeping it in one tensor is what lets
+        # every existing caller stay untouched: `fuse_flat` is documented as
+        # the one place the fusion input is assembled precisely because beam
+        # search once inlined that concatenation and drifted, and threading a
+        # second argument through fuse/policy_from/forward/beam would rebuild
+        # exactly that hazard.
+        self.d_cond = d_cond
+        if d_cond:
+            self.cond_proj = nn.Linear(d_cond, d)
+            self.cond_norm = nn.LayerNorm(d)
+            # Zero. At initialisation the adapter contributes exactly nothing,
+            # so a checkpoint loaded into this model is bit-identical to what
+            # it was before the adapter existed -- a fine-tune starts from the
+            # trained point rather than near it.
+            #
+            # This is NOT the zero-gate deadlock (a zero gate times a zero
+            # table never trains and looks like an honest null). Here
+            # cond_norm(cond_proj(c)) is randomly initialised and nonzero, so
+            # dL/dgate is nonzero from the first step; the gate moves, and
+            # cond_proj starts receiving gradient once it has.
+            self.cond_gate = nn.Parameter(torch.zeros(1))
         self.n_blocks = n_blocks if n_steps else 0
         if n_steps:
             if d_in % n_blocks:
@@ -84,11 +107,26 @@ class StreetProj(nn.Module):
             self.gate = nn.Parameter(torch.zeros(n_steps, n_blocks))
 
     def forward(self, x, step=None):
+        c = None
+        if self.d_cond:
+            if x.shape[-1] != self.d_in + self.d_cond:
+                raise ValueError(
+                    "street vector is {}-d but this model expects {} "
+                    "retrieval + {} conditioning = {}. A cache without the "
+                    "conditioning block cannot be fed to a conditioned model: "
+                    "the split would silently take part of the retrieval "
+                    "vector as conditioning.".format(
+                        x.shape[-1], self.d_in, self.d_cond,
+                        self.d_in + self.d_cond))
+            x, c = x[..., :self.d_in], x[..., self.d_in:]
         if self.n_blocks and step is not None:
             w = x.shape[-1] // self.n_blocks
             g = torch.exp(self.gate[step.long()])
             x = x * g.repeat_interleave(w, dim=-1)
-        return self.norm(self.proj(x))
+        out = self.norm(self.proj(x))
+        if c is not None:
+            out = out + self.cond_gate * self.cond_norm(self.cond_proj(c))
+        return out
 
 
 class AttnPool(nn.Module):

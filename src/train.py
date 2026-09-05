@@ -533,8 +533,13 @@ def main():
                                           else tr).tokens.shape[-1] / 12)
                                         ** 0.5)))
 
-    model = GeoAgent(d_street=tr.dataset.dim_street if hasattr(tr, "dataset")
-                     else tr.dim_street,
+    _ds = tr.dataset if hasattr(tr, "dataset") else tr
+    model = GeoAgent(d_street=_ds.dim_street,
+                     # The conditioning width comes from the cache's own
+                     # sidecar, never a flag: a flag that disagreed with the
+                     # file would split the tensor in the wrong place and take
+                     # part of the retrieval vector as conditioning.
+                     d_cond=getattr(_ds, "dim_cond", 0),
                      n_actions=tm.actions(), n_steps=steps + 1,
                      # width comes from the cache, never assumed: a sub>1 cache
                      # carries 12*sub*sub per patch and a hardcoded 12 would
