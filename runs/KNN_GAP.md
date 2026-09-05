@@ -80,11 +80,57 @@ That last contrast is the useful one. **Depth absorbs the coarse gain and
 leaves the fine one.** If the agent transfers anything, expect it at the tight
 thresholds rather than the headline 25 km.
 
+## 4. A per-query gate does not work, and the oracle says why it is tempting
+
+If the two arms disagree on 10.4% of queries, picking the right one each time is
+worth much more than always taking the blend:
+
+    crops only 32.9%    flat blend 35.7%    oracle 39.5%
+
+**+6.57 pp against the flat blend's +2.76 -- 2.4x the headroom.** So the
+question is whether the choice is predictable *without* the answer.
+
+First, where the gain lives. Bucketed by the crops top-1 cosine, quintiles:
+
+| crops sim | queries | crops `<25 km` | net pp | ratio |
+|---|---|---|---|---|
+| 0.368 - 0.683 | 9,948 | 15.2% | **+3.77** | 2.08x |
+| 0.683 - 0.737 | 9,866 | 23.2% | +3.30 | 1.85x |
+| 0.737 - 0.785 | 9,970 | 29.7% | +3.07 | 1.82x |
+| 0.785 - 0.836 | 9,981 | 40.2% | +2.03 | 1.47x |
+| 0.836 - 0.999 | 10,023 | 56.1% | **+1.65** | 1.46x |
+
+Monotone, and it corroborates §3: tiles pay most exactly where the crops match
+was weakest. **But it also kills the obvious gate** -- the gain is positive in
+every bucket, so switching tiles off anywhere forfeits value rather than saving
+it. There is no confidence region where crops alone is better.
+
+Three observable rules, each picking an arm per query:
+
+| rule | `<25 km` | vs flat blend |
+|---|---|---|
+| always tiles (the flat blend) | 35.7% | -- |
+| pick higher raw top-1 cosine | 35.6% | **-0.12 [-0.2, -0.0]** |
+| pick higher within-arm percentile | 34.8% | **-0.92 [-1.1, -0.7]** |
+| pick larger top1-minus-top4 margin | 34.9% | **-0.76 [-1.0, -0.6]** |
+
+**All three are separated *worse* than doing nothing.** Raw cosine is nearly a
+wash only because the two scales differ enough that the rule almost always
+picks the same arm; the two scale-free versions, which actually discriminate,
+are the ones that lose most. Retrieval confidence does not know which
+representation is right.
+
+So the +6.57 pp is real and inaccessible from these signals. **Ship the flat
+blend.** This is the third instance of the same shape in this line of work --
+per-step blend weights did not transfer (`PYR_PERSTEP.md`), a per-step encoder
+gate learned nothing (STATE §8e), and now a per-query arm gate. A single global
+weighting keeps winning.
+
 ## Reproduce
 
     OSV_RELEASE=s10 py scripts/knn_gap.py \
         --a knn_pyr768_l0_sequence_k32.npz \
-        --b knn_pyr768_mix_sequence_k32.npz --ranks 1,16,32 --flows
+        --b knn_pyr768_mix_sequence_k32.npz --ranks 1,16,32 --flows --gate
 
 Seconds, CPU only.
 

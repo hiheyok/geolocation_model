@@ -64,6 +64,12 @@ def main():
     ap.add_argument("--ranks", default="1,32",
                     help="comma-separated: top-1, and any-of-k")
     ap.add_argument("--split-mode", default="sequence")
+    ap.add_argument("--gate", action="store_true",
+                    help="can any observable signal pick the better arm per "
+                         "query? The oracle that picks correctly every time is "
+                         "worth far more than the flat blend, so the question "
+                         "is whether the choice is predictable without the "
+                         "answer.")
     ap.add_argument("--flows", action="store_true",
                     help="split each net gain into the queries it wins and "
                          "the ones it loses. A net figure cannot tell a small "
@@ -111,6 +117,38 @@ def main():
                 100 * ((err[a.b] < t).mean() - (err[a.a] < t).mean()),
                 lo, hi, " " if lo * hi > 0 else "~"))
         print("%-34s %9s %s\n" % ("b - a", "", " ".join(cells)))
+
+    if a.gate:
+        za_, zb_ = np.load(config.STREET_CACHE / a.a), np.load(
+            config.STREET_CACHE / a.b)
+        sa = np.asarray(za_["sim"][te][:, :4], np.float32)
+        sb = np.asarray(zb_["sim"][te][:, :4], np.float32)
+        ea, _ = load(a.a, lat, lon, te, 1)
+        eb, _ = load(a.b, lat, lon, te, 1)
+        t = 25.0
+        ha, hb = ea < t, eb < t
+        n = len(te)
+        print("--- can a gate beat the flat blend? top-1, <{:g} km ---"
+              .format(t))
+        print("  baseline {:.1f}%   flat blend {:.1f}%   oracle {:.1f}%".format(
+            100 * ha.mean(), 100 * hb.mean(), 100 * np.maximum(ha, hb).mean()))
+        rng2 = np.random.default_rng(0)
+        # Cosines from two different representations are not comparable in
+        # scale, so the raw rule is joined by two scale-free ones: each arm's
+        # own percentile, and the margin between its top-1 and its rank-4.
+        ranks = lambda v: np.argsort(np.argsort(v)) / max(n, 1)
+        rules = [("pick higher raw top-1 cosine", sb[:, 0] > sa[:, 0]),
+                 ("pick higher within-arm percentile",
+                  ranks(sb[:, 0]) > ranks(sa[:, 0])),
+                 ("pick larger top1-minus-top4 margin",
+                  (sb[:, 0] - sb[:, 3]) > (sa[:, 0] - sa[:, 3]))]
+        for name, pick in rules:
+            h = np.where(pick, eb, ea) < t
+            lo, hi = paired(hb, h, rng2)
+            print("  {:<38} {:6.1f}%  {:+.2f} [{:+.1f},{:+.1f}]{}".format(
+                name, 100 * h.mean(), 100 * (h.mean() - hb.mean()), lo, hi,
+                "" if lo * hi > 0 else " ~"))
+        print()
 
     if a.flows:
         for ranks in (int(r) for r in a.ranks.split(",")):
