@@ -44,6 +44,7 @@ if not os.environ.get("OSV_RELEASE"):
 
 import config                                    # noqa: E402
 import maskio                                    # noqa: E402
+import safeio                                    # noqa: E402
 import provenance as prov                        # noqa: E402
 
 
@@ -111,8 +112,14 @@ def main():
     # be able to *check* it rather than trust the name -- a retrieval cache
     # rebuilt under the same filename is exactly the failure a string
     # comparison cannot see.
+    # The digest of the WHOLE retrieval file, not a sample of rows. A fixed
+    # sample ignores the same rows forever, so a localized rebuild or a
+    # corrupted block outside it passes every time rather than eventually
+    # being caught. REVIEW6 #2.
     prov.carry(rp, out, n, retrieval_file=a.retrieval, retrieval_dim=dr,
-               cond_file=a.cond, cond_dim=dc)
+               retrieval_digest=safeio.content_digest(rp),
+               cond_file=a.cond, cond_dim=dc,
+               cond_digest=safeio.content_digest(cp))
     print("\nwrote {}  retrieval block [0:{}), conditioning [{}:{})".format(
         out.name, dr, dr, dr + dc), flush=True)
 

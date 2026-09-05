@@ -19,6 +19,7 @@ from torch.utils.data import Dataset
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import provenance as prov
+import safeio
 import splits as sp
 import tile_math as tm
 
@@ -91,7 +92,8 @@ def gather_nbr(table, rows, dev):
     return table[idx].to(dev, non_blocking=True).float()
 
 
-def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64):
+def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64,
+                            want_digest=None):
     """The first `d_retr` columns must BE the retrieval cache, byte for byte.
 
     A name comparison cannot see the failure that matters here: a retrieval
@@ -123,6 +125,24 @@ def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64):
             "{} is {} but {} declares a {}-d retrieval block over {:,} rows"
             .format(retr_file, R.shape, Path(path).name, d_retr,
                     street.shape[0]))
+    # The whole file, by content. The sampled comparison below still runs --
+    # it is the only thing that checks the *join* itself -- but it cannot be
+    # the authority: its seed is fixed, so the rows it skips are skipped
+    # forever and a localized rebuild passes every run rather than eventually
+    # being caught. REVIEW6 #2.
+    if want_digest:
+        got = safeio.content_digest(rp)
+        if got != want_digest:
+            raise SystemExit(
+                "{} was joined over {} whose contents digest {}; that file now "
+                "digests {}. It was rebuilt under the same name, so this "
+                "file's retrieval block and the bank the k-NN addresses are "
+                "different embedding spaces. Rebuild the joined cache."
+                .format(Path(path).name, retr_file, want_digest, got))
+    else:
+        print("warning: {} records no content digest for its retrieval block, "
+              "so only a {}-row sample can be checked".format(
+                  Path(path).name, n_probe), flush=True)
     rng = np.random.default_rng(0)
     rows = np.unique(rng.integers(0, street.shape[0], min(n_probe,
                                                           street.shape[0])))
@@ -295,7 +315,8 @@ class GeoStepDataset(Dataset):
                 .format(street_file, self.dim_street, self.street.shape[1]))
         if self.dim_cond:
             _check_retrieval_prefix(self._street_path, self.street,
-                                    self.retr_file, self.dim_street)
+                                    self.retr_file, self.dim_street,
+                                    want_digest=_rec.get("retrieval_digest"))
         _check_street_rows(self._street_path, street_file, all_ids,
                            len(self.street), self.rows_digest)
 

@@ -40,6 +40,34 @@ def replace_from(tmp, path):
         raise
 
 
+def content_digest(path, missing="absent", block=1 << 22):
+    """Identify a file by its bytes, not by size and mtime.
+
+    `file_stamp` is the cheap version and is right for cache invalidation,
+    where the failure being guarded is an accidental rebuild. It is not enough
+    where the artifact is an *authority* -- a k-NN table's embedding space, or
+    the retrieval prefix a joined cache claims to contain -- because it cannot
+    see a rewrite that preserved size and mtime, and because a sampled
+    comparison with a fixed seed ignores the same rows forever rather than
+    catching them eventually.
+
+    Measured on this project's caches: 1,463 MB/s, so a 0.77 GB street file
+    costs 0.53 s. That is affordable once at dataset construction and is not
+    affordable per lookup, which is why both functions exist.
+    """
+    p = Path(path)
+    if not p.exists():
+        return missing
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        while True:
+            b = f.read(block)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()[:16]
+
+
 def file_stamp(path, missing="absent"):
     """Identify a file by its bytes-on-disk, cheaply: size and mtime.
 

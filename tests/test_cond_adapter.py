@@ -242,3 +242,117 @@ def test_an_undeclared_retrieval_file_warns_rather_than_failing(
                                                              np.float16),
                             None, 8)
     assert "cannot be verified" in capsys.readouterr().out
+
+
+# --- REVIEW6 #1: neighbours carry the conditioning suffix too -----------------
+
+@pytest.mark.parametrize("mode", ["scalar", "cond", "pos", "dual"])
+def test_conditioned_prior_slices_query_and_neighbours(mode):
+    """The keyed modes read neighbour *embeddings*, and those are gathered
+    from the same combined street file as the query.
+
+    Slicing only the query left the key projections -- built for the retrieval
+    width -- receiving the wider tensor, and `pos`/`dual` raised on the first
+    batch. `dual` is the mode this project actually trains with.
+
+    The assertion is not merely "it runs": the conditioned call must equal the
+    call made with explicit retrieval-width inputs, which is what establishes
+    that the conditioning was dropped rather than folded in somewhere.
+    """
+    dr, dc, B, K = 8, 4, 3, 5
+    torch.manual_seed(0)
+    m = GeoAgent(d_street=dr, d_cond=dc, n_actions=tm.actions(),
+                 n_steps=tm.STEPS + 1, retr=True, retr_mode=mode).eval()
+    g = torch.Generator().manual_seed(1)
+    nx = torch.randint(0, 16, (B, K), generator=g)
+    ny = torch.randint(0, 16, (B, K), generator=g)
+    sim = torch.rand(B, K, generator=g)
+    emb_r = torch.randn(B, K, dr, generator=g)
+    emb_c = torch.randn(B, K, dc, generator=g)
+    st_r = torch.randn(B, dr, generator=g)
+    st_c = torch.randn(B, dc, generator=g)
+    x0 = torch.rand(B, generator=g)
+    y0 = torch.rand(B, generator=g)
+    step = torch.zeros(B, dtype=torch.long)
+    n_logits = tm.actions()
+
+    with torch.no_grad():
+        wide = m.retr_prior((nx, ny, sim, torch.cat([emb_r, emb_c], -1)),
+                            torch.cat([st_r, st_c], -1),
+                            x0, y0, step, 1, n_logits)
+        m.street.d_cond = 0                    # same model, prefixes supplied
+        narrow = m.retr_prior((nx, ny, sim, emb_r), st_r,
+                              x0, y0, step, 1, n_logits)
+        m.street.d_cond = dc
+    assert wide.shape[-1] == n_logits
+    assert torch.equal(wide, narrow)
+
+
+def test_the_unconditioned_prior_is_untouched():
+    """The slice must be conditional -- a plain model has no suffix to drop."""
+    dr, B, K = 8, 3, 5
+    torch.manual_seed(0)
+    m = GeoAgent(d_street=dr, n_actions=tm.actions(), n_steps=tm.STEPS + 1,
+                 retr=True, retr_mode="dual").eval()
+    g = torch.Generator().manual_seed(1)
+    nbrs = (torch.randint(0, 16, (B, K), generator=g),
+            torch.randint(0, 16, (B, K), generator=g),
+            torch.rand(B, K, generator=g),
+            torch.randn(B, K, dr, generator=g))
+    with torch.no_grad():
+        out = m.retr_prior(nbrs, torch.randn(B, dr, generator=g),
+                           torch.rand(B, generator=g),
+                           torch.rand(B, generator=g),
+                           torch.zeros(B, dtype=torch.long), 1, tm.actions())
+    assert out.shape == (B, tm.actions())
+
+
+# --- REVIEW6 #2: a fixed sample skips the same rows forever -------------------
+
+def test_a_change_outside_the_sampled_rows_is_caught_by_the_digest(
+        tmp_path, monkeypatch):
+    """The sample is deterministic, so what it misses it misses every run.
+
+    Row 0 is chosen because it is outside the 64-row probe on a 1,000-row
+    cache. Without a content digest this passed; with one it cannot.
+    """
+    import safeio
+    rng = np.random.default_rng(0)
+    r = rng.standard_normal((1000, 8)).astype(np.float16)
+    c = rng.standard_normal((1000, 4)).astype(np.float16)
+    s = joined(tmp_path, monkeypatch, r, c)
+    digest = safeio.content_digest(tmp_path / "r.f16.npy")
+
+    probe = np.unique(np.random.default_rng(0).integers(0, 1000, 64))
+    assert 0 not in probe, "pick a row the sample does not reach"
+    r2 = r.copy()
+    r2[0] = r2[0] + 1
+    np.save(tmp_path / "r.f16.npy", r2)
+
+    # the sampled check alone still passes -- that is the bug
+    _check_retrieval_prefix(tmp_path / "j.f16.npy", s, "r.f16.npy", 8)
+    # the digest does not
+    with pytest.raises(SystemExit, match="rebuilt under the same name"):
+        _check_retrieval_prefix(tmp_path / "j.f16.npy", s, "r.f16.npy", 8,
+                                want_digest=digest)
+
+
+def test_a_matching_digest_passes(tmp_path, monkeypatch):
+    import safeio
+    rng = np.random.default_rng(0)
+    r = rng.standard_normal((200, 8)).astype(np.float16)
+    c = rng.standard_normal((200, 4)).astype(np.float16)
+    s = joined(tmp_path, monkeypatch, r, c)
+    _check_retrieval_prefix(tmp_path / "j.f16.npy", s, "r.f16.npy", 8,
+                            want_digest=safeio.content_digest(
+                                tmp_path / "r.f16.npy"))
+
+
+def test_no_digest_warns_that_only_a_sample_was_checked(
+        tmp_path, monkeypatch, capsys):
+    rng = np.random.default_rng(0)
+    r = rng.standard_normal((200, 8)).astype(np.float16)
+    s = joined(tmp_path, monkeypatch, r,
+               rng.standard_normal((200, 4)).astype(np.float16))
+    _check_retrieval_prefix(tmp_path / "j.f16.npy", s, "r.f16.npy", 8)
+    assert "only a 64-row sample" in capsys.readouterr().out

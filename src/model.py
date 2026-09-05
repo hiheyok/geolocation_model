@@ -253,13 +253,21 @@ class GeoAgent(nn.Module):
         # than at each call site is deliberate: this function's docstring
         # records that beam.search once had its own version and silently
         # omitted a_pos and a_neg.
+        nbr_emb = nbrs[3] if len(nbrs) > 3 else None
         if self.street.d_cond:
+            # BOTH sides. The neighbours are gathered from the same combined
+            # street file as the query, so they carry the conditioning suffix
+            # too, and the key projections were built for the retrieval width.
+            # Slicing only the query left `pos` and `dual` raising
+            # "mat1 and mat2 shapes cannot be multiplied" on the first batch --
+            # REVIEW6 #1, and the mode this experiment actually runs.
             street = street[..., :self.street.d_in]
+            if nbr_emb is not None:
+                nbr_emb = nbr_emb[..., :self.street.d_in]
         K = nbrs[0].shape[1]
         rep = lambda t: (t.unsqueeze(1).expand(t.shape[0], per_image, K)
                          .reshape(-1, K))
-        a_pos, a_neg = self.retr.weights(
-            nbrs[2], street, nbrs[3] if len(nbrs) > 3 else None)
+        a_pos, a_neg = self.retr.weights(nbrs[2], street, nbr_emb)
         return self.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
                          x0, y0, step, n_logits,
                          a_pos=rep(a_pos),

@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Subset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 import safeio
@@ -429,6 +430,16 @@ ADDITIVE = {
 }
 
 
+def retrieval_file_of(street_file):
+    """The cache a k-NN over `street_file` would have been built on.
+
+    A joined conditioning cache records the retrieval prefix it was made from;
+    everything else is its own retrieval space.
+    """
+    rec = prov.read(config.STREET_CACHE / street_file) or {}
+    return rec.get("retrieval_file") or street_file
+
+
 def init_from(model, state, tag):
     """Load a source checkpoint into `model`, allowing only additive gaps.
 
@@ -477,7 +488,13 @@ def main():
 
     knn_file = a.knn_file
     if a.retr and knn_file is None:
-        knn_file = config.knn_name(a.street_file, a.split_mode)
+        # For a conditioned cache the k-NN was deliberately built on the
+        # retrieval *prefix*, not on the joined file -- that is what decoupling
+        # means. Deriving the name from the joined file asks for a cache that
+        # should never exist, so the advertised path would only work with a
+        # redundant --knn-file override. REVIEW6 #5.
+        knn_file = config.knn_name(retrieval_file_of(a.street_file),
+                                   a.split_mode)
     kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0,
               cache=a.map_cache)
     # Train negatives are seeded from --seed, not from OS entropy. They used

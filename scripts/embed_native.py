@@ -147,6 +147,10 @@ def main():
     ap.add_argument("--no-compile", dest="compile", action="store_false")
     ap.set_defaults(compile=True)
     a = ap.parse_args()
+    # range(0, n, 0) raises, but range(0, n, -1) is empty: a negative batch
+    # would embed nothing, fall through, and mark every row done. REVIEW6 #7.
+    if a.batch < 1 or a.workers < 1 or a.crops < 1:
+        raise SystemExit("--batch, --workers and --crops must be >= 1")
 
     import pyarrow.parquet as pq
     import timm
@@ -178,13 +182,19 @@ def main():
                                       shape=(n, d_out))
         done = np.zeros(n, np.uint8)
     np.save(done_p, done)
+    todo = np.flatnonzero(done != 1)
     # Published before the first forward, not after the last: the metadata is
     # what a resume checks against, and a run that only writes it on success
     # leaves the interrupted case -- the only case resume is for -- unverifiable.
-    np.savez(meta_p, release=config.RELEASE, complete=False,
-             layout="(n, dino768|siglip768) native-res crop mean, CONDITIONING "
-                    "ONLY -- never a retrieval bank", **want)
-    todo = np.flatnonzero(done != 1)
+    #
+    # But only when there is work to do. Writing complete=False unconditionally
+    # meant that merely *checking* a finished cache downgraded truthful
+    # metadata and then returned before ever restoring it, so a harmless
+    # no-op left the artifact claiming to be unfinished. REVIEW6 #8.
+    if len(todo):
+        np.savez(meta_p, release=config.RELEASE, complete=False,
+                 layout="(n, dino768|siglip768) native-res crop mean, "
+                        "CONDITIONING ONLY -- never a retrieval bank", **want)
     print("{}  {:,} rows, {:,} to embed, {:.2f} GB".format(
         a.out, n, len(todo), E.nbytes / 1e9), flush=True)
     if not len(todo):
@@ -203,11 +213,20 @@ def main():
         sd = np.array(cfg["std"], np.float32).reshape(3, 1, 1)
         net = net.to(torch.bfloat16)
         if a.compile:
+            eager = net
             try:
                 net = torch.compile(net)
+                # torch.compile defers everything to the first call, so
+                # wrapping it never raises -- the Triton/inductor failure
+                # arrives on the first forward, hours into a run, past this
+                # handler. Trip it here on one tiny batch instead. REVIEW6 #9.
+                with torch.no_grad():
+                    net(torch.zeros(1, 3, size, size,
+                                    device=dev, dtype=torch.bfloat16))
             except Exception as exc:                      # noqa: BLE001
                 print("compile unavailable ({}); eager".format(
-                    str(exc).split(chr(10))[0]), flush=True)
+                    str(exc).strip().split(chr(10))[0]), flush=True)
+                net = eager
         col = slice(enc_i * D_ENC, (enc_i + 1) * D_ENC)
 
         by_zip = defaultdict(list)
