@@ -19,6 +19,28 @@ below. Findings are ordered by impact, not by file.
 
 > **Triage, 2026-09-04 13:45.** Read this before working the list.
 >
+> **UPDATE 2026-09-05 03:10. 8 fixed: #3, #4, #5, #11, #12, #17, #19, #20.**
+>
+> **#19 fixed.** `tile_cache` now digests the ids at the rows it covers, in
+> cache order, and re-derives that from the current list on every resume;
+> `pool_pyramid` re-checks it on consumption, reading the parquet the metadata
+> names, because a digest that is written and never read is not a guard.
+> Missing metadata is reported and allowed rather than refused -- `tile6`
+> predates both fields and holds 500,000 finished rows -- but never treated as
+> agreement. The regression the review asks for is in both places: reorder a
+> same-length synthetic dataset, keep the cache files, require resume *and*
+> consumption to fail. `tests/test_tile_rows_parquet.py`,
+> `tests/test_pool_pyramid.py`; 445 pass.
+>
+> **#1 verified live, fix blocked until the current chain finishes.**
+> `src/dataset.py:139` validates the *street file's* extension list through
+> `prov.exts_of`, and `:314` reads the *k-NN cache's* `bank_ext`. Grep confirms
+> the two are never compared, so the review's scenario stands exactly as
+> written. It is directly on the path `scripts/tilebig.py` takes
+> (`build_knn --bank-ext`), so it is next. `src/dataset.py` is imported by the
+> training chain running now, and editing a file mid-chain is what voided
+> `seqfix2`; the fix lands in the tiling window, hours before any rung starts.
+>
 > **7 fixed so far: #3, #4, #5, #11, #12, #17, #20** (`[x]` below). All are in
 > files the running chain does not import. It guards the KartaView benchmark, which is
 > the selection benchmark and which `seqfix3` is about to measure against, so
@@ -472,7 +494,7 @@ The loader should require each image's step vector to equal
 by that verified order. A test should permute rows only within each image and
 require both training and serving loaders to refuse the file.
 
-### 19. `tile_cache` resume identity is numeric row position, not image identity
+### 19. `[x]` `tile_cache` resume identity is numeric row position, not image identity
 
 [`tile_cache.py:144-178`](../scripts/tile_cache.py#L144) derives a seeded set of
 dataset row numbers and stores only those integers. On resume it proves merely
