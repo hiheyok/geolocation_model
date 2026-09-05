@@ -84,7 +84,14 @@ def load_tiles(n, gc, gr, seed=0, max_shards=0):
 
 
 def build(mode, dev):
-    """Two encoders under one numeric regime."""
+    """Two encoders under one numeric regime.
+
+    A mode is a `+`-joined set of independent switches, because they compose
+    and the interesting cell is the composition: `autocast+compile` is the only
+    compiled variant that could actually be used for the extension, since it is
+    the one whose arithmetic stays closest to the autocast `tile6` already on
+    disk. Testing `compile` only on top of bf16 weights would confound the two.
+    """
     import timm
     from timm.data import resolve_model_data_config
     encs = []
@@ -97,9 +104,10 @@ def build(mode, dev):
         # weight-dtype result with an input-dtype one.
         mean = torch.tensor(cfg["mean"], device=dev).view(1, 3, 1, 1)
         std = torch.tensor(cfg["std"], device=dev).view(1, 3, 1, 1)
-        if mode != "autocast":
+        opt = set(mode.split("+"))
+        if "bf16" in opt:
             m = m.to(torch.bfloat16)
-        if mode == "compile":
+        if "compile" in opt:
             m = torch.compile(m)
         encs.append((m, mean, std))
     return encs
@@ -117,12 +125,12 @@ def encode(encs, tiles, mode, dev, batch, n_tile):
             got = []
             for m, mean, std in encs:
                 z = (x - mean) / std
-                if mode == "autocast":
+                if "bf16" in mode.split("+"):
+                    f = m(z.to(torch.bfloat16))
+                else:
                     with torch.autocast(dev, dtype=torch.bfloat16,
                                         enabled=(dev == "cuda")):
                         f = m(z)
-                else:
-                    f = m(z.to(torch.bfloat16))
                 got.append(f.float())
             out[s:e] = torch.cat(got, dim=1).reshape(
                 e - s, n_tile, 2 * D_ENC).cpu().numpy()
@@ -148,7 +156,9 @@ def main():
     ap.add_argument("--n", type=int, default=2000)
     ap.add_argument("--grid", default="3x2")
     ap.add_argument("--batch", type=int, default=32)
-    ap.add_argument("--modes", default="autocast,bf16,compile")
+    ap.add_argument("--modes", default="autocast,bf16,autocast+compile",
+                    help="comma-separated; each is a +-joined set of switches "
+                         "from {autocast, bf16, compile}")
     ap.add_argument("--repeat", type=int, default=2,
                     help="timed passes after a warm-up pass, best kept")
     ap.add_argument("--max-shards", type=int, default=0,
@@ -175,7 +185,7 @@ def main():
         try:
             encs = build(mode, dev)
         except Exception as exc:                      # noqa: BLE001
-            print("{:<10} unavailable: {}".format(
+            print("{:<18} unavailable: {}".format(
                 mode, str(exc).strip().split(chr(10))[0]), flush=True)
             modes.remove(mode)
             continue
@@ -188,7 +198,7 @@ def main():
             # torch.compile defers everything to the first real call, so this
             # is where it actually fails. Losing one arm must not lose the
             # agreement measurement, which is the half that decides anything.
-            print("{:<10} unavailable: {}".format(
+            print("{:<18} unavailable: {}".format(
                 mode, str(exc).strip().split(chr(10))[0]), flush=True)
             modes.remove(mode)
             del encs
@@ -205,7 +215,7 @@ def main():
             el = time.time() - t0
             best = el if best is None else min(best, el)
         res[mode] = (V, best)
-        print("{:<10} {:6.1f}s  {:6.1f} img/s  {:7.1f} tile/s  {:.2f} GB".format(
+        print("{:<18} {:6.1f}s  {:6.1f} img/s  {:7.1f} tile/s  {:.2f} GB".format(
             mode, best, len(tiles) / best, len(tiles) * n_tile / best,
             torch.cuda.max_memory_allocated() / 1e9 if dev == "cuda" else 0),
             flush=True)
@@ -217,7 +227,7 @@ def main():
     base = modes[0]
     print("\n--- speed, against {} ---".format(base))
     for m in modes[1:]:
-        print("{:<10} {:.3f}x".format(m, res[base][1] / res[m][1]))
+        print("{:<18} {:.3f}x".format(m, res[base][1] / res[m][1]))
 
     # Agreement. The cosine is the reassuring number; the crossing rate is the
     # one that decides whether a bank may hold both regimes.
@@ -225,14 +235,14 @@ def main():
     L = {m: level(res[m][0], dev) for m in modes}
     half = len(tiles) // 2
     ref_who = top1(L[base][half:], L[base][:half])
-    print("{:<10} {:>12} {:>12} {:>14}".format(
+    print("{:<18} {:>12} {:>12} {:>14}".format(
         "arm", "min cos", "mean cos", "top-1 changed"))
     for m in modes:
         cos = (L[base] * L[m]).sum(1)
         # Query embedded with `m`, bank still the incumbent: exactly the mixed
         # bank the extension would create.
         who = top1(L[m][half:], L[base][:half])
-        print("{:<10} {:12.6f} {:12.6f} {:11.2f}% {}".format(
+        print("{:<18} {:12.6f} {:12.6f} {:11.2f}% {}".format(
             m, float(cos.min()), float(cos.mean()),
             100.0 * (who != ref_who).mean(),
             "<- baseline" if m == base else ""), flush=True)
