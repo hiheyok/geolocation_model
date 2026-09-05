@@ -29,17 +29,24 @@ import numpy as np
 def load_mask(path, n, what="cache"):
     """Read a completion mask, refusing one that cannot mean what it says.
 
-    A short mask belongs to a different build; a non-binary one is not a
-    completion mask at all. Both are refusals rather than warnings, because
-    the thing they protect -- "this row holds real data" -- has no other
-    evidence behind it.
+    A mask of the wrong length belongs to a different build; a non-binary one
+    is not a completion mask at all. Both are refusals rather than warnings,
+    because the thing they protect -- "this row holds real data" -- has no
+    other evidence behind it.
+
+    Two legal shapes. `(n,)` is one flag per row. `(n, k)` is one column per
+    producer, which the pyramid cache writes because a row is only real when
+    *every* encoder wrote it -- checking column 0 alone passes an image that
+    decoded for DINOv2 and failed for SigLIP. Consolidating the four copies of
+    this check missed that second shape, and the first thing it was pointed at
+    was a 2-D mask.
     """
     d = np.load(path)
-    if d.shape != (n,):
+    if d.ndim not in (1, 2) or d.shape[0] != n:
         raise SystemExit(
-            "{} completion mask is {} but this build wants {}; it belongs to "
-            "a different cache. Delete it to start fresh."
-            .format(what, d.shape, (n,)))
+            "{} completion mask is {} but this build wants {} rows; it "
+            "belongs to a different cache. Delete it to start fresh."
+            .format(what, getattr(d, "shape", "?"), n))
     check_mask(d, what)
     return d.astype(np.uint8)
 
@@ -56,12 +63,15 @@ def check_mask(d, what="cache"):
 
 
 def complete(d):
-    """How many rows are actually finished.
+    """How many ROWS are finished -- for a 2-D mask, every column must be 1.
 
-    `sum()` is not this. A mask with one 2 and one 0 sums to n and is missing
-    a row, which is how an incomplete cache passed its own final check.
+    `sum()` is not this, twice over. A mask with one 2 and one 0 sums to n and
+    is missing a row, which is how an incomplete cache passed its own final
+    check. And on a per-producer mask a sum counts flags, not rows, so a row
+    half-written by one encoder would count as most of a row.
     """
-    return int((np.asarray(d) == 1).sum())
+    d = np.asarray(d)
+    return int(((d == 1).all(-1) if d.ndim == 2 else (d == 1)).sum())
 
 
 def is_complete(d, n):
