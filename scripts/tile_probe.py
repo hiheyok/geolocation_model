@@ -52,6 +52,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
+from tile_math import great_circle_km as great_circle
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
 SIGLIP = "vit_base_patch16_siglip_224.v2_webli"
@@ -88,14 +89,6 @@ def to_batch(parts, mean, std):
         x = np.array(c, np.uint8).transpose(2, 0, 1).astype(np.float32) / 255.0
         out[i] = (x - mean) / std
     return out
-
-
-def great_circle(a_lat, a_lon, b_lat, b_lon):
-    p = np.pi / 180.0
-    dlat, dlon = (b_lat - a_lat) * p, (b_lon - a_lon) * p
-    h = (np.sin(dlat / 2) ** 2 +
-         np.cos(a_lat * p) * np.cos(b_lat * p) * np.sin(dlon / 2) ** 2)
-    return 2 * 6371.0088 * np.arcsin(np.sqrt(np.clip(h, 0, 1)))
 
 
 def pca_fit(X, d, rng):

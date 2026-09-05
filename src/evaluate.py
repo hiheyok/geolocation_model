@@ -15,7 +15,7 @@ import tile_math as tm
 from baselines import great_circle_km, print_table, report
 from beam import source_for, search
 from dataset import GeoStepDataset, gather_nbr, street_table
-from model import GeoAgent
+from model import GeoAgent, NeighborBatch
 
 
 def build_from_ck(ck, dev="cpu"):
@@ -272,11 +272,11 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
         # on the corpus; an arm that collapses was.
         if getattr(ds, "knn_k", 0) and not retr_off:
             r = ds.rows[sel]
-            nbrs = [torch.from_numpy(ds.all_x16[ds.knn_idx[r]].astype(np.int64)).to(dev),
-                    torch.from_numpy(ds.all_y16[ds.knn_idx[r]].astype(np.int64)).to(dev),
-                    torch.from_numpy(ds.knn_sim[r]).to(dev)]
-            if street_gpu is not None:
-                nbrs.append(gather_nbr(
+            nbrs = NeighborBatch(
+                torch.from_numpy(ds.all_x16[ds.knn_idx[r]].astype(np.int64)).to(dev),
+                torch.from_numpy(ds.all_y16[ds.knn_idx[r]].astype(np.int64)).to(dev),
+                torch.from_numpy(ds.knn_sim[r]).to(dev),
+                None if street_gpu is None else gather_nbr(
                     street_gpu,
                     torch.from_numpy(ds.knn_idx[r].astype(np.int64)), dev))
         res = search(model, street, source, dev, beam_k, top_m, greedy=greedy,

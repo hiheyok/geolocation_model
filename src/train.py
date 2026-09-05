@@ -23,7 +23,7 @@ import splits as sp
 import tile_math as tm
 import safeio
 from dataset import GeoStepDataset, gather_nbr, street_table
-from model import GeoAgent, param_report
+from model import GeoAgent, NeighborBatch, param_report
 
 
 def _map_sub(width):
@@ -181,9 +181,8 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
                 # where the prior should matter most.
                 nbrs = None
                 if "nbr_x" in b:
-                    nbrs = (b["nbr_x"], b["nbr_y"], b["nbr_sim"],
-                            b["nbr_emb"]) if "nbr_emb" in b else (
-                            b["nbr_x"], b["nbr_y"], b["nbr_sim"])
+                    nbrs = NeighborBatch(b["nbr_x"], b["nbr_y"], b["nbr_sim"],
+                                         b.get("nbr_emb"))
                 nl = model.policy_from(b["street"], b["neg_tokens"],
                                        b["neg_x0"], b["neg_y0"], b["neg_step"],
                                        nbrs)

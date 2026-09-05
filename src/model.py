@@ -13,6 +13,8 @@ import math
 import sys
 from pathlib import Path
 
+from typing import NamedTuple
+
 import torch
 import torch.nn as nn
 
@@ -20,6 +22,53 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from encoders import (GeoMem, MapTokenizer, MapTransformer, StateEncoder,
                       StreetProj)
 from retrieval import RetrievalPrior
+
+
+class NeighborBatch(NamedTuple):
+    """The retrieved neighbours of a batch of images, by name rather than index.
+
+    This was four positional slots whose meaning was assigned by `nbrs[0]`
+    through `nbrs[3]`, whose optional last element was detected with
+    `len(nbrs) > 3`, and which three call sites built independently
+    (`GeoAgent.forward`, `train.run_epoch`, `evaluate`). That shape has already
+    cost twice: beam search once built a version omitting the learned positive
+    and negative keys, and the conditioning adapter sliced the query's
+    conditioning suffix while leaving it on `emb`, so `pos` and `dual` raised on
+    the first batch (REVIEW6 #1).
+
+    Both are the same failure -- an operation that must be applied to several
+    members, expressed as several independent operations. `retrieval_only`
+    exists so "drop the conditioning" is one named thing.
+
+    Shapes, per *image* (not per row: an image contributes one row per zoom
+    step in training and one per live beam in search):
+
+        x, y   (B, K) int64    the neighbour's z16 tile address
+        sim    (B, K) float    its cosine similarity to the query
+        emb    (B, K, D) float its embedding, RETRIEVAL width -- or None for
+                              the modes that do not use keys
+    """
+
+    x: "torch.Tensor"
+    y: "torch.Tensor"
+    sim: "torch.Tensor"
+    emb: "torch.Tensor" = None
+
+    @classmethod
+    def of(cls, nbrs):
+        """Accept this, or any legacy 3- or 4-element sequence."""
+        if nbrs is None or isinstance(nbrs, cls):
+            return nbrs
+        return cls(*nbrs)
+
+    def retrieval_only(self, d_in):
+        """Drop a conditioning suffix from the neighbour embeddings.
+
+        Idempotent, so it is safe wherever the width is already right.
+        """
+        if self.emb is None or self.emb.shape[-1] == d_in:
+            return self
+        return self._replace(emb=self.emb[..., :d_in])
 
 
 class GeoAgent(nn.Module):
@@ -253,22 +302,19 @@ class GeoAgent(nn.Module):
         # than at each call site is deliberate: this function's docstring
         # records that beam.search once had its own version and silently
         # omitted a_pos and a_neg.
-        nbr_emb = nbrs[3] if len(nbrs) > 3 else None
+        nb = NeighborBatch.of(nbrs)
         if self.street.d_cond:
-            # BOTH sides. The neighbours are gathered from the same combined
-            # street file as the query, so they carry the conditioning suffix
-            # too, and the key projections were built for the retrieval width.
-            # Slicing only the query left `pos` and `dual` raising
-            # "mat1 and mat2 shapes cannot be multiplied" on the first batch --
-            # REVIEW6 #1, and the mode this experiment actually runs.
+            # BOTH sides, in one operation each. The neighbours come from the
+            # same combined street file as the query, so they carry the
+            # conditioning suffix too, while the key projections were built for
+            # the retrieval width.
             street = street[..., :self.street.d_in]
-            if nbr_emb is not None:
-                nbr_emb = nbr_emb[..., :self.street.d_in]
-        K = nbrs[0].shape[1]
+            nb = nb.retrieval_only(self.street.d_in)
+        K = nb.x.shape[1]
         rep = lambda t: (t.unsqueeze(1).expand(t.shape[0], per_image, K)
                          .reshape(-1, K))
-        a_pos, a_neg = self.retr.weights(nbrs[2], street, nbr_emb)
-        return self.retr(rep(nbrs[0]), rep(nbrs[1]), rep(nbrs[2]),
+        a_pos, a_neg = self.retr.weights(nb.sim, street, nb.emb)
+        return self.retr(rep(nb.x), rep(nb.y), rep(nb.sim),
                          x0, y0, step, n_logits,
                          a_pos=rep(a_pos),
                          a_neg=None if a_neg is None else rep(a_neg))
@@ -304,9 +350,8 @@ class GeoAgent(nn.Module):
         kp = k[:, :n_policy].reshape(B * n_policy, k.shape[2], k.shape[3])
         prior = None
         if "nbr_x" in batch:
-            nbrs = (batch["nbr_x"], batch["nbr_y"], batch["nbr_sim"],
-                    batch["nbr_emb"]) if "nbr_emb" in batch else (
-                    batch["nbr_x"], batch["nbr_y"], batch["nbr_sim"])
+            nbrs = NeighborBatch(batch["nbr_x"], batch["nbr_y"],
+                                 batch["nbr_sim"], batch.get("nbr_emb"))
             prior = self.retr_prior(
                 nbrs, batch.get("street"),
                 batch["x0"][:, :n_policy].reshape(-1),

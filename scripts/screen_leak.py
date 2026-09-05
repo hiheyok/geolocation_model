@@ -35,18 +35,11 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import safeio
+from tile_math import great_circle_km as great_circle
 
 # OCR confuses 0/o, 1/l/I, 5/S and 8/B in the small fixed-width fonts overlays use
 FIX = str.maketrans({"o": "0", "O": "0", "l": "1", "I": "1", "S": "5", "B": "8"})
 PAT = re.compile(r"([NSEW])\s*([0-9oOlIB]{1,3})[.,\s]{1,3}([0-9oOlIB]{3,8})", re.I)
-
-
-def great_circle(a1, o1, a2, o2):
-    p = np.pi / 180
-    d1, d2 = (a2 - a1) * p, (o2 - o1) * p
-    h = (np.sin(d1 / 2) ** 2 +
-         np.cos(a1 * p) * np.cos(a2 * p) * np.sin(d2 / 2) ** 2)
-    return 2 * 6371.0088 * np.arcsin(min(1.0, np.sqrt(h)))
 
 
 def parse_coords(text):

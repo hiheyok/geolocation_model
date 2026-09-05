@@ -58,17 +58,11 @@ import config                                    # noqa: E402
 import provenance as prov                        # noqa: E402
 import splits as sp                              # noqa: E402
 from tile_pool import paired                     # noqa: E402
+from tile_math import great_circle_km as great_circle
 
 THRESH = (1, 25, 200, 750, 2500)
 D_ENC = 768
 R_EARTH = 6371.0088
-
-
-def great_circle(a1, o1, a2, o2):
-    p = np.pi / 180
-    d = (np.sin((a2 - a1) * p / 2) ** 2
-         + np.cos(a1 * p) * np.cos(a2 * p) * np.sin((o2 - o1) * p / 2) ** 2)
-    return 2 * R_EARTH * np.arcsin(np.sqrt(np.clip(d, 0, 1)))
 
 
 def top1(Q, bank, bank_seq, q_seq, dev, block=200_000):

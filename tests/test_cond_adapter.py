@@ -356,3 +356,36 @@ def test_no_digest_warns_that_only_a_sample_was_checked(
                rng.standard_normal((200, 4)).astype(np.float16))
     _check_retrieval_prefix(tmp_path / "j.f16.npy", s, "r.f16.npy", 8)
     assert "only a 64-row sample" in capsys.readouterr().out
+
+
+# --- NeighborBatch: the tuple that caused REVIEW6 #1 -------------------------
+
+def test_neighbor_batch_accepts_legacy_sequences():
+    """Three call sites built this tuple independently; all must still work."""
+    from model import NeighborBatch
+    x, y, sim = torch.zeros(2, 3), torch.zeros(2, 3), torch.zeros(2, 3)
+    emb = torch.zeros(2, 3, 8)
+    assert NeighborBatch.of((x, y, sim)).emb is None
+    assert NeighborBatch.of([x, y, sim, emb]).emb is emb
+    nb = NeighborBatch(x, y, sim, emb)
+    assert NeighborBatch.of(nb) is nb
+    assert NeighborBatch.of(None) is None
+
+
+def test_retrieval_only_slices_and_is_idempotent():
+    """The operation that had to be remembered twice, now named once."""
+    from model import NeighborBatch
+    nb = NeighborBatch(torch.zeros(2, 3), torch.zeros(2, 3), torch.zeros(2, 3),
+                       torch.arange(2 * 3 * 12).float().reshape(2, 3, 12))
+    cut = nb.retrieval_only(8)
+    assert cut.emb.shape == (2, 3, 8)
+    assert torch.equal(cut.emb, nb.emb[..., :8])
+    assert cut.retrieval_only(8).emb.shape == (2, 3, 8)   # idempotent
+    assert cut.x is nb.x and cut.sim is nb.sim            # nothing else moved
+
+
+def test_retrieval_only_tolerates_no_embeddings():
+    """`scalar` and `cond` modes pass no embeddings at all."""
+    from model import NeighborBatch
+    nb = NeighborBatch(torch.zeros(2, 3), torch.zeros(2, 3), torch.zeros(2, 3))
+    assert nb.retrieval_only(8).emb is None

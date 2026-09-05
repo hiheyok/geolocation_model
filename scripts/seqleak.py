@@ -33,15 +33,9 @@ sys.path.insert(0, str(ROOT / "src"))
 import config
 import provenance as prov
 import splits as sp
+from tile_math import great_circle_km as great_circle
 
 R = 6371.0088
-
-
-def great_circle(a1, o1, a2, o2):
-    p = np.pi / 180
-    d = (np.sin((a2 - a1) * p / 2) ** 2
-         + np.cos(a1 * p) * np.cos(a2 * p) * np.sin((o2 - o1) * p / 2) ** 2)
-    return 2 * R * np.arcsin(np.sqrt(np.clip(d, 0, 1)))
 
 
 def ext_latlon(m):
