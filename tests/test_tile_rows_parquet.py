@@ -125,3 +125,72 @@ def test_parquet_without_out_refuses(tmp_path):
         env={**__import__("os").environ, "OSV_RELEASE": "s10"})
     assert r.returncode != 0
     assert "--out" in (r.stderr + r.stdout)
+
+
+# --- REVIEW4 #19: row numbers are not image identity -------------------------
+
+def ident(tmp_path, ids, **kw):
+    p = tmp_path / "mi.npz"
+    np.savez(p, **kw)
+    return np.load(p, allow_pickle=True)
+
+
+def test_unchanged_ids_resume(tmp_path):
+    from tile_cache import check_rows_identity
+    import provenance as prov
+    ids = np.arange(100, 110, dtype=np.int64)
+    rows = np.array([1, 4, 7])
+    m = ident(tmp_path, ids, rows_digest=prov.rows_digest(ids[rows]))
+    check_rows_identity(m, rows, ids, "t6")
+
+
+def test_a_same_length_reorder_is_refused(tmp_path):
+    """The failure #19 describes: identical row numbers, different photographs.
+
+    Every count agrees, the mask is complete, the memmap is the right shape.
+    Only the images behind the row numbers moved.
+    """
+    from tile_cache import check_rows_identity
+    import provenance as prov
+    ids = np.arange(100, 110, dtype=np.int64)
+    rows = np.array([1, 4, 7])
+    m = ident(tmp_path, ids, rows_digest=prov.rows_digest(ids[rows]))
+    shuffled = ids[::-1].copy()          # same length, same set, new order
+    assert len(shuffled) == len(ids) and set(shuffled) == set(ids)
+    with pytest.raises(SystemExit, match="no longer match"):
+        check_rows_identity(m, rows, shuffled, "t6")
+
+
+def test_a_replaced_id_at_the_same_length_is_refused(tmp_path):
+    from tile_cache import check_rows_identity
+    import provenance as prov
+    ids = np.arange(100, 110, dtype=np.int64)
+    rows = np.array([1, 4, 7])
+    m = ident(tmp_path, ids, rows_digest=prov.rows_digest(ids[rows]))
+    other = ids.copy()
+    other[4] = 999
+    with pytest.raises(SystemExit, match="no longer match"):
+        check_rows_identity(m, rows, other, "t6")
+
+
+def test_a_change_outside_the_covered_rows_is_allowed(tmp_path):
+    """The digest covers what the cache holds, not the whole list."""
+    from tile_cache import check_rows_identity
+    import provenance as prov
+    ids = np.arange(100, 110, dtype=np.int64)
+    rows = np.array([1, 4, 7])
+    m = ident(tmp_path, ids, rows_digest=prov.rows_digest(ids[rows]))
+    other = ids.copy()
+    other[9] = 999                       # a row the cache does not cover
+    check_rows_identity(m, rows, other, "t6")
+
+
+def test_metadata_without_a_digest_warns_and_allows(tmp_path, capsys):
+    """tile6 predates the field and holds 500,000 finished rows.
+
+    Allowed, but reported -- silence would read as agreement.
+    """
+    from tile_cache import check_rows_identity
+    m = ident(tmp_path, None, grid=np.array([3, 2]))
+    check_rows_identity(m, np.array([0, 1]), np.arange(10), "tile6")
+    assert "records no rows digest" in capsys.readouterr().out

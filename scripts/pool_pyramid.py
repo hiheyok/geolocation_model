@@ -89,6 +89,49 @@ def levels(C, T=None):
     return L0, L1
 
 
+def check_tile_identity(stem, rows):
+    """Are this cache's rows still the photographs it was embedded from?
+
+    `rows` holds *positions* in an image list, and positions are not identity:
+    rebuild that list at the same length and every tile embedding stays put
+    under a row that now names a different photograph (REVIEW4 #19). This is
+    the consumption half of the check `tile_cache` writes -- a recorded digest
+    nobody reads is not a guard.
+
+    It matters most precisely here. This function pairs each row's crops with
+    the tile embeddings at the matching cache position, so a stale cache
+    produces one image's crops beside another image's tiles: right shape, unit
+    norm, complete mask, wrong photograph.
+
+    Missing metadata is reported and allowed -- `tile6` predates both fields
+    and holds 500,000 finished rows -- but never treated as agreement.
+    """
+    import pyarrow.parquet as pq
+    import provenance as prov
+
+    meta_p = config.STREET_CACHE / (stem + "_meta.npz")
+    if not meta_p.exists():
+        return
+    meta = np.load(meta_p, allow_pickle=True)
+    if "rows_digest" not in meta.files or "rows_parquet" not in meta.files:
+        print("warning: {} records no row identity, so its {:,} rows cannot be "
+              "shown to still name the images they were embedded from"
+              .format(stem, len(rows)), flush=True)
+        return
+    src = str(meta["rows_parquet"])
+    pq_path = (config.DATASET_PARQUET if src == config.DATASET_PARQUET.name
+               else config.PROCESSED / src)
+    ids = np.asarray(pq.read_table(pq_path, columns=["image_id"])["image_id"])
+    got = prov.rows_digest(ids[rows])
+    if got != str(meta["rows_digest"]):
+        sys.exit(
+            "{} was built over {} whose rows now digest {} against the "
+            "recorded {}. The row numbers still line up, so every shape and "
+            "every mask agrees -- the images behind them changed, and pooling "
+            "would pair each image's crops with another image's tiles."
+            .format(stem, src, got, str(meta["rows_digest"])))
+
+
 def tile_positions(stem, want):
     """Position of each wanted row in the tile cache, or exit.
 
@@ -107,6 +150,7 @@ def tile_positions(stem, want):
     done = maskio.load_mask(done_p, len(rows), stem)
     if done.ndim > 1:
         done = done.min(axis=1)
+    check_tile_identity(stem, rows)
     have = rows[done == 1]
     # Sized by both, not just `want`: the cache may legitimately cover rows the
     # caller did not ask for (a 750k cache queried for 400k of it), and sizing

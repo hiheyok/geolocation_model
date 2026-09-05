@@ -137,3 +137,78 @@ def test_tile_order_does_not_matter_but_tile_content_does():
     _, l1a = levels(toks(5, 3), T)
     _, l1b = levels(toks(5, 3), toks(5, 6, seed=5))
     assert not torch.allclose(l1a, l1b, atol=1e-3)
+
+
+# --- REVIEW4 #19, consumption side -------------------------------------------
+#
+# A digest that `tile_cache` writes and nothing reads is not a guard. This is
+# where it has to bite: `tile_positions` pairs each row's crops with the tile
+# embeddings at the matching cache position, so a stale cache yields one
+# image's crops beside another image's tiles -- right shape, unit norm,
+# complete mask, wrong photograph.
+
+def parquet(tmp_path, name, ids):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    pq.write_table(pa.table({"image_id": pa.array(np.asarray(ids, np.int64)),
+                             "zip_name": pa.array(
+                                 ["00/{}.jpg".format(i) for i in ids])}),
+                   tmp_path / name)
+    return name
+
+
+def tiled(tmp_path, monkeypatch, ids, rows, digest_ids=None, src="d.parquet",
+          stem="t6", omit=()):
+    """A tile cache plus the image list it claims to describe."""
+    import provenance as prov
+    monkeypatch.setattr(config, "STREET_CACHE", tmp_path)
+    monkeypatch.setattr(config, "PROCESSED", tmp_path)
+    monkeypatch.setattr(config, "DATASET_PARQUET", tmp_path / "d.parquet")
+    parquet(tmp_path, src, ids)
+    np.save(tmp_path / (stem + "_rows.i64.npy"), np.asarray(rows, np.int64))
+    np.save(tmp_path / (stem + "_done.u8.npy"),
+            np.ones(len(rows), np.uint8))
+    kw = {"rows_parquet": src,
+          "rows_digest": prov.rows_digest(
+              np.asarray(digest_ids if digest_ids is not None else ids,
+                         np.int64)[np.asarray(rows)])}
+    for k in omit:
+        kw.pop(k)
+    np.savez(tmp_path / (stem + "_meta.npz"), grid=np.array([3, 2]), **kw)
+    return stem
+
+
+def test_matching_identity_is_accepted(tmp_path, monkeypatch):
+    ids = np.arange(200, 210)
+    s = tiled(tmp_path, monkeypatch, ids, [0, 2, 5])
+    assert np.array_equal(tile_positions(s, np.array([0, 2, 5])), [0, 1, 2])
+
+
+def test_a_same_length_reorder_is_refused_on_consumption(tmp_path, monkeypatch):
+    """Exactly the regression #19 asks for: reorder, keep the cache, fail."""
+    ids = np.arange(200, 210)
+    s = tiled(tmp_path, monkeypatch, ids[::-1].copy(), [0, 2, 5],
+              digest_ids=ids)
+    with pytest.raises(SystemExit, match="images behind them changed"):
+        tile_positions(s, np.array([0, 2, 5]))
+
+
+def test_missing_identity_warns_and_proceeds(tmp_path, monkeypatch, capsys):
+    """`tile6` predates both fields and holds 500,000 finished rows."""
+    ids = np.arange(200, 210)
+    s = tiled(tmp_path, monkeypatch, ids, [0, 2, 5], omit=("rows_digest",))
+    tile_positions(s, np.array([0, 2, 5]))
+    assert "records no row identity" in capsys.readouterr().out
+
+
+def test_identity_is_checked_before_completeness(tmp_path, monkeypatch):
+    """A stale cache is stale whether or not it is also incomplete.
+
+    Reporting "partly tiled" for a cache that describes the wrong photographs
+    would send someone off to finish a pass that should be deleted.
+    """
+    ids = np.arange(200, 210)
+    s = tiled(tmp_path, monkeypatch, ids[::-1].copy(), [0, 2, 5],
+              digest_ids=ids)
+    with pytest.raises(SystemExit, match="images behind them changed"):
+        tile_positions(s, np.array([0, 2, 5, 9]))     # also incomplete
