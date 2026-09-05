@@ -178,6 +178,7 @@ def main():
     # ignoring this: the 25 km gain went from +2.10 pp "separated" to
     # +1.18 pp spanning zero.
     hq = h[qi]
+    sel = np.flatnonzero((hq % 2) == 0)
     rep = np.flatnonzero((hq % 2) == 1)
 
     print("{}  {:,} rows, levels {}".format(
@@ -211,6 +212,35 @@ def main():
         e = score((1 - w) * S["mean"] + w * S["head"], lat, lon, qi, bi, same)
         blend[w] = e
         print(row("w = %.2f%s" % (w, "   <- the concat" if w == 0.5 else ""), e))
+
+    # ---- 1b. the low end, finely, on both halves --------------------------
+    # The coarse sweep's smallest non-zero point was 0.05, so the optimum could
+    # sit below it. Two guesses are worth naming: 1/33 and 1/24 would mean the
+    # head is worth *one more token* -- among all 33, or among the 24 deep
+    # tiles -- rather than a second opinion. Both halves are printed because a
+    # 1-D optimum that moves between them is noise, and one that does not is
+    # the more useful claim.
+    fine = [0.0, 0.01, 0.02, 0.025, 1.0 / 33, 0.04, 1.0 / 24, 0.05,
+            0.06, 0.08, 0.10, 0.125, 0.15, 0.20]
+    names = {1.0 / 33: " (1/33)", 1.0 / 24: " (1/24)"}
+    print("\n--- low-w detail; SEL is the half that chooses, REP reports ---")
+    print("%-14s %-23s %-23s" % ("w", "<25km  sel / rep", "<200km  sel / rep"))
+    print("-" * 62)
+    fine_err = {}
+    for w in fine:
+        e = score((1 - w) * S["mean"] + w * S["head"], lat, lon, qi, bi, same)
+        fine_err[w] = e
+        cells = []
+        for t in (25, 200):
+            cells.append("%7.2f%% / %7.2f%%" % (
+                100 * (e[sel] < t).mean(), 100 * (e[rep] < t).mean()))
+        print("%-14s %-23s %-23s" % (
+            "%.4f%s" % (w, names.get(w, "")), cells[0], cells[1]))
+    b_sel = max(fine, key=lambda w: (fine_err[w][sel] < 25).mean())
+    b_rep = max(fine, key=lambda w: (fine_err[w][rep] < 25).mean())
+    print("best on <25km:  sel w=%.4f%s   rep w=%.4f%s   %s" % (
+        b_sel, names.get(b_sel, ""), b_rep, names.get(b_rep, ""),
+        "agree" if abs(b_sel - b_rep) < 1e-9 else "DISAGREE -- the peak is flat"))
 
     # ---- 2. do deeper levels want more weight, or less? --------------------
     print("\n--- level weights (head excluded); equal is the published mean ---")

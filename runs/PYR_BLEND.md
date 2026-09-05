@@ -32,13 +32,25 @@ pool with a 5% head contribution, one number changed -- is separated at all
 five thresholds on held-out queries: +0.79 pp at 1 km, +1.18 at 25 km,
 +2.17 at 200 km, +2.89 at 750 km, +2.50 at 2500 km.
 
+**How small should w be? Flat, and unidentifiable.** A fine sweep of the low
+end prints both halves. Everything from 0.02 to 0.15 lands within 0.8 pp on the
+reporting half, the two halves' argmaxes disagree (0.125 against 0.02), and the
+standard error at 34% over 1,522 queries is about 1.2 pp. So 0.03, 0.04, 1/33
+and 1/24 are not distinguishable from each other or from 0.05. The "head is
+worth one more token" reading that 1/24 and 1/33 would support is consistent
+with the numbers and not evidenced by them.
+
+What is solid is the shape, not the point: w=0 gives 32.72% at 25 km on the
+reporting half and the whole 0.02-0.15 plateau gives 33.4-34.2%. Take 0.04 as a
+round number in the middle of the plateau rather than as an optimum.
+
 ---
 
 ```text
 pyr47  47,646 rows, levels [ 3  6 24]
 3,000 test queries  38,009 bank  0 same-sequence masked
 
-components built in 21s
+components built in 22s
 similarities in 23s
 
 arm                            median km     <1km    <25km   <200km   <750km  <2500km
@@ -62,6 +74,25 @@ w = 0.40                           247.5    16.1%    31.0%    47.7%    70.0%    
 w = 0.50   <- the concat           300.4    14.4%    28.2%    44.7%    68.2%    87.1%
 w = 0.70                           412.2    11.7%    23.3%    38.6%    64.1%    85.8%
 w = 1.00                           670.5     4.9%    12.9%    25.5%    53.6%    81.1%
+
+--- low-w detail; SEL is the half that chooses, REP reports ---
+w              <25km  sel / rep        <200km  sel / rep      
+--------------------------------------------------------------
+0.0000           34.84% /   32.72%       52.77% /   49.54%    
+0.0100           35.18% /   33.38%       53.52% /   50.07%    
+0.0200           35.45% /   34.17%       54.53% /   51.18%    
+0.0250           35.79% /   34.17%       55.01% /   51.45%    
+0.0303 (1/33)    35.79% /   33.84%       55.07% /   51.18%    
+0.0400           35.93% /   33.97%       55.14% /   51.51%    
+0.0417 (1/24)    35.99% /   34.03%       55.14% /   51.51%    
+0.0500           35.72% /   33.90%       54.74% /   51.71%    
+0.0600           35.79% /   33.84%       54.94% /   51.77%    
+0.0800           35.66% /   33.71%       54.80% /   51.58%    
+0.1000           35.79% /   33.64%       54.26% /   51.64%    
+0.1250           36.33% /   33.77%       54.47% /   51.91%    
+0.1500           35.86% /   33.84%       53.52% /   51.91%    
+0.2000           35.52% /   33.38%       53.45% /   51.12%    
+best on <25km:  sel w=0.1250   rep w=0.0200   DISAGREE -- the peak is flat
 
 --- level weights (head excluded); equal is the published mean ---
 arm                            median km     <1km    <25km   <200km   <750km  <2500km
@@ -108,5 +139,5 @@ blend w=0.5 (concat)     -3.81[-5.2,-2.4]  -5.72[-7.7,-3.7]  -6.04[-8.6,-3.6]  -
 levels 1:1:2             +0.07[-0.7,+0.9]~ +1.25[+0.0,+2.4]~ +1.51[+0.1,+3.0]  +1.51[+0.1,+3.0]  +0.39[-0.8,+1.5]~
 levels 1:1:2 + head 0.10 +0.53[-0.5,+1.5]~ +1.64[+0.1,+3.2]  +3.02[+1.3,+4.8]  +3.09[+1.1,+5.0]  +3.09[+1.6,+4.5] 
 
-~ marks an interval spanning zero. 66s total
+~ marks an interval spanning zero. 77s total
 ```
