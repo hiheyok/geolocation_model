@@ -116,6 +116,12 @@ def main():
     # same-region matching that a geographic split strips out. These reuse the
     # 400k caches already on disk, so it is two kNN builds and a lookup, and it
     # runs before the 4 h tile pass rather than after it.
+    #
+    # Read the ABSOLUTE cell8 numbers with care: the PCA basis these caches
+    # were projected with was fitted on the *sequence* train split, part of
+    # which is cell8's test side, so it is mildly transductive here. Both arms
+    # share one basis, so the paired contrast -- the only thing being claimed
+    # -- is unaffected; the levels are slightly optimistic.
     for arm, street in (("pyrL0", "pyr768_l0.f16.npy"),
                         ("pyrMIX", "pyr768_mix.f16.npy")):
         plan.append(Stage(
