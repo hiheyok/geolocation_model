@@ -26,6 +26,15 @@ experiment wants the untiled arm produced by this code rather than by the other
 one. Otherwise the contrast carries a normalisation difference as well as the
 tiles.
 
+**Per-token normalisation subsumes `--scale-b`.** `nrm` divides each 768-d
+token by its own norm, so any positive per-encoder rescaling cancels: measured,
+`L0(dual_c3)` and `L0(dual_bal)` agree at **cosine 0.99999976** over 200 rows
+(max abs difference 9.3e-05, which is fp16 storage noise) while their raw
+SigLIP norms are 20.53 and 82.73. So it does not matter whether this is fed the
+balanced or unbalanced dual cache -- including on the extension side, where
+both `bank_ext_dual` and `bank_ext_bal` exist and picking wrong would otherwise
+be a silent seam between the two halves of a bank.
+
 `w` defaults to 0.5, the equal blend every pyramid number on record was
 measured at. It is deliberately *not* the 0.04 of `runs/PYR_BLEND.md`: that
 weight blends a learned fusion head against a level mean, which is a different
