@@ -14,10 +14,16 @@ So the extension is taken one whole parquet at a time.
 Two things this settles that 400k cannot.
 
   * **Does the gain grow with density?** `runs/XBANK.md` §3 measured it growing
-    (+1.80 pp at 25k rows to +2.60 at 400k) and that is the entire argument for
-    paying for a bigger tiled corpus. 1.15M is the first point that tests the
-    extrapolation instead of assuming it. `knn_gap` answers this within minutes
-    of the caches existing, long before the ladders finish.
+    (+1.80 pp at 25k rows to +2.60 at 400k) and that was the entire argument for
+    paying for a bigger tiled corpus. **That argument is now in doubt**:
+    `runs/GAIN_DENSITY.md` tested the mechanism behind it -- coverage giving way
+    to discrimination -- by varying *local* density inside one fixed bank, and
+    the gain is flat across four orders of magnitude of it. Local and global
+    density are different manipulations, so that is not a refutation, but it is
+    the only independent check and it comes back flat. 1.15M is therefore the
+    first point that **measures** the extrapolation rather than assuming it, and
+    `knn_gap` answers it within minutes of the caches existing, long before the
+    ladders finish.
   * **Does it still transfer to the agent when the bank is 2.9x denser?** A
     denser bank is limited by discrimination rather than coverage, which is
     where finer features are supposed to help most.
@@ -103,7 +109,28 @@ def main():
     log("deadline {}  ({:.1f} h)".format(O.hhmm(deadline), hours))
     log("tile server {}".format("up" if tiles_up() else "DOWN"))
 
-    plan = [
+    plan = []
+    # First, and cheap: does the gain survive a geographic holdout? Everything
+    # measured so far is on `sequence`, which is the benchmark split, but §8c
+    # found the 25 km gain 5.6x larger there than on `cell8` -- most of it is
+    # same-region matching that a geographic split strips out. These reuse the
+    # 400k caches already on disk, so it is two kNN builds and a lookup, and it
+    # runs before the 4 h tile pass rather than after it.
+    for arm, street in (("pyrL0", "pyr768_l0.f16.npy"),
+                        ("pyrMIX", "pyr768_mix.f16.npy")):
+        plan.append(Stage(
+            "tilebig-knn-cell8-" + arm,
+            ["scripts/build_knn.py", "--street-file", street,
+             "--split-mode", "cell8", "--k", "32"],
+            release=REL, est=8 * 60, retries=2))
+    plan.append(Stage(
+        "tilebig-knngap-cell8",
+        ["scripts/knn_gap.py",
+         "--a", config.knn_name("pyr768_l0.f16.npy", "cell8"),
+         "--b", config.knn_name("pyr768_mix.f16.npy", "cell8"),
+         "--split-mode", "cell8", "--ranks", "1,16", "--flows"],
+        release=REL, est=5 * 60, retries=1))
+    plan += [
         # ~4 h. autocast, matching tile6 -- see the module docstring.
         Stage("tilebig-tiles",
               ["scripts/tile_cache.py", "--parquet", EXT_PQ,
