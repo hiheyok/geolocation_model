@@ -48,6 +48,7 @@ if not os.environ.get("OSV_RELEASE"):
           "s10-only)", flush=True)
 
 import config
+import knnmeta
 import provenance as prov
 import safeio
 import names
@@ -323,8 +324,11 @@ def main():
               .format(kf, ck.get("knn_file")), flush=True)
     if kf and (config.STREET_CACHE / kf).exists():
         meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
-        if "bank_rows" in meta.files:
-            keep = np.asarray(meta["bank_rows"], np.int64)
+        # Validated, not read. A raw fancy-index assignment into the mask
+        # accepts a negative row and wraps it to the end of the bank, marking
+        # images nobody selected -- silently, at the right shape. REVIEW4 #14.
+        keep = knnmeta.check(meta, kf, n_bank=bank.shape[0],
+                             street_path=config.STREET_CACHE / bank_file)
     if keep is None:
         keep = np.arange(bank.shape[0], dtype=np.int64)
         print("bank rows  {:,} (checkpoint records none)".format(len(keep)))
