@@ -1,4 +1,4 @@
-# Live state — updated 2026-09-04 16:20
+# Live state — updated 2026-09-05, before a compaction
 
 Read this first. `docs/REVIEW.md` through `REVIEW4.md` hold four
 Codex reviews; `docs/BACKLOG.md` the code and performance work;
@@ -270,6 +270,28 @@ Recorded because the pattern matters more than any one of them.
    on that morning to fix a staleness bug was doing half of what its docstring
    said. Same day, same file, one function apart.
 
+### Added 2026-09-05, from the representation line (§8)
+
+9. **"bank-only helps more than query-only"** — measured on a 96k bank
+   (+0.9 against +0.2) and stated as an ordering. At 400k it *reverses*:
+   query-only is separated harmful, bank-only spans zero. The 96k numbers
+   never had the resolution to rank those two and I ranked them anyway.
+10. **"the gain will shrink as the bank gets denser"** — my main argument
+    against the rebuild, and the sweep I designed to test it refuted it.
+    It grows: +1.80 at 25k to +2.60 at 400k.
+11. **"native resolution is cheaper than tiling, 3 forwards against 9"** —
+    counted forwards as if they were the same size. Native is 1.8x the pixels
+    and ~3x the cost, not 4x cheaper. Wrong by an order of magnitude in the
+    decision-relevant direction.
+12. **"a shared input size must be a multiple of lcm(14,16)=112"** — an
+    invented constraint. The encoders run independently and only their 768-d
+    outputs are joined, so each can take its own native size. That forced
+    every resolution test through 448, a compromise neither encoder wanted.
+
+Numbers 9-12 share a shape too, and it is not the §6 one: **each was a claim
+made from a smaller or cheaper measurement than the decision it was feeding.**
+The fix is the same each time — measure at the scale of the decision.
+
 Six of the eight are one shape: **a check that names an identifier rather than
 everything the value depends on** — a tag, a filename, a length, a prefix, a
 substring, a size that gets sliced off. When something here is wrong, that is
@@ -346,29 +368,295 @@ it. The `clean-drop70-*` checkpoints are kept.
 
 ---
 
-## 8. What to do next
+## 8. The representation line — where the pyramid work landed
 
-1. **Run `scripts/seqfix3.py` and read `runs/BOOTSTRAP_cleantrain2.md`** (§7),
-   once `seqfix2-hr-clean` has released the GPU. If `clean2-drop70-*` beats the
-   references, training against a leaking bank was itself harmful and every arm
-   on record is understated; if it matches, **57.5% is the honest number**;
-   if it loses *with the negative draw held fixed*, a model that learned to
-   lean on near-duplicates really is worse at using honest neighbours, and the
-   whole retrieval prior needs re-tuning against the clean bank.
-2. **Regenerate `runs/FINAL.md`** — it still carries the pre-leak headline and
-   is marked stale in place. Needs every arm re-measured first, not just the
-   eight in §2.
-3. **#3 (transductive PCA)** is the one most likely to move a published number
-   after the leak: every 768-d arm uses a basis fitted partly on val/test. This
-   is a decision, not a task — see §5.
-4. The auxiliary coarse street-only head (Tier 1 in ARCHITECTURE_NEXT) — step 0
-   carries 84.3% of the mean error and the visual branch alone scores 2.7%.
+All of this is **retrieval probes**, not the agent: encode a query, cosine
+against a bank, take the nearest neighbour, measure the great-circle error to
+its true location. **No gradient step anywhere.** Every number below is a claim
+about the representation. The agent consumes 16 neighbours through a *trained*
+retrieval prior, so only a retrain converts any of it into an agent number —
+and this project has twice had inference-level reasoning predict the wrong
+sign, most recently §7.
 
-REVIEW3 is done (§4) and is no longer on this list.
+### 8a. The blend weight was never set (merged, PR #16)
+
+`fuse_head` combines the level-mean and the learned head as
+`concat([l2(base_un), l2(Z)])`. Both blocks are unit-normalised first, so the
+cosine is **exactly** `0.5*cos_mean + 0.5*cos_head`. The 0.5 fell out of
+concatenating two unit blocks; nobody chose it, and it is ~10x too much head.
+
+* the optimum is a **flat plateau from w=0.02 to 0.15** — the two halves of a
+  held-out split disagree about the argmax (0.125 vs 0.02) and the SE at 34%
+  over 1,522 queries is ~1.2 pp. **0.03, 0.04, 1/33 and 1/24 are not
+  separable.** Use 0.04 as a round number mid-plateau, not as an optimum.
+* w=0.05 held out: +0.79 / +1.18 / +2.17 / +2.89 / +2.50 pp at
+  1/25/200/750/2500 km, separated at all five.
+* **Third instance of the same shape**: raw DINOv2/SigLIP norms 82.96 vs 20.58
+  gave DINOv2 81% of the cosine (`--scale-b 4.03` fixed it); `FuseHead.baseline`
+  averages levels 1:1:1. See [[blend-weight-is-set-by-block-norms]].
+
+### 8b. Two clean negatives (PR #17 merged, #18 open)
+
+* **Per-step weights do not transfer.** Best-per-threshold over one global
+  weighting: +0.46 / 0.00 / **-0.59** / +1.51 / **-0.07** pp held out. Three of
+  five zero or negative. Scored *without* the split it looked uniformly
+  positive — that difference is the whole result. **Do not build w_t.**
+  Useful corollary: where headroom exists, re-ranking the cached top-32 under
+  one retrieval captures 100% of it, so four banks were never the obstacle.
+* **GeM within a level is inert.** Every p inside noise against the mean, and
+  the one separated result is a *loss* (p=2 at 200 km, -1.18 pp). The halves
+  disagree on the best p. **Equal averaging of 24 tiles is already right** —
+  the first of the three unswept constants that was already at its optimum.
+
+### 8c. crops+tiles on OSV-5M's own data (PR #19 open)
+
+The `sequence` and `cell8` splits, the release's own rows. `L0 alone` was
+verified to *be* the shipping representation: `pool_bal` 226.0 km / 27.8%
+against `L0` 223.0 km / 27.7%, identical any32.
+
+| split | `<25 km` | `<200 km` | median |
+|---|---|---|---|
+| `sequence` | **+4.47 [+2.9, +6.0]** | +4.34 | 213 -> 139 km |
+| `cell8` (geographic holdout) | **+0.80 [+0.3, +1.3]** | +3.00 | 515 -> 464 km |
+
+The 25 km gain is **5.6x larger on `sequence`**, so much of it is same-region
+matching that a geographic holdout strips out. **Quote `cell8` as the
+conservative number.**
+
+### 8d. Only the matched rebuild works — the 2x2 at 400k
+
+|  | bank: crops | bank: crops+tiles |
+|---|---|---|
+| **query: crops** | 40.7% (incumbent) | 40.1% |
+| **query: crops+tiles** | 39.3% | **43.3%** |
+
+query-only **-1.43 [-2.6, -0.3]** (separated, *harmful*); bank-only -0.57 ~;
+**both +2.63 [+1.3, +4.0]**.
+
+**This corrects an earlier reading of mine.** On the 96k subset bank-only had
+looked better than query-only (+0.9 against +0.2) and I reported that ordering.
+At 400k it reverses. The 96k numbers were too noisy to rank and I ranked them.
+
+### 8e. Query-only is a dose-response failure — the fixed-bank goal is dead
+
+Against the **live 3.4M bank**, changing only the uploaded image's encoding:
+
+| query encoding | median | `<25 km` | vs shipping |
+|---|---|---|---|
+| 3 crops @224 (ships) | 13.2 km | 56.4% | — |
+| 3 crops @336 | 15.1 km | 54.8% | **-1.60 [-2.9, -0.3]** |
+| 3 crops @448 | 17.1 km | 53.2% | **-3.27 [-4.8, -1.7]** |
+| crops+tiles blended | — | — | +0.2 (inert) |
+
+Framing is identical at every size (each crop covers **56% of the width**), so
+only sampling density changes. **The bank's encoding is a contract that cannot
+be improved from one side.**
+
+Also from this run, worth its own line: **top-1 retrieval alone scores 56.4%
+`<25 km` where the full agent scores 57.5%.** Most of the agent's accuracy is
+already in the nearest-neighbour lookup.
+
+### 8f. The gain GROWS with bank density — my objection refuted
+
+| bank rows | crops | crops+tiles | gain |
+|---|---|---|---|
+| 25,000 | 21.0% | 22.8% | +1.80 |
+| 50,000 | 24.4% | 26.6% | +2.20 |
+| 100,000 | 29.4% | 31.4% | +2.03 |
+| 200,000 | 35.2% | 37.7% | +2.53 |
+| 400,000 | 40.7% | 43.3% | **+2.60** |
+
+I argued a gain measured on a sparse bank would **shrink** at 3.4M, because a
+dense bank already holds a near-duplicate for most queries. It **grows**. The
+reading that fits: a sparse bank is limited by *coverage* (no representation
+invents a match); a dense bank is limited by *discrimination*, which is what
+finer features supply. **This removed my main argument against the rebuild.**
+
+Do not splice the earlier "+3.0 pp at 96k" into this series — different subset,
+split and query set.
+
+### 8g. A cost estimate I got badly wrong
+
+I said native resolution would be **cheaper** than tiling ("3 forwards against
+9", ~3-4 h against ~16 h). That counted forwards as if they were the same size.
+
+| scheme | pixels/image | measured |
+|---|---|---|
+| crops + tiles @224 | 9 x 224^2 = 451,584 | 43.5 img/s |
+| crops @518/512 | 3 x 518^2 = 804,492 | ~33.5 img/s |
+
+Native is **1.8x the pixels** and attention is superlinear, so it is roughly
+**3x more expensive than tiling, not 4x cheaper.** If resolution wins on
+quality it is a genuine trade, not a free lunch.
+
+### 8h. Per-encoder native sizes — a constraint I invented
+
+I claimed a shared input size must be a multiple of lcm(14,16)=112, forcing
+448. **Nothing requires a shared size**: the encoders run independently and
+only their 768-d outputs are concatenated. Frames are **512 tall** (widths
+682-1228), so:
+
+* **SigLIP /16 at 512** = 32x16 — the frame's own pixels, *no resampling*
+* **DINOv2 /14 at 518** = 37x14 — its **exact native** training resolution
+
+DINOv2's default `img_size` really is 518; the pipeline has been forcing 224
+since the beginning, i.e. **44% of linear resolution, ~80% of pixels
+discarded.** At 448 DINOv2 sat 14% below its native grid, so the -3.27 pp was
+measured at a compromise size neither encoder wanted.
+
+### 8i. Throughput work (applies to the rebuild)
+
+`18.2 -> 33.5 img/s`, **1.84x**, from two independent fixes:
+
+* **prefetch** — preprocessing ran serially with the forward, so the card
+  sawtoothed 100% -> 0%. A thread pool one batch ahead (8 workers; PIL and
+  numpy release the GIL) gave 1.36x. Total CPU was 25% of 16 cores: one core
+  doing all the JPEG decode, 921x518 resize and float32 normalise.
+* **bf16 weights, not autocast** — `.to(torch.bfloat16)` on the model gave
+  another 1.36x and VRAM 2.30 -> 1.48 GB. Autocast re-casts fp32 weights on
+  every op; this pays once.
+
+**Ruled out by benchmark:** batch size (saturated at 16; 48 is no faster and
+2.5x the VRAM), `channels_last` (a no-op on a ViT), fused attention
+(**already on** — timm 1.0.28 + torch 2.6 flash SDPA).
+
+**Why it will not reach 300 W:** 100% util at 225 W with 50% memory-controller
+load means SMs resident but stalling, and neither compute nor bandwidth is
+saturated. The limiter is the memory-bound elementwise work between the
+matmuls (layernorm, GELU, softmax, residuals), which does not scale with batch.
+**`torch.compile` is the one untested lever** — it fuses exactly those chains.
+Worth benchmarking **before** the rebuild, where 20% is 4 h of 19 h.
 
 ---
 
-## 9. Tools and tests written this session
+## 9. ANSWERED: build tiles, not resolution
+
+`scripts/resmatch.py --rows 50000 --queries 3000` -- four **matched** banks
+(query and bank built identically, because §8d showed nothing else is
+informative), 39,831 bank rows, 3,000 held-out queries. Full write-up in
+`runs/RESMATCH.md`.
+
+| arm | median km | `<1km` | `<25km` | `<200km` |
+|---|---|---|---|---|
+| 1  crops @224 (incumbent) | 392.4 | 1.2% | 19.8% | 39.9% |
+| **2  crops+tiles @224** | **342.1** | 1.3% | **21.1%** | **42.9%** |
+| 3  crops @518/512 native | 418.5 | **1.5%** | 19.4% | 39.3% |
+| 4  native crops + 224 tiles | 370.2 | **1.6%** | 20.8% | 41.8% |
+
+```
+2  crops+tiles @224      +0.17~  +1.27[+0.4,+2.2]  +3.00[+1.7,+4.3]
+3  crops @518/512 native +0.37   -0.37[-1.4,+0.7]~ -0.57[-2.0,+0.9]~
+4  native crops + 224 t. +0.40   +0.97[-0.1,+2.0]~ +1.90[+0.6,+3.3]
+```
+
+**Arm 3 closes two open questions at once.** It is matched, so "the query was
+mismatched against a 224 bank" is out; and it has **no PCA in the path**, so
+"the basis was fitted on 224-derived vectors" is out. Both were live
+explanations for the -3.27 pp at 448 (§8e). With both removed, native
+resolution is still flat-to-negative at every threshold from 25 km up and its
+median is *worse* than the incumbent's. **More pixels of the same framing do not
+carry more locatable signal.** Note this also rules out "the encoder was never
+trained on more pixels" *for this arm*: 518 is exactly DINOv2's training
+resolution, so it is the encoder at home, not extrapolating.
+
+**The one exception points the other way, and is not closed.** `<1 km` is the
+only threshold where resolution wins, and it wins in **both** arms that use it
+(+0.37, +0.40, separated) while tiles do nothing there (+0.17 ~). Finer sampling
+buys discrimination among near-duplicates. That is a 1.2% base on a 39,831-row
+bank where near-duplicates barely exist -- but the shipping bank is 3.4M and
+lives much more in that regime (top-1 alone is 56.4% `<25 km` there). **The one
+result here a denser bank could amplify rather than dilute. Re-measure it after
+the rebuild.**
+
+**Arm 4 answers "why not both": no.** +0.97 pp is *below* arm 2's +1.27 and no
+longer separated. Resolution does not complement tiles, it dilutes them, at ~3x
+the cost (§8g). Caveat in its favour: it mixes native crops with *224* tiles, so
+its ceiling is higher than measured -- but it does not currently clear arm 2 at
+all.
+
+**DECISION: tiles at 224, the ~19 h extension pass.** Read +1.27 pp as a
+**floor**: §8f measured the matched gain *growing* with density (+1.80 at 25k ->
++2.60 at 400k) and this bank is 39,831 rows, so arm 2 is measured near its
+weakest. Do not splice the two series -- different subset, split and query set.
+
+---
+
+## 9b. Next steps, in order
+
+1. ~~Read `resmatch` and pick what to rebuild.~~ **Done: tiles at 224 (§9).**
+2. ~~Write the id-to-shard addressing.~~ **Already built — a claim of mine
+   corrected.** I looked at `bank_ext70_meta.npz` (which really does carry only
+   `image_id`, `x16`, `y16`, `sequence` and a shard list) and concluded the
+   per-image mapping had to be reconstructed by reading 60 zip directories. It
+   does not: `build_bank_ext.py:113` writes a **parquet beside** the npz with
+   `zip_name` already materialised as `<shard>/<image_id>.jpg`.
+
+       data/processed/s10/bank_ext{,2,3,4}.parquet   750,000 rows each
+
+   Concatenated in that order they are **3,000,000 rows in the exact row order
+   of `bank_ext70_meta.npz`** (`np.array_equal` on `image_id`: True), covering
+   all 60 shards. So the remaining work is not a build but a flag:
+   `tile_cache.py:145` hardcodes `config.DATASET_PARQUET`, and wants a
+   `--rows-parquet` that defaults to it and is recorded in the cache metadata.
+   Spot-checked 200 random paths across 15 shards: **200/200 readable, 0
+   missing.** **Same shape as §6: I checked the artefact that *names* the
+   thing rather than every artefact the thing is written to.**
+3. **Benchmark `torch.compile`** before committing (§8i) — the only untested
+   throughput lever, and 20% is 4 h of 19 h.
+4. **Rebuild** at the winner: release + extension, PCA refit **on the training
+   split**, `stack_bank`, kNN rebuild (~1 h after the embedding pass).
+5. **Retrain the ladder, ~80 min.** The only step that yields an agent number.
+6. **Bootstrap + KartaView**, ~40 min, on the frozen cohort `14680b9ed911`.
+
+### State of the caches
+
+* **`tile6` is complete**: 500,000 x 6 x 1536, all release rows tiled
+  (380,000 embedded this session at 23.0 ms/img, 0 unreadable).
+* The **extension has no tiles at all** — 96,091 of the shipping bank's
+  3,400,180 rows (2.8%) are tiled.
+* `complete_rows()` in `osv_pyramid.py` reads the done mask and returns only
+  finished rows. **Necessary during a pass**: `tile_cache` grows in place, so a
+  cache caught mid-run is mostly zero fill, and a zero row L2-normalises to a
+  unit-length nothing that ranks like a real vector. My first blocked loader
+  omitted that check and would have built a bank 76% zeros.
+
+### Branch and PR state
+
+On **`osv-pyramid-blend`**, last commit `5ad689c`. Per the user's instruction:
+**new branch and a new PR per change, all targeting `main`.**
+
+* **#16 merged** — the blend weight
+* **#17 merged** — per-step does not transfer
+* **#18 open** — `pyramid-gem-pooling`, GeM is inert
+* **#19 open** — `osv-pyramid-blend`, crops+tiles on OSV-5M, the demo
+  `/compare` panel, the completion-mask guard, the 2x2 and density sweep
+
+403 tests pass. `runs/` holds `PYR_BLEND.md`, `PYR_PERSTEP.md`, `PYR_GEM.md`,
+`OSV_PYRAMID.md`, `XBANK.md`.
+
+### The demo
+
+`py scripts/serve.py --tag d768-b350-e6-drop70 --tiles-panel` — the agent plus
+a `/compare` panel showing the same image under crops and crops+tiles over the
+96,091 tiled bank rows, ~0.07 s per request. **Currently stopped** so the GPU
+is free. Never stack GPU jobs: 2.6x measured cost.
+
+---
+
+## 9c. REVIEW4 — still 15 items open
+
+7 of 22 fixed (#3, #4, #5, #11, #12, #17, #20). Open and untouched:
+**#1, #2, #6, #7, #9, #10, #13, #14, #15, #16, #18, #19, #21, #22** plus the
+second half of #8. Five are high severity. **#6 and #7 are the reviewer
+correcting my round-three marker fix** — generic argv-based input/output
+discovery covers almost no real stage (`build_knn` records no outputs at all),
+and per-stage declaration is the fix I rejected as too large.
+
+`docs/REVIEW4.md` carries a triage header with the measured reproductions.
+
+---
+
+## 10. Tools and tests written this session
 
 `scripts/seqleak.py` (+`--verify`), `seqfix_eval.py`, `seqfix2.py`, `wd29.py`,
 `backfill_prov.py`, `parity_report.py`, `pair_npz.py`, `rope_probe.py`,
@@ -383,7 +671,7 @@ Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
 
 ---
 
-## 10. Environment
+## 11. Environment
 
 * RTX 3070, 8 GB. Training is GPU-bound, 90–96% at 165–176 W. **Never stack
   GPU jobs** — 2.6× measured cost. kNN rebuild ~5–7 min; a training rung ~26 min.
@@ -402,7 +690,7 @@ Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
 
 ---
 
-## 11. Rules learned the hard way
+## 12. Rules learned the hard way
 
 * **A cache key must name everything the value depends on**, not everything
   that looks like an identifier. Three instances today (§6.5).
@@ -411,6 +699,18 @@ Tests (315): `test_provenance.py`, `test_runlog.py`, `test_param_groups.py`,
 * **Never generalise a null from arms that are near-identical by construction**
   (§6.1). Pick contrasts that span the axes before concluding a metric is blind.
 * **Never compare two numbers from different embedding spaces** (§6.2).
+* **Do not chain an unverified edit into a background job.** A patch script
+  asserted, wrote nothing, and the run that followed died on an unrecognised
+  flag with the error nowhere visible. Verify the edit landed (`grep` for the
+  new symbol, or `--help`) *before* launching anything that depends on it.
+* **Large heredocs break.** Backslashes arrive mangled and long content trips
+  the parser outright. Use the Write tool for anything over a few lines, and
+  the Edit tool for precise source surgery.
+* **Sample a GPU faster than you think you need to.** Two-second polling
+  showed a steady 99-100% while the card was actually sawtoothing 100 -> 0;
+  the serial data pipeline was invisible until sampled at 1 s. `utilization`
+  means "a kernel is resident", not "the SMs are busy" — read it beside power
+  draw and memory-controller load.
 * **Never `git stash`** — it swept uncommitted work out from under a diagnostic.
   Use `git show <rev>:<path>` to a scratch file.
 * **Never edit code that a running chain has not finished importing.** Each
