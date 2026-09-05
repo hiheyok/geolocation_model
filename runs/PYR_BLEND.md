@@ -8,19 +8,29 @@ same-sequence pair crosses.
 (178.6 km / 33.8% against the recorded 179.1 / 33.8%), which is what makes the
 rest comparable to the artifact's session-14 table.
 
+**The sweep tables are exploratory and cover every query. The paired intervals
+at the end are reported on a HELD-OUT half**, because an arm picked as the best
+of a sweep and then scored on the same queries carries whatever noise favoured
+it. That is not a hypothetical correction: the 25 km gain for the level-tuned
+arm went from +2.10 pp "separated" to +1.64 pp when the halves were separated,
+and a per-step variant that looked uniformly positive turned negative at two of
+five thresholds (`scripts/pyr_perstep.py`).
+
 **Three findings.**
 
 1. The published concat is an exact 50/50 average of the two cosines, and 0.5
-   is roughly ten times too much head. The optimum is w = 0.05-0.15.
-2. Levels want **1:1:2**, not equal. The deepest level -- the 24 tiles that
-   only exist because the source is high-resolution -- is individually the
-   *weakest* (31.3% at 25 km against L0's 32.3%) and yet wants the *most*
-   weight, because its errors are the least correlated with the others.
+   is roughly ten times too much head. The optimum is w = 0.05-0.10.
+2. Levels want the deepest one weighted up -- the 24 tiles that exist only
+   because the source is high-resolution are individually the *weakest*
+   (31.3% at 25 km against L0's 32.3%) and still want more weight, because
+   their errors are the least correlated with the others.
 3. Cascade loses to blending. The head's recall is too low to be a first
    stage: it discards the right region before the re-ranker ever sees it.
 
-Best arm: **levels 1:1:2 + head w=0.10**, +2.10 pp at 25 km and +3.70 pp at
-750 km against the published pool, both separated, median 178.6 -> 125.3 km.
+**Best supported arm is the simplest one.** `blend w=0.05` -- the published
+pool with a 5% head contribution, one number changed -- is separated at all
+five thresholds on held-out queries: +0.79 pp at 1 km, +1.18 at 25 km,
++2.17 at 200 km, +2.89 at 750 km, +2.50 at 2500 km.
 
 ---
 
@@ -91,11 +101,12 @@ L2 retrieves -> mean ranks         180.0    17.6%    33.5%    51.0%    70.5%    
 mean retrieves -> L0 ranks         217.0    17.1%    32.2%    49.3%    68.4%    86.3%
 
 --- paired against `mean` (the published level-weighted pool) ---
-blend w=0.05             +0.67[+0.1,+1.2]  +1.03[+0.2,+1.8]  +2.07[+1.1,+3.1]  +2.83[+1.8,+3.9]  +2.20[+1.4,+3.0] 
-blend w=0.1              +0.57[-0.1,+1.3]~ +0.93[-0.0,+1.9]~ +1.80[+0.6,+3.0]  +3.03[+1.8,+4.3]  +2.17[+1.2,+3.1] 
-blend w=0.5 (concat)     -3.40[-4.5,-2.4]  -5.57[-7.0,-4.1]  -6.47[-8.3,-4.7]  -2.13[-4.0,-0.4]  +0.93[-0.3,+2.2]~
-levels 1:1:2             +0.10[-0.5,+0.6]~ +1.17[+0.4,+2.0]  +1.90[+0.9,+2.9]  +1.47[+0.4,+2.6]  +0.63[-0.1,+1.4]~
-levels 1:1:2 + head 0.10 +0.53[-0.2,+1.3]~ +2.10[+1.0,+3.1]  +3.57[+2.3,+4.9]  +3.70[+2.5,+5.0]  +2.77[+1.8,+3.7] 
+(reported on 1,522 held-out queries; the arms were chosen on the other 1,478)
+blend w=0.05             +0.79[+0.1,+1.6]  +1.18[+0.1,+2.3]  +2.17[+0.7,+3.5]  +2.89[+1.5,+4.3]  +2.50[+1.4,+3.6] 
+blend w=0.1              +0.20[-0.7,+1.1]~ +0.92[-0.5,+2.3]~ +2.10[+0.4,+3.7]  +3.29[+1.4,+5.1]  +2.50[+1.1,+3.8] 
+blend w=0.5 (concat)     -3.81[-5.2,-2.4]  -5.72[-7.7,-3.7]  -6.04[-8.6,-3.6]  -2.37[-4.8,+0.1]~ +0.26[-1.4,+2.1]~
+levels 1:1:2             +0.07[-0.7,+0.9]~ +1.25[+0.0,+2.4]~ +1.51[+0.1,+3.0]  +1.51[+0.1,+3.0]  +0.39[-0.8,+1.5]~
+levels 1:1:2 + head 0.10 +0.53[-0.5,+1.5]~ +1.64[+0.1,+3.2]  +3.02[+1.3,+4.8]  +3.09[+1.1,+5.0]  +3.09[+1.6,+4.5] 
 
 ~ marks an interval spanning zero. 66s total
 ```
