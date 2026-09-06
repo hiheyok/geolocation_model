@@ -18,11 +18,12 @@ from torch.utils.data import DataLoader, Subset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import provenance as prov
 import splits as sp
 import tile_math as tm
 import safeio
 from dataset import GeoStepDataset, gather_nbr, street_table
-from model import GeoAgent, param_report
+from model import GeoAgent, NeighborBatch, param_report
 
 
 def _map_sub(width):
@@ -180,9 +181,8 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
                 # where the prior should matter most.
                 nbrs = None
                 if "nbr_x" in b:
-                    nbrs = (b["nbr_x"], b["nbr_y"], b["nbr_sim"],
-                            b["nbr_emb"]) if "nbr_emb" in b else (
-                            b["nbr_x"], b["nbr_y"], b["nbr_sim"])
+                    nbrs = NeighborBatch(b["nbr_x"], b["nbr_y"], b["nbr_sim"],
+                                         b.get("nbr_emb"))
                 nl = model.policy_from(b["street"], b["neg_tokens"],
                                        b["neg_x0"], b["neg_y0"], b["neg_step"],
                                        nbrs)
@@ -407,6 +407,55 @@ def build_parser():
     return ap
 
 
+# Parameters that a source checkpoint may legitimately lack. Each is
+# zero-initialised, so absent from the source it is exactly the identity and
+# this architecture is a strict superset of that one -- the older checkpoint
+# transfers without loss. Anything else missing is a real mismatch.
+ADDITIVE = {
+    "street.gate", "geo.emb.weight", "geo.gate",
+    "geo.q_geo.weight", "geo.q_geo.bias",
+    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is exactly this
+    # architecture with the extras switched off
+    "sink_ext", "sink_ext_b", "sink_ext_g",
+    # the conditioning adapter: cond_gate is zero, so the whole block
+    # contributes nothing until trained and an unconditioned checkpoint loads
+    # bit-identically. Without these listed here the adapter's own intended
+    # command -- fine-tune the incumbent on a conditioned cache -- exits as an
+    # architecture mismatch, which is what REVIEW5 #6 caught. The unit test
+    # passed because it called load_state_dict directly and never came through
+    # this filter; test_cond_adapter now calls init_from itself.
+    "street.cond_gate", "street.cond_proj.weight", "street.cond_proj.bias",
+    "street.cond_norm.weight", "street.cond_norm.bias",
+}
+
+
+def retrieval_file_of(street_file):
+    """The cache a k-NN over `street_file` would have been built on.
+
+    A joined conditioning cache records the retrieval prefix it was made from;
+    everything else is its own retrieval space.
+    """
+    rec = prov.read(config.STREET_CACHE / street_file) or {}
+    return rec.get("retrieval_file") or street_file
+
+
+def init_from(model, state, tag):
+    """Load a source checkpoint into `model`, allowing only additive gaps.
+
+    The one place `--init` compatibility is decided, so a test can exercise the
+    real policy rather than PyTorch's raw loader.
+    """
+    missing, unexpected = model.load_state_dict(state, strict=False)
+    missing = [k for k in missing if k not in ADDITIVE]
+    if missing or unexpected:
+        raise SystemExit(
+            "{} does not match this architecture: {} missing, {} unexpected"
+            .format(tag, len(missing), len(unexpected))
+            + (" (missing: " + ", ".join(sorted(missing)[:4]) + ")"
+               if missing else ""))
+    return missing, unexpected
+
+
 def main():
     a = build_parser().parse_args()
     check_args(a)
@@ -438,7 +487,13 @@ def main():
 
     knn_file = a.knn_file
     if a.retr and knn_file is None:
-        knn_file = config.knn_name(a.street_file, a.split_mode)
+        # For a conditioned cache the k-NN was deliberately built on the
+        # retrieval *prefix*, not on the joined file -- that is what decoupling
+        # means. Deriving the name from the joined file asks for a cache that
+        # should never exist, so the advertised path would only work with a
+        # redundant --knn-file override. REVIEW6 #5.
+        knn_file = config.knn_name(retrieval_file_of(a.street_file),
+                                   a.split_mode)
     kn = dict(knn_file=knn_file, knn_k=a.retr_k if a.retr else 0,
               cache=a.map_cache)
     # Train negatives are seeded from --seed, not from OS entropy. They used
@@ -533,8 +588,13 @@ def main():
                                           else tr).tokens.shape[-1] / 12)
                                         ** 0.5)))
 
-    model = GeoAgent(d_street=tr.dataset.dim_street if hasattr(tr, "dataset")
-                     else tr.dim_street,
+    _ds = tr.dataset if hasattr(tr, "dataset") else tr
+    model = GeoAgent(d_street=_ds.dim_street,
+                     # The conditioning width comes from the cache's own
+                     # sidecar, never a flag: a flag that disagreed with the
+                     # file would split the tensor in the wrong place and take
+                     # part of the retrieval vector as conditioning.
+                     d_cond=getattr(_ds, "dim_cond", 0),
                      n_actions=tm.actions(), n_steps=steps + 1,
                      # width comes from the cache, never assumed: a sub>1 cache
                      # carries 12*sub*sub per patch and a hardcoded 12 would
@@ -554,20 +614,7 @@ def main():
     if a.init:
         prev = torch.load(config.CHECKPOINTS / (a.init + ".pt"),
                           map_location=dev, weights_only=False)
-        missing, unexpected = model.load_state_dict(prev["model"], strict=False)
-        # A zero-init gate absent from the source is exactly the identity, so
-        # this architecture is a strict superset of that one and the older
-        # checkpoint transfers without loss. Anything else is a real mismatch.
-        additive = {"street.gate", "geo.emb.weight", "geo.gate",
-                    "geo.q_geo.weight", "geo.q_geo.bias",
-                    # sink_ext_g is zero-init, so a sink_k=1 checkpoint is
-                    # exactly this architecture with the extras switched off
-                    "sink_ext", "sink_ext_b", "sink_ext_g"}
-        missing = [k for k in missing if k not in additive]
-        if missing or unexpected:
-            raise SystemExit(
-                "{} does not match this architecture: {} missing, {} "
-                "unexpected".format(a.init, len(missing), len(unexpected)))
+        init_from(model, prev["model"], a.init)
         prev_epochs = prev.get("epochs_total", prev.get("epoch", 0))
         print("init from  {}  (its epoch {}, {} epochs of training so far)"
               .format(a.init, prev.get("epoch"), prev_epochs))

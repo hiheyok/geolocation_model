@@ -19,6 +19,7 @@ from torch.utils.data import Dataset
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import provenance as prov
+import safeio
 import splits as sp
 import tile_math as tm
 
@@ -89,6 +90,72 @@ def gather_nbr(table, rows, dev):
     """rows may live on either device; the table decides where the gather runs."""
     idx = rows if rows.device == table.device else rows.to(table.device)
     return table[idx].to(dev, non_blocking=True).float()
+
+
+def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64,
+                            want_digest=None):
+    """The first `d_retr` columns must BE the retrieval cache, byte for byte.
+
+    A name comparison cannot see the failure that matters here: a retrieval
+    cache rebuilt under the same filename leaves the k-NN addressing one
+    embedding space while the model's retrieval block is in another. Every
+    shape still agrees and every neighbour index is in range.
+
+    So the bytes are checked on a sample of rows rather than the string. It
+    costs 64 reads and it is the only thing that actually establishes that this
+    file's retrieval block and the bank's are the same vectors.
+    """
+    import config
+
+    if not retr_file:
+        print("warning: {} carries a conditioning block but does not record "
+              "which retrieval cache it was joined to, so the retrieval half "
+              "cannot be verified against the bank".format(Path(path).name),
+              flush=True)
+        return
+    rp = config.STREET_CACHE / retr_file
+    if not rp.exists():
+        raise SystemExit(
+            "{} declares its retrieval block came from {}, which is not on "
+            "disk. Without it the block cannot be checked against the bank "
+            "the k-NN was built over.".format(Path(path).name, retr_file))
+    R = np.load(rp, mmap_mode="r")
+    if R.shape != (street.shape[0], d_retr):
+        raise SystemExit(
+            "{} is {} but {} declares a {}-d retrieval block over {:,} rows"
+            .format(retr_file, R.shape, Path(path).name, d_retr,
+                    street.shape[0]))
+    # The whole file, by content. The sampled comparison below still runs --
+    # it is the only thing that checks the *join* itself -- but it cannot be
+    # the authority: its seed is fixed, so the rows it skips are skipped
+    # forever and a localized rebuild passes every run rather than eventually
+    # being caught. REVIEW6 #2.
+    if want_digest:
+        got = safeio.content_digest(rp)
+        if got != want_digest:
+            raise SystemExit(
+                "{} was joined over {} whose contents digest {}; that file now "
+                "digests {}. It was rebuilt under the same name, so this "
+                "file's retrieval block and the bank the k-NN addresses are "
+                "different embedding spaces. Rebuild the joined cache."
+                .format(Path(path).name, retr_file, want_digest, got))
+    else:
+        print("warning: {} records no content digest for its retrieval block, "
+              "so only a {}-row sample can be checked".format(
+                  Path(path).name, n_probe), flush=True)
+    rng = np.random.default_rng(0)
+    rows = np.unique(rng.integers(0, street.shape[0], min(n_probe,
+                                                          street.shape[0])))
+    a = np.asarray(street[rows, :d_retr], np.float32)
+    b = np.asarray(R[rows], np.float32)
+    if not np.array_equal(a, b):
+        bad = int((a != b).any(1).sum())
+        raise SystemExit(
+            "{}'s retrieval block does not match {} on {} of {} probed rows. "
+            "The k-NN addresses that file's embedding space; this one is a "
+            "different space under the same name, so every neighbour would be "
+            "the right row of the wrong geometry. Rebuild the joined cache."
+            .format(Path(path).name, retr_file, bad, len(rows)))
 
 
 def _check_street_rows(path, name, all_ids, n_street, digest):
@@ -233,7 +300,23 @@ class GeoStepDataset(Dataset):
         self._street_path = config.STREET_CACHE / street_file
         self._tokens_path, index_p, done_p = config.map_files(cache)
         self.street = np.load(self._street_path, mmap_mode="r")
-        self.dim_street = self.street.shape[1]
+        # A conditioned cache is [retrieval | conditioning] in one tensor, and
+        # its sidecar says where the split is. Retrieval width is what the
+        # k-NN, the retrieval keys and the bank all live in; the conditioning
+        # block is seen only by the model. Absent the field the whole file is
+        # retrieval, which is every cache written before this existed.
+        _rec = prov.read(self._street_path) or {}
+        self.retr_file = _rec.get("retrieval_file")
+        self.dim_street = int(_rec.get("retrieval_dim") or self.street.shape[1])
+        self.dim_cond = self.street.shape[1] - self.dim_street
+        if self.dim_cond < 0:
+            raise SystemExit(
+                "{} records a {}-d retrieval block but is only {}-d"
+                .format(street_file, self.dim_street, self.street.shape[1]))
+        if self.dim_cond:
+            _check_retrieval_prefix(self._street_path, self.street,
+                                    self.retr_file, self.dim_street,
+                                    want_digest=_rec.get("retrieval_digest"))
         _check_street_rows(self._street_path, street_file, all_ids,
                            len(self.street), self.rows_digest)
 
@@ -353,11 +436,16 @@ class GeoStepDataset(Dataset):
                         "since the bank was built, so its train side is no "
                         "longer that train side. Rebuild it."
                         .format(str(z["split_hash"]), self.split_hash))
-            if "street_file" in z and str(z["street_file"]) != street_file:
+            # For a conditioned cache the k-NN was built on the retrieval
+            # *prefix*, not on this file -- that is the whole point of the
+            # decoupling -- so the comparison targets what the sidecar declares.
+            want_sf = self.retr_file or street_file
+            if "street_file" in z and str(z["street_file"]) != want_sf:
                 raise SystemExit(
-                    "knn cache was built over {!r} but this dataset reads {!r}. "
-                    "Neighbours found in one embedding space do not transfer to "
-                    "another.".format(str(z["street_file"]), street_file))
+                    "knn cache was built over {!r} but this dataset retrieves "
+                    "in {!r}. Neighbours found in one embedding space do not "
+                    "transfer to another.".format(str(z["street_file"]),
+                                                  want_sf))
             # One query row per *release* image.  Not per row of the street
             # file: a bank file has its extension rows appended after the
             # release's, so that length is larger and comparing against it

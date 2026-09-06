@@ -35,6 +35,7 @@ import tiles as T
 from beam import source_for, search
 from embed_street import preprocess
 from evaluate import load_model, street_file_for
+from tile_math import great_circle_km as great_circle_km
 
 STATE = {}
 
@@ -167,13 +168,6 @@ D_ENC = 768
 
 
 @torch.no_grad()
-def great_circle_km(a1, o1, a2, o2):
-    p = np.pi / 180.0
-    d = (np.sin((a2 - a1) * p / 2) ** 2 + np.cos(a1 * p) * np.cos(a2 * p)
-         * np.sin((o2 - o1) * p / 2) ** 2)
-    return 2 * 6371.0088 * np.arcsin(np.sqrt(min(max(d, 0.0), 1.0)))
-
-
 def load_panel(dev):
     """Two banks over the same rows: crops only, and crops + tiles.
 

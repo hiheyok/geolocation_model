@@ -81,7 +81,7 @@ class TokenSource:
                           .format(int((~ok).sum()), len(rows)), flush=True)
                 k, rows = k[ok], rows[ok]
         self.lut = dict(zip(k.tolist(), rows.tolist()))
-        self.client = client or T.TileClient(config.TILE_SERVER)
+        self.client = client or T.connect(config.TILE_SERVERS)
         self.pool = ThreadPoolExecutor(max_workers=threads)
         self.live = {}
         self.n_hit = self.n_miss = 0

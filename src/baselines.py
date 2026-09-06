@@ -19,6 +19,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tile_math as tm
 from dataset import GeoStepDataset
+from tile_math import great_circle_km as great_circle_km
 
 BUCKETS = (1.0, 25.0, 100.0, 750.0)
 
@@ -33,14 +34,6 @@ def from_unit(v):
     lat = np.degrees(np.arcsin(np.clip(v[..., 2], -1, 1)))
     lon = np.degrees(np.arctan2(v[..., 1], v[..., 0]))
     return lat, lon
-
-
-def great_circle_km(lat1, lon1, lat2, lon2):
-    p1, p2 = np.radians(lat1), np.radians(lat2)
-    dl = np.radians(lon2 - lon1)
-    a = (np.sin((p2 - p1) / 2) ** 2
-         + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2)
-    return 2 * 6371.0088 * np.arcsin(np.clip(np.sqrt(a), 0, 1))
 
 
 def report(name, err_km):

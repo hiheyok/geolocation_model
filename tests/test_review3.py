@@ -390,9 +390,51 @@ def test_neg_random_still_available_and_is_not_reproducible():
 
 
 def test_train_py_seeds_its_negatives_and_records_whether_it_did():
-    src = (ROOT / "src" / "train.py").read_text(encoding="utf-8")
-    assert "neg_random=a.neg_random, neg_seed=a.seed" in src
-    assert '"neg_random": a.neg_random' in src
+    """Wiring, checked structurally rather than by source spelling.
+
+    This asserted two exact substrings, so reformatting the call broke it while
+    a differently-wrong implementation that kept the text passed. REVIEW7 #9.
+    The fact worth protecting is not how the line is written: it is that
+    `train.main` passes both negative-draw settings through to the dataset, and
+    records which one it used in the checkpoint. Neither is observable without
+    a full training run, which is why a static check is the right tool here --
+    but it should read the syntax tree, not the characters.
+    """
+    import ast
+
+    tree = ast.parse((ROOT / "src" / "train.py").read_text(encoding="utf-8"))
+
+    # The TRAIN dataset specifically, and the values must come from the parsed
+    # arguments. A union over every call site is vacuous here: the val dataset
+    # deliberately hardcodes neg_random=False, neg_seed=11 so sink accuracy is
+    # measured on the same tiles every epoch, and that alone satisfies a check
+    # for "these keywords appear somewhere".
+    train_calls = [n for n in ast.walk(tree)
+                   if isinstance(n, ast.Call)
+                   and (getattr(n.func, "id", None) == "GeoStepDataset")
+                   and n.args and isinstance(n.args[0], ast.Constant)
+                   and n.args[0].value == "train"]
+    assert train_calls, "train.py builds no GeoStepDataset('train', ...)"
+    for call in train_calls:
+        kw = {k.arg: k.value for k in call.keywords}
+        for name in ("neg_random", "neg_seed"):
+            assert name in kw, (
+                "the train dataset is built without {}".format(name))
+            v = kw[name]
+            assert isinstance(v, ast.Attribute) and                 getattr(v.value, "id", None) == "a", (
+                    "{} is not taken from the parsed arguments, so --{} "
+                    "cannot reach the training negatives"
+                    .format(name, name.replace("_", "-")))
+
+    # and the choice reaches the checkpoint, so a later run can tell which
+    # draw produced it -- the ambiguity that voided seqfix2
+    recorded = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            recorded |= {k.value for k in node.keys
+                         if isinstance(k, ast.Constant)
+                         and isinstance(k.value, str)}
+    assert "neg_random" in recorded,         "no checkpoint dict records neg_random"
 
 
 # --------------------------------------- 3. PCA basis fitted on train only --
