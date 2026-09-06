@@ -59,3 +59,10 @@ runs/errs_prebug/
 .pytest_cache/
 .claude/
 *.partial.npy
+
+# Session state, not project documentation. These are rewritten wholesale
+# every session to survive a compaction, so they conflict on every branch
+# that runs in parallel -- docs/STATE.md was the only conflicting file
+# between PR #26 and main. They stay on disk; they do not belong in history.
+docs/STATE.md
+docs/NEXT.md
