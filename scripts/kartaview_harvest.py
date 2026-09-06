@@ -106,6 +106,19 @@ def fetch(url, tries=2):
     return None
 
 
+def shot_seconds(v):
+    """`"2017-10-31 15:53:01.000"` -> epoch seconds, or None if unparseable.
+
+    Missing timestamps must not silently satisfy a gap requirement, so the
+    caller treats None as "cannot tell" and lets the cap decide alone.
+    """
+    from datetime import datetime
+    try:
+        return datetime.strptime(str(v)[:19], "%Y-%m-%d %H:%M:%S").timestamp()
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
 def proc_url(name):
     """'storage13/files/x.jpg' -> 'https://storage13.openstreetcam.org/files/x.jpg'"""
     host, _, tail = name.partition("/")
@@ -123,8 +136,16 @@ def main():
                          "coordinates instead of re-walking the first run's")
     ap.add_argument("--radius", type=int, default=400, help="metres")
     ap.add_argument("--per-seed", type=int, default=12)
-    ap.add_argument("--per-sequence", type=int, default=3,
-                    help="cap per drive; consecutive frames are near-duplicates")
+    ap.add_argument("--per-sequence", type=int, default=1,
+                    help="cap per drive. Was 3, which bought near-duplicates: "
+                         "the three frames land a median 2.0 s and 67 m apart, "
+                         "and 69.8%% of 100 m groups then contain a single "
+                         "drive. 1 gives 2.7x more distinct drives per "
+                         "download.")
+    ap.add_argument("--min-gap-s", type=float, default=30.0,
+                    help="minimum seconds between two frames of the SAME "
+                         "drive. Only bites when --per-sequence > 1; a cap "
+                         "alone does not say the frames are different views.")
     ap.add_argument("--max-gps-err", type=float, default=10.0)
     ap.add_argument("--min-side", type=int, default=1280,
                     help="reject anything not actually high resolution")
@@ -218,6 +239,14 @@ def main():
     # frames that would be dropped afterwards.
     seq_count = Counter(r["sequence_id"] for r in have.values())
     per_seed = Counter()
+    # Latest committed shot time per drive, seeded from what is already on
+    # disk so a resumed harvest honours the gap across runs.
+    seq_last_t = {}
+    for r in have.values():
+        t = shot_seconds(r.get("shot_date"))
+        if t is not None:
+            sid = str(r["sequence_id"])
+            seq_last_t[sid] = max(t, seq_last_t.get(sid, t))
 
     def eligible(d):
         """Everything decidable before any bytes move."""
@@ -240,7 +269,11 @@ def main():
         valid candidate. The filtering still happens before downloading -- no
         bytes are wasted -- it is the *accounting* that moves.
         """
+        # Provisional, like the counters above and for the same reason: a
+        # frame that fails to download must not consume its drive's gap and
+        # suppress a later valid candidate (item 67).
         pseq, pseed, out_ = Counter(seq_count), Counter(per_seed), []
+        last_t = dict(seq_last_t)
         for i, d in cand:
             if len(out_) >= budget:
                 break
@@ -250,6 +283,18 @@ def main():
             sid = str(d.get("sequence_id"))
             if pseq[sid] >= a.per_sequence or pseed[i] >= a.per_seed:
                 continue
+            # A per-drive CAP does not make the frames distinct views. At the
+            # old default of 3 they arrived a median 2.0 s apart -- the same
+            # photograph three times -- and 69.8% of 100 m spatial groups then
+            # held a single drive, so `multiquery`'s round-robin across
+            # sequences had nothing to round-robin between. Require a real
+            # temporal gap as well as a cap.
+            t = shot_seconds(d.get("shot_date"))
+            if a.per_sequence > 1 and t is not None:
+                prev = last_t.get(sid)
+                if prev is not None and abs(t - prev) < a.min_gap_s:
+                    continue
+                last_t[sid] = t
             pseq[sid] += 1
             pseed[i] += 1
             out_.append((i, d))
@@ -309,6 +354,9 @@ def main():
                     with lock:
                         seq_count[rec["sequence_id"]] += 1
                         per_seed[i] += 1
+                        _t = shot_seconds(rec.get("shot_date"))
+                        if _t is not None:
+                            seq_last_t[str(rec["sequence_id"])] = _t
                         have[rec["id"]] = rec
                         fh.write(json.dumps(rec) + "\n")
                         kept.append(rec)
