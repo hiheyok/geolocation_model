@@ -39,9 +39,8 @@ READER = "shards.py"
 # is what this test exists to prevent, so a PR that grows it should be
 # rejected rather than accepted with a note.
 LEGACY = {
-    "build_bank_ext.py", "build_dataset.py", "embed_native.py",
-    "embed_street.py", "ocr_probe.py", "query_only.py", "resmatch.py",
-    "tile_cache.py", "tile_probe.py", "tilebench.py",
+    "build_bank_ext.py", "build_dataset.py", "ocr_probe.py",
+    "query_only.py", "resmatch.py", "tile_probe.py",
 }
 
 

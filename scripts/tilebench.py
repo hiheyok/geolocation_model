@@ -36,7 +36,6 @@ import argparse
 import os
 import sys
 import time
-import zipfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -52,7 +51,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config                                       # noqa: E402
-from embed_street import slurp                      # noqa: E402
+import shards                                       # noqa: E402
 from tile_cache import DINO, SIGLIP, S, D_ENC, tile_uint8   # noqa: E402
 
 
@@ -74,8 +73,7 @@ def load_tiles(n, gc, gr, seed=0, max_shards=0):
         by_zip[zn[i].split("/")[0]].append(zn[i])
     out, got = np.empty((n, gc * gr, S, S, 3), np.uint8), 0
     for shard, members in sorted(by_zip.items()):
-        zp = Path(config.OSV_ROOT) / "images" / "train" / (shard + ".zip")
-        with zipfile.ZipFile(slurp(zp)) as zf:
+        with shards.archive(shard) as zf:
             for m in members:
                 out[got] = tile_uint8(zf.read(m), gc, gr)
                 got += 1

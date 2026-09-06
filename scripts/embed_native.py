@@ -66,7 +66,6 @@ import argparse
 import os
 import sys
 import time
-import zipfile
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -84,7 +83,8 @@ if not os.environ.get("OSV_RELEASE"):
 import config                                    # noqa: E402
 import maskio                                    # noqa: E402
 import provenance as prov                        # noqa: E402
-from embed_street import slurp, preprocess       # noqa: E402
+import shards                                    # noqa: E402
+from embed_street import preprocess              # noqa: E402
 
 # (spec, patch, size). Sizes are per encoder, not shared: nothing requires one
 # input size, since the encoders run independently and only their 768-d outputs
@@ -280,8 +280,7 @@ def main():
 
         with torch.no_grad():
             for shard, items in sorted(by_zip.items()):
-                zp = Path(config.OSV_ROOT) / "images" / "train" / (shard + ".zip")
-                with zipfile.ZipFile(slurp(zp) if a.preload else zp) as zf:
+                with shards.archive(shard, preload=a.preload) as zf:
                     q = deque()
                     it = iter(items)
 

@@ -41,6 +41,7 @@ import sys
 import time
 import zipfile
 from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -84,6 +85,33 @@ def slurp(path, chunk=32 << 20, every=4, quiet=False):
         print("           done in {:.1f}s ({:.0f} MB/s)".format(
             el, size / max(el, 1e-9) / 1e6), flush=True)
     return io.BytesIO(buf)
+
+
+@contextmanager
+def archive(shard, root=None, preload=True, quiet=False):
+    """One shard's archive, opened over a sequential read of the whole file.
+
+    `blobs` is for callers that want the bytes and nothing else. These four
+    want the open `ZipFile` -- they each wrap it in a different tuned pipeline
+    (a decode thread pool, a bounded sliding window, a pinned staging buffer),
+    and those pipelines are genuinely different and should stay where they
+    are. What was duplicated is not the loop but the POLICY in front of it:
+
+        zipfile.ZipFile(slurp(zp) if preload else zp)
+
+    written out four times, over a zip path derived by hand three times. That
+    is the piece worth having once, because it is the piece that is wrong when
+    it is wrong: a shard opened without the preload is 12,000 scattered reads
+    into a 2.5 GB archive on a 5900 RPM disk.
+    """
+    zp = (Path(root) if root else config.TRAIN_ZIPS) / (shard + ".zip")
+    if not zp.exists():
+        raise SystemExit(
+            "shard {} is not on disk at {}. Reading members by name from a "
+            "missing archive is the one case where a partial result would "
+            "look complete.".format(shard, zp))
+    with zipfile.ZipFile(slurp(zp, quiet=quiet) if preload else zp) as zf:
+        yield zf
 
 
 def shard_of(member):

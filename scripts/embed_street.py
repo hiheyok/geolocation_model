@@ -21,7 +21,6 @@ import argparse
 import io
 import sys
 import time
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -34,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
 import provenance as prov
 import safeio
+import shards
 
 EMB = config.STREET_CACHE / "embeddings.f16.npy"
 EMB_IDS = config.STREET_CACHE / "image_ids.i64.npy"
@@ -74,32 +74,6 @@ def preprocess(blob, size=224, crops=1, mean=None, std=None):
         x = np.array(c, dtype=np.uint8).transpose(2, 0, 1).astype(np.float32) / 255.0
         out[i] = (x - (MEAN if mean is None else mean)) / (STD if std is None else std)
     return out
-
-
-def slurp(path, chunk=32 << 20, every=4):
-    """Read a file sequentially into RAM, reporting throughput as it goes."""
-    size = path.stat().st_size
-    print("preload    {:.2f} GB sequentially into RAM".format(size / 1e9), flush=True)
-    buf = bytearray(size)
-    view = memoryview(buf)
-    off = 0
-    t0 = time.time()
-    with open(path, "rb", buffering=0) as fh:
-        while off < size:
-            got = fh.readinto(view[off:off + chunk])
-            if not got:
-                break
-            off += got
-            if (off // chunk) % every == 0:
-                el = time.time() - t0
-                print("           {:5.2f}/{:.2f} GB   {:6.1f} MB/s   eta {:4.1f} min"
-                      .format(off / 1e9, size / 1e9, off / 1e6 / max(el, 1e-6),
-                              (size - off) / max(off / max(el, 1e-6), 1.0) / 60),
-                      flush=True)
-    el = time.time() - t0
-    print("           done in {:.1f}s ({:.0f} MB/s)\n".format(el, size / 1e6 / el),
-          flush=True)
-    return io.BytesIO(buf)
 
 
 def main():
@@ -218,10 +192,10 @@ def main():
     seen = 0
     for sh in sorted(by_shard):
         rows = np.array(by_shard[sh], dtype=np.int64)
-        zpath = config.TRAIN_ZIPS / (sh + ".zip")
         print("shard {}  {:,} images".format(sh, len(rows)), flush=True)
-        source = slurp(zpath) if a.preload else zpath
-        with zipfile.ZipFile(source) as z,                 ThreadPoolExecutor(max_workers=a.workers) as pool,                 torch.inference_mode():
+        with (shards.archive(sh, preload=a.preload) as z,
+              ThreadPoolExecutor(max_workers=a.workers) as pool,
+              torch.inference_mode()):
             for lo in range(0, len(rows), a.batch):
                 sel = rows[lo:lo + a.batch]
                 blobs = []
