@@ -160,16 +160,13 @@ def search(model, street, source, dev, beam_k=16, top_m=16,
 
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):
             f, keys = model.fuse_flat(st, tok, x0, y0, sp)
-            # one row per live beam per image, and the learned keys come
-            # with it -- see GeoAgent.retr_prior
-            n_logits = keys.shape[1] + (1 if model.sink is not None else 0)
-            prior = model.retr_prior(nbrs, street, x0, y0, sp, nb, n_logits)
-            # and the tile memory, through the same slot -- see _add_geo
-            prior = model._add_geo(prior, f, x0, y0, sp, n_logits)
-            # `sp` is required, not optional: the extra sink keys are indexed
-            # by step, and omitting it silently evaluates a sink-k 1 model --
-            # training one network and scoring another.
-            logits = model.policy_logits(f, keys, prior, sp).float()
+            # `score_flat` is the one place the two priors and the policy head
+            # are composed. This loop used to write that sequence out itself
+            # and omitted the neighbours, so pos/dual models decoded without
+            # the prior they were trained with. `nb` is rows per image -- one
+            # per live beam here, one per teacher-forced step in training.
+            logits = model.score_flat(f, keys, street, x0, y0, sp,
+                                      nbrs, nb).float()
         # With a sink class the softmax spans A+1: log p(a) already decomposes
         # into log p(not-sink) + log p(a | not-sink), so a beam the model
         # believes is dead is penalised in its own cumulative score.  The sink

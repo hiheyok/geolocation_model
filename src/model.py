@@ -319,6 +319,35 @@ class GeoAgent(nn.Module):
                          a_pos=rep(a_pos),
                          a_neg=None if a_neg is None else rep(a_neg))
 
+    def score_flat(self, fused, keys, street, x0, y0, step, nbrs, per_image):
+        """The one place a policy logit is assembled. Everything flat.
+
+        `fuse_flat` exists because beam search once inlined the fusion
+        concatenation and drifted from training. The *scoring* half had the
+        same shape and had not been given the same treatment: training,
+        `policy_from` and `beam.search` each wrote out this four-call sequence
+        by hand, and beam's version omitted the neighbours entirely -- so
+        `pos` and `dual` models were trained with a retrieval prior and
+        decoded without one. Nothing raised. The median moved 81.6 km to
+        55.8 km when it was found.
+
+        Shapes: fused (N, d), keys (N, A, d_tok), street (B, Ds),
+        x0/y0/step (N,). `per_image` is N // B -- how many consecutive rows
+        share one neighbour set: the teacher-forced steps when training, the
+        live beams when searching. It is a required argument rather than
+        inferred, because inferring it from shapes would silently accept a
+        caller that had the expansion backwards.
+
+        `retr_prior` returns None for a model without retrieval or a batch
+        without neighbours, so this is unconditional and the two priors are
+        always composed in the same order.
+        """
+        n_logits = keys.shape[1] + (1 if self.sink is not None else 0)
+        prior = self.retr_prior(nbrs, street, x0, y0, step, per_image,
+                                n_logits)
+        prior = self._add_geo(prior, fused, x0, y0, step, n_logits)
+        return self.policy_logits(fused, keys, prior, step)
+
     def policy_from(self, street, tokens, x0, y0, step, nbrs=None):
         """Policy logits for arbitrary (image, tile, step) rows -- used for the
         off-path negatives, which have no place in the teacher-forced prefix.
@@ -328,13 +357,8 @@ class GeoAgent(nn.Module):
         passed through here rather than only on the on-path rows.
         """
         f, k = self.fuse(street, tokens, x0, y0, step)
-        n_logits = k.shape[1] + (1 if self.sink is not None else 0)
-        prior = self.retr_prior(
-            nbrs, street, x0.reshape(-1), y0.reshape(-1), step.reshape(-1),
-            step.shape[1], n_logits)
-        prior = self._add_geo(prior, f, x0.reshape(-1), y0.reshape(-1),
-                              step.reshape(-1), n_logits)
-        return self.policy_logits(f, k, prior, step)
+        return self.score_flat(f, k, street, x0.reshape(-1), y0.reshape(-1),
+                               step.reshape(-1), nbrs, step.shape[1])
 
     def click_uv(self, fused):
         return torch.sigmoid(self.click(fused))
@@ -348,26 +372,16 @@ class GeoAgent(nn.Module):
         n_policy = S - 1
         fp = f[:, :n_policy].reshape(B * n_policy, -1)
         kp = k[:, :n_policy].reshape(B * n_policy, k.shape[2], k.shape[3])
-        prior = None
+        nbrs = None
         if "nbr_x" in batch:
             nbrs = NeighborBatch(batch["nbr_x"], batch["nbr_y"],
                                  batch["nbr_sim"], batch.get("nbr_emb"))
-            prior = self.retr_prior(
-                nbrs, batch.get("street"),
-                batch["x0"][:, :n_policy].reshape(-1),
-                batch["y0"][:, :n_policy].reshape(-1),
-                batch["step"][:, :n_policy].reshape(-1),
-                n_policy,
-                kp.shape[1] + (1 if self.sink is not None else 0))
-        prior = self._add_geo(
-            prior, fp,
+        logits = self.score_flat(
+            fp, kp, batch.get("street"),
             batch["x0"][:, :n_policy].reshape(-1),
             batch["y0"][:, :n_policy].reshape(-1),
             batch["step"][:, :n_policy].reshape(-1),
-            kp.shape[1] + (1 if self.sink is not None else 0))
-        logits = self.policy_logits(
-            fp, kp, prior,
-            batch["step"][:, :n_policy]).view(B, n_policy, -1)
+            nbrs, n_policy).view(B, n_policy, -1)
         uv = self.click_uv(f[:, -1])
         return logits, uv
 
