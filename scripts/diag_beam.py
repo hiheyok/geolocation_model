@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
 import splits as sp
 import tile_math as tm
-from dataset import GeoStepDataset, gather_nbr, street_table
+from dataset import (GeoStepDataset, gather_nbr, street_table,
+                     to_device)
 from evaluate import check_split, load_model, street_file_for
 
 
@@ -60,7 +61,7 @@ def stats(tag, dev, ks=(1, 2, 4, 8, 16), batch=64):
     top = np.zeros(steps)
     n = 0
     for b in dl:
-        b = {k: (v.to(dev) if torch.is_tensor(v) else v) for k, v in b.items()}
+        b = to_device(b, dev)
         if tbl is not None and "nbr_row" in b:
             b["nbr_emb"] = gather_nbr(tbl, b["nbr_row"], dev)
         with torch.autocast(dev, dtype=torch.bfloat16, enabled=(dev == "cuda")):

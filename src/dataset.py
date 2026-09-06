@@ -87,8 +87,34 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     return torch.from_numpy(a)
 
 
+# `nbr_row` is only ever an argument to `gather_nbr`, which gathers on the
+# TABLE's device. Sending it to the GPU with the rest of the batch and letting
+# `gather_nbr` send it back costs an upload, a download, and the synchronisation
+# the download forces -- CPU -> GPU -> CPU -> gather -> GPU, for indices that
+# never needed to leave the host (REVIEW9 #1).
+HOST_ONLY = ("nbr_row",)
+
+
+def to_device(batch, dev):
+    """Move a batch to `dev`, leaving the host-only entries where they are.
+
+    One helper rather than the same dict comprehension in `train.run_epoch`,
+    `cond_probe` and `diag_beam`: three copies of a transfer rule is how the
+    round trip survived in all three at once.
+    """
+    return {k: (v.to(dev, non_blocking=True)
+                if torch.is_tensor(v) and k not in HOST_ONLY else v)
+            for k, v in batch.items()}
+
+
 def gather_nbr(table, rows, dev):
-    """rows may live on either device; the table decides where the gather runs."""
+    """rows may live on either device; the table decides where the gather runs.
+
+    With a host-resident table this is now a pure host gather followed by one
+    upload. With a GPU table it is one small index upload, as before -- the
+    indices are (B, K) int64 against a (B, K, D) result, so moving them is the
+    cheap half either way.
+    """
     idx = rows if rows.device == table.device else rows.to(table.device)
     return table[idx].to(dev, non_blocking=True).float()
 

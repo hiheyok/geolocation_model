@@ -22,7 +22,8 @@ import provenance as prov
 import splits as sp
 import tile_math as tm
 import safeio
-from dataset import GeoStepDataset, gather_nbr, street_table
+from dataset import (GeoStepDataset, gather_nbr, street_table,
+                     to_device)
 from model import GeoAgent, NeighborBatch, param_report
 
 
@@ -147,8 +148,7 @@ def run_epoch(model, loader, dev, opt=None, sched=None, steps=tm.STEPS, clip=1.0
     uv_err = 0.0
 
     for batch in loader:
-        b = {k: (v.to(dev, non_blocking=True) if torch.is_tensor(v) else v)
-             for k, v in batch.items()}
+        b = to_device(batch, dev)
         if street_gpu is not None and "nbr_row" in b:
             b["nbr_emb"] = gather_nbr(street_gpu, b["nbr_row"], dev)
         if train and (noise > 0 or drop > 0):
