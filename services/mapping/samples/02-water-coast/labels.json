@@ -1,0 +1,90 @@
+{
+  "z": 13,
+  "x": 4103,
+  "y": 2725,
+  "size": 512,
+  "count": 9,
+  "labels": [
+    {
+      "layer": "poi",
+      "text": "Grays",
+      "class": "railway",
+      "rank": 1,
+      "geometry": "point",
+      "x": 166.5,
+      "y": 93.6
+    },
+    {
+      "layer": "place",
+      "text": "Grays",
+      "class": "town",
+      "rank": 11,
+      "geometry": "point",
+      "x": 182.9,
+      "y": 61.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Meesons Lane",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 56.3,
+      "y": 30.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rectory Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 391.9,
+      "y": 18.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Argent Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 83.8,
+      "y": 114.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Marshfoot Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 508.9,
+      "y": 12.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dock Approach Rd.",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 476.4,
+      "y": 95.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dock Approach Rd.",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 476.4,
+      "y": 105
+    },
+    {
+      "layer": "park",
+      "text": "Chafford Gorges Nature Reserve",
+      "class": "nature_reserve",
+      "rank": null,
+      "geometry": "polygon",
+      "x": 53.9,
+      "y": 10.6
+    }
+  ]
+}
