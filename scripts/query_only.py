@@ -80,14 +80,30 @@ def top1(Q, bank, bank_seq, q_seq, dev, block=200_000):
     q = q / q.norm(dim=1, keepdim=True).clamp_min(1e-6)
     best = torch.full((len(Q),), -2.0, device=dev)
     who = torch.zeros(len(Q), dtype=torch.long, device=dev)
+
+    # Factorise the sequences ONCE, over bank and queries together, and compare
+    # int32 on the card. What was here built the mask as a numpy outer product
+    # of U40 strings -- 3,000 x 200,000 forty-character comparisons per block,
+    # on one core, while the GPU that had just finished the matmul waited. At
+    # the shipping 3.4M bank that is 51 billion string compares per call, and
+    # it dominated: the card sat at 2% through the whole search.
+    #
+    # `build_knn.py` has always done it this way, and it must -- release and
+    # extension share sequence ids, so one factorisation over both sides is the
+    # only thing that makes the ids comparable. This is the same loop, copied
+    # without the fix.
+    bs = np.asarray(bank_seq)
     qs = np.asarray(q_seq)
+    _, inv = np.unique(np.concatenate([bs, qs]), return_inverse=True)
+    bseq = torch.from_numpy(inv[:len(bs)].astype(np.int32))
+    qseq = torch.from_numpy(inv[len(bs):].astype(np.int32)).to(dev)[:, None]
+
     for s in range(0, len(bank), block):
         e = min(s + block, len(bank))
         b = torch.from_numpy(np.asarray(bank[s:e], np.float16)).to(dev)
         b = b / b.norm(dim=1, keepdim=True).clamp_min(1e-6)
         sim = (q @ b.T).float()
-        same = torch.from_numpy(
-            (bank_seq[s:e][None, :] == qs[:, None])).to(dev)
+        same = bseq[s:e].to(dev)[None, :] == qseq
         sim.masked_fill_(same, -2.0)
         v, j = sim.max(1)
         hit = v > best
