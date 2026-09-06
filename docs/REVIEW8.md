@@ -425,3 +425,188 @@ Keep an exact-search reference on a representative development set. Measure neig
 If coverage is the limiting factor and R3 fails, prioritize R4 or targeted acquisition of genuinely new geographic coverage over more reranker depth. Any future acquisition should follow training/development geography and a predefined deployment objective, not select images around final-test GPS. If coverage is good but ranking fails, prioritize R1/R2. If the agent still does not beat a simple reranker at matched cost, keep it optional until R5/R6 establishes a distinct map-based benefit.
 
 No recommended experiment, dependency installation, model download, artifact rebuild, or implementation change was performed for this addition. The paper links support the described mechanisms; all project-specific architectures, budgets, and expected benefits remain proposals to test.
+
+---
+
+## Follow-up: answers after the corrected coverage and ranking measurements
+
+Written 2026-09-05 against workspace `96779a9`, answering the five questions in the supplied `astra_prompt.md`. This addendum supersedes the earlier roadmap where its premises conflict with the new measurements; the earlier text is retained as history. Only this document was edited. The supplied measurements were compared with [COVERAGE.md](../runs/COVERAGE.md), [COVERAGE_1536.md](../runs/COVERAGE_1536.md), and the current reporting code, not rerun. The consensus/query-expansion numbers below remain user-supplied evidence.
+
+**Bottom line:** prioritize a small, training-free, per-candidate visual-verification experiment, but test whether usable visual overlap exists before building a token bank. Also allow one inexpensive descriptor-specificity control. Do not prioritize more geographic coverage for OSV at 25 km, and do not infer that the agent contributes only one percentage point. Keep the 1-km candidate-generation problem separate.
+
+### 1. Is per-candidate verification the right survivor? What else survives?
+
+It is the leading new-information hypothesis, not the only survivor and not yet a demonstrated solution. There are four important qualifications to the argument in the prompt.
+
+1. **Geographically correct is not necessarily visually matchable.** A candidate 20 km away can satisfy the metric while sharing no facade, road segment, or sign with the query. Conversely, two views of one distant landmark may overlap while their camera positions differ. The 33.2-percentage-point ranking headroom measures candidate-coordinate availability, not recoverable correspondence evidence. Measure how much of it has visible overlap.
+2. **Cosine does not exhaust the information in pooled vectors.** It reduces two vectors to one scalar. A learned pairwise metric can distinguish pairs with identical cosine using different feature components or semantic compatibility. A small diagonal/bilinear scorer on existing features is therefore a legitimate control without local matching or candidate-set pooling. Given the failed fusion heads, keep it a control, not another large search over architectures.
+3. **A candidate-independent score is not immune to wrong candidates.** The score of a fixed pair can be invariant to the other 31 images, but its chance of winning the maximum is not. Illustratively, independent 1% false-accept events across 31 negatives produce about a 27% chance of at least one false accept. Real candidates are correlated; evaluate all 32 jointly rather than interpreting balanced-pair AUC as retrieval performance. Local verification also aggregates correspondences within a pair; its distinction is avoiding cross-candidate voting, not literally performing no pooling.
+4. **The negative results do not prove the entire positional family impossible.** Candidate coordinates alone can encode a prior; query-derived visual features can score a location hypothesis without knowing query GPS. The latter is conditional image-to-geography compatibility, not merely bank density. The existing prior already illustrates this distinction. However, the supplied consensus results are sufficient to demote another hand-designed density vote.
+
+The observed oracle increment from K=16 to K=32 is not an estimate of the fraction of those sixteen slots that are correct. Correct but redundant candidates add zero oracle coverage. Before attributing both failed aggregations to a mostly-wrong set, measure the number of within-radius candidates per query and their geographic-mode composition, separately when rank-1 is right and wrong. Also, consensus at K=8 is reported positive (+0.76 pp), and query expansion at K=2 is almost unchanged; neither table establishes a strictly decreasing curve starting from rank-1 or a statistically established loss for every setting. This does not justify a parameter sweep, but the distinction matters when generalizing the elimination.
+
+#### The cheapest remaining alternative: visual specificity / reverse-neighborhood density
+
+Ask whether a high cosine is unusual **for that candidate**, rather than whether many candidates agree geographically. A generic road image may be similar to many unrelated queries. This is a property of the visual feature distribution, not a geographic vote over the current top-32.
+
+CSLS subtracts local-neighborhood similarity terms to address embedding hubs. Its original evidence is cross-lingual word retrieval, not geolocation, so this is a mechanism-inspired control. For a fixed query, its query-side term is constant across candidates; the candidate-side correction can change the ordering. [Conneau et al., Word Translation Without Parallel Data, ICLR 2018](https://arxiv.org/abs/1710.04087).
+
+Concrete bounded adaptation:
+
+```text
+U = union of candidate IDs for the pilot queries
+T = fixed, sequence-balanced training reference set; no development/test queries
+b(c) = mean of the 10 largest cosine(c, t), t in T,
+       excluding c itself and same-sequence references
+score(q, c) = cosine(q, c) - lambda * b(c)
+```
+
+Use 4,096 reference rows initially and restrict scoring to the unchanged top-32. Predeclare a small development-only coefficient set, including zero; lambda=0.5 corresponds to the candidate-dependent part of CSLS up to a positive rescaling, but this training-reference approximation is not exact CSLS. For 1,024 pilot queries, U has at most 32,768 rows. At 768 dimensions this is about 103 billion multiply-accumulates, streamed in blocks, plus only a scalar per candidate to store. It needs no image decoding and no full bank-to-bank pass. Benchmark rather than labeling this computation free. First check whether b(c) predicts errors within narrow cosine bins; stop if it contains no useful conditional signal or merely suppresses correctly dense regions.
+
+Reciprocity is related but different. A held-out query is absent from a bank-only index, so searching for its ID in a candidate's stored bank neighbors will always fail. Define the query's reverse rank by hypothetically inserting that query into the candidate's legal comparison set. A candidate's k-th-neighbor similarity provides a reverse-neighborhood threshold, with explicit self/sequence exclusions and tie handling. Only compute such thresholds for the pilot candidate union before considering a full bank-to-bank index. Reciprocity can penalize dense genuinely correct places too; it is not new visual evidence. Full k-reciprocal/Jaccard reranking additionally reintroduces neighborhood-set aggregation. Its established evidence includes person re-identification, not this kilometer-scale task. [Zhong et al., Re-Ranking Person Re-Identification With k-Reciprocal Encoding, CVPR 2017](https://arxiv.org/abs/1701.08398).
+
+One other category survives: **image-conditioned semantic compatibility with a location**. A frozen-feature geographic head can distinguish regional visual attributes without requiring shared physical landmarks or neighbor consensus. GeoCLIP supplies an image-to-GPS precedent, not a guarantee for the current features. Defer this behind the cheap pair tests for OSV ranking; reconsider it if the overlap audit finds that most 25-km positives are non-overlapping. [Vivanco Cepeda et al., GeoCLIP, NeurIPS 2023](https://arxiv.org/abs/2309.16020). Generic OCR is not a priority given the project's negative evidence and overlay leakage.
+
+### 2. Cheapest local verification: exact design, budget, and falsification pilot
+
+**First, spend zero encoder passes if compatible tile caches exist.** [tile_cache.py](../scripts/tile_cache.py) stores six individual 1536-d tile vectors, not just their mean. Compare the six DINO blocks per query against the six per candidate with late interaction, while leaving retrieval fixed. This is coarse region matching, not dense patch verification. It tests whether discarding regional identity was harmful; a null does not reject finer correspondences. Use only a cohort defined before checking cache availability, or clearly label a cache-complete subset as a diagnostic with its own baseline.
+
+**The first genuine patch pilot should use one frozen DINOv2-B encoder, 24 tokens per image, and no trained reranker.** AnyLoc provides evidence that frozen DINO-family local features contain useful correspondence information and that layer/facet choice matters; its preferred large-model layer number must not be copied into the 12-block ViT-B. R2Former supplies a local-correlation reranking precedent, but its published trained system does not validate this much smaller training-free adaptation. [AnyLoc](https://arxiv.org/abs/2308.00688), [R2Former](https://arxiv.org/abs/2304.03410).
+
+Proposed fixed recipe, chosen for a cheap test rather than claimed optimality:
+
+- Reuse the six 224-pixel views of the documented 3x2 tile recipe, recording its resize geometry. Encode query and candidate details identically. Do not alter the shipping global features, cosine, or top-32 identities.
+- Extract patch tokens after block 11 of 12, apply the model's normalization, and discard all prefix tokens. Keep final-block features on the small diagnostic set as a control. Each tile has a 16x16 patch grid.
+- Select the token nearest each of the four quadrant centers: four per tile, 24 per image. This deterministic spatial rule is deliberately simple and label-free. It can miss thin signage; that is a budget limitation to test, not a reason to assume the mechanism absent.
+- Fit an unwhitened 768-to-128 PCA using at most 100,000 patch tokens from training images only; freeze it. Subtract its training mean, project, L2-normalize each token, and store float16. Keep original 768-d selected tokens on the small diagnostic set to test whether compression destroys the signal.
+- Store each token's original-image normalized x/y coordinates. Do not require equal query/candidate x/y locations: viewpoint changes move correspondences. Do not select tokens by largest raw feature norm. High-norm ViT artifacts can occur in uninformative regions; inspect this model instead of assuming norm means useful detail. [Darcet et al., Vision Transformers Need Registers, ICLR 2024](https://arxiv.org/abs/2309.16588).
+
+The current [embed_street.py patch-grid branch](../scripts/embed_street.py#L236) average-pools final patch maps. It is a possible extraction starting point, not this exact selection recipe, and an existing pooled grid cannot recover the original selected tokens.
+
+For each pair, form the 24x24 cosine matrix S. Keep mutual row/column nearest matches and assign each the positive margin over the strongest alternative in its row or column. Use the sum of those margins divided by 24 as a local score L. Then compare:
+
+```text
+baseline:       score(q,c) = original cosine(q,c)
+local-only:     score(q,c) = L(q,c)                  # diagnostic, not default
+residual:       score(q,c) = cosine(q,c) + lambda * L(q,c)
+```
+
+Use a predeclared small lambda set such as {0, 0.1, 0.3, 1}, selected on development groups only. No pair-specific coefficient, query-confidence gate, GPS feature, or geometric fit in this first test. Empty/ambiguous matches give zero local evidence rather than a hard rejection. The score is a correspondence-ambiguity heuristic, not a calibrated same-place probability. Initially evaluate its candidate-coordinate output directly; then test the best fixed rule alongside the actual agent on identical queries. Preserve raw cosine separately from the new score when integrating the prior.
+
+#### Storage and compute accounting
+
+These are arithmetic estimates, not measured timings. Decimal MB/GB; one encoder; 24 tokens with 128 float16 components and two float16 coordinates cost **6,240 bytes/image**. Masks, IDs, images, provenance, and filesystem overhead are extra.
+
+| Scope | Maximum distinct detail images | Detail payload |
+|---|---:|---:|
+| 1,024 queries plus their full top-32 union | 33,792 | 210.9 MB |
+| 5,000 queries plus their full top-32 union | 165,000 | 1.03 GB |
+| Full 3,400,180-row bank | 3,400,180 | 21.22 GB |
+
+One pair costs 24 x 24 x 128 = 73,728 multiply-accumulates for the similarity matrix; 32 candidates cost about 2.36 million per query, excluding extraction and reductions. All 32 float32 similarity matrices occupy about 72 KiB. Six 224-pixel ViT forwards per distinct image dominate extraction; selecting 24 tokens after a forward does not reduce encoder compute.
+
+Run inference-only extraction in small tile batches, initially eight tiles, and profile peak VRAM before increasing it. Stream image shards and detail arrays; do not keep the bank on the GPU. Extraction time is unique_images / measured_images_per_second. For the 33,792-image maximum, 20 images/s would mean about 28 minutes and 5 images/s about 113 minutes, excluding cold shard reads. Those rates are illustrative, not forecasts. A full patch pass is not automatically the previously measured 19-hour global-embedding job.
+
+No partial change to retrieval geometry is involved: detail is a separately versioned pair-scoring channel. Require a complete detail union for the controlled comparison. If an image cannot be decoded or located, keep the query in the denominator and apply the documented fallback; do not silently remove difficult examples. A separate detail cache still requires identical extraction semantics on both sides.
+
+#### The smallest pilot that can kill a proposal without pretending to prove a small gain
+
+**Stage A: mechanism/implementation diagnosis.** On development groups, visually inspect approximately 128 rank-1-wrong/top-32-covered queries and whether any of their geographically correct candidates visibly overlap. Separately assemble 64 clearly overlapping legal cross-drive pairs and 64 visually similar non-overlapping negatives, plus synthetic transformed-image pairs. This outcome-stratified set is diagnostic only, never an accuracy estimate. Use image coordinates/correspondence labels for this audit, not as inference GPS.
+
+Compare the 24-token scorer against an uncompressed control and a denser, 96-token version on these pairs; 96 means sixteen spatially distributed tokens per tile. Retain dense features only for this small diagnostic, not the corpus. Synthetic pairs must pass but are insufficient: they do not test viewpoint and time variation. If sparse tokens fail but dense tokens succeed, the budget/selection rule failed. If frozen DINO tokens fail real overlap but an independent local matcher succeeds, this feature/scoring choice failed. Neither is evidence that all verification is impossible.
+
+An independent frozen XFeat extractor is a useful bounded control, not another bank upgrade: the paper targets efficient sparse/semi-dense matching, and the official implementation provides 64-d descriptors. Try 256 spatially distributed detected points on the diagnostic pairs only, with mutual descriptor matching. This count is our budget choice, not the paper's reported benchmark setting. It requires a new dependency/checkpoint but no fine-tuning; nothing is downloaded as part of this review. [Potje et al., XFeat, CVPR 2024](https://arxiv.org/abs/2404.19174), [official implementation](https://github.com/verlab/accelerated_features).
+
+**Stage B: small end-to-end screening.** Freeze 512 development and 512 separate screening queries by stable IDs and sequence groups, sampled before inspecting outcomes. Score every cached candidate, not just one known positive and one easy negative. This gives the 1,024-query budget above. Compare baseline, coarse six-region matching if available, local-only, and one development-selected residual. Export rescues, regressions, and errors on all cases, including queries with no positive candidate. Reserve external screening groups separately; OSV results do not establish KartaView transfer.
+
+Stop before a full-bank pass if controls work but the screening result is materially harmful, or the upper paired confidence limit is below a predeclared useful effect. An interval spanning a useful positive effect is **inconclusive**, not a null. With 10% paired outcome discordance, 1,024 independent queries have an approximate 95% half-width of 1.9 pp; detecting a +1-pp effect with 80% power needs roughly 7,840 independent queries before sequence clustering. Thus this small pilot can reject gross failure, not reliably rule out +1 pp. Expand only a surviving fixed recipe, retain grouped uncertainty estimates, and do not tune on the expansion's final set.
+
+### 3. How much should the counter-evidence lower confidence?
+
+Substantially for **unconditional replacement of cosine by a matching score**; less decisively for testing genuinely new pairwise observations. I would budget for a possible modest gain, not assume that a large fraction of the 33.2-pp oracle gap is recoverable. There is no defensible numeric probability of success from seven experiments: they share data, design assumptions, and failure modes and are not seven independent Bernoulli trials of patch verification.
+
+The 2025 counter-paper is more specific than “matching does not work.” It reranks MegaLoc's top-100 by geometric inlier counts, generally using a 25-**meter** success radius and 512x512 matcher inputs. It finds degradation on saturated datasets, but gains on difficult night, occlusion, and indoor settings. Its 100-meter check retains some negative results, so the threshold does not explain everything. This is neither a universal rejection nor direct validation of frozen DINO patch scores at 25 **kilometers**. [Sferrazza et al., To Match or Not to Match: Revisiting Image Matching for Reliable Visual Place Recognition, 2025](https://arxiv.org/abs/2504.06116).
+
+Here, rank-1 at about 49.7% is not saturated, but that alone does not make verification appropriate: its wrong predictions may lack visually matchable alternatives. That is why the overlap audit is more informative than another citation count or oracle-gap calculation.
+
+Use the following decision logic, with every score and control fixed before examining final evaluation results:
+
+| Observation | Interpretation / next decision |
+|---|---|
+| Identical-image/transformed-image controls fail, or cached versus direct features disagree | Extraction, normalization, coordinate mapping, or matching implementation is not validated; no scientific null yet |
+| Scores depend on candidate ordering or batch partitioning | An allegedly pairwise implementation is coupling candidates; diagnose before evaluating the hypothesis |
+| 768-d or 96-token controls work, compressed 24-token version fails | Compression/token selection is the failed design; measure whether a larger affordable version is worthwhile |
+| DINO fails visually overlapping cross-drive pairs, an independent matcher succeeds | Current frozen features or scoring rule are unsuitable; do not indict local correspondence generally |
+| Overlap pairs score well, but few ranking-limited queries contain any overlap | Local verification has limited applicability to the 25-km metric; try semantic compatibility rather than deeper matching |
+| Pair tests look good, full top-32 decisions regress | Extreme false positives, score calibration, or near-positive label ambiguity defeat ranking; pair AUC was insufficient |
+| Reranker beats cosine, but reranker-plus-agent does not beat the existing agent | Evidence is redundant with what the agent already uses, or integration changes the prior; no end-to-end gain established |
+| Correct controls, frozen protocol, and sufficiently narrow upper effect bound below the useful target | Reject this mechanism/configuration at this budget; do not repeatedly relabel it an implementation problem |
+
+Additional checks: permuting token storage while moving x/y with it must preserve a set-based score; breaking descriptor-to-coordinate alignment must affect a geometric verifier, but need not affect the non-geometric first pilot. Shuffling candidate detail identities should remove any genuine advantage on average. For a frozen model in evaluation mode, changing batch size should not change outcomes beyond documented numerical tolerance. Avoid claiming success merely because a new score has a nonzero variance or a synthetic positive scores highly.
+
+The seven failed rules justify a small, preregistered search and harsh accounting of regressions. They do not justify assuming a null in advance, and they do not license an endless sequence of post-hoc rescue explanations after a well-controlled null.
+
+### 4. Is a separate sub-kilometer mechanism justified?
+
+Yes, as a separate candidate-generation/refinement experiment, not automatically a second full model. At 1 km the supplied numbers imply three distinct budgets:
+
+| Limitation for returning a bank candidate's coordinate | Fraction | What could address it |
+|---|---:|---|
+| Correct candidate already in top-32, not rank-1 | 19.3% | Pairwise verification may help if views overlap |
+| Legal within-1-km row exists outside top-32 | 51.7% | Larger or different retrieval, or a second-stage geographically restricted search |
+| No legal within-1-km row anywhere in the bank | 18.6% | New geographic coverage or predicting a new coordinate; reranking cannot fix it |
+
+Even a perfect top-32 selector is capped at the reported 29.7% within 1 km. Do not build a sub-kilometer strategy solely around rearranging that list. Also, these are coordinate-policy-dependent figures: the extension's tile-center quantization discussed in question 5 is material at this radius.
+
+**Proposed second-stage mechanism:** use broad candidates or agent branches to propose a few geographic search regions, then retrieve finer candidates from the existing eligible bank *within those regions*, before applying local verification. This uses candidate position as a hypothesis specifying where to look, not as proof that the location is correct.
+
+For a bounded pilot, propose at most four distinct centers from the unchanged broad shortlist, without GPS-based choice. Search a predeclared radius such as 25 km around each center. Use existing visual vectors to rank the eligible rows in each region and retain, for example, 16 per region, with self/same-sequence filtering and deterministic deduplication. Score these new fine candidates with the validated detail branch. Tune region radius and allocation only on development data; the first 4 x 16 budget is an experiment, not an optimum.
+
+This changes candidate membership and therefore requires a new staged-retrieval artifact/workflow. It does not require globally re-encoding 3.4M images, because the initial regional search uses their existing vectors. It is not a claim that a head can discover uncached candidates inside the current fixed top-32 pipeline. Do not benchmark it by secretly centering the region on query GPS; an oracle-centered arm is diagnostic and must be labeled as such.
+
+Before extracting more details, measure whether the proposed regions contain any legal within-1-km row, and whether the regional visual search retrieves it. Keep the original broad prediction as the fallback outside successful refinement, under a fixed development-selected combination rule. Report full-cohort within-1-km and within-25-km accuracy, especially how often refinement turns a correct coarse prediction into a wrong one. The hard part may remain finding the correct region, not matching inside it.
+
+Evaluate additional real pixels within this fine stage using same-photograph, same-checkpoint downsampling controls. Training-free local correspondence is a plausible consumer of those pixels, but the reported resolution gains remain a hypothesis until deconfounded. A sparse frozen matcher such as XFeat can test whether actual correspondences benefit without a large DINO-token cache; it cannot infer accurate camera GPS merely from matching descriptors.
+
+For cases with no sufficiently close legal bank coordinate, the existing map/click path is still relevant because it can output a new coordinate. A local image-to-map method such as OrienterNet is a research precedent, but it needs usable geometric assumptions and a local prior and is not an 8-GB drop-in solution. Do not promise sub-meter or sub-kilometer results from map semantics alone. [Sarlin et al., OrienterNet, CVPR 2023](https://arxiv.org/abs/2304.02009). First determine whether true bank GPS can be recovered from source metadata; finer output coordinates may fix a measurement/representation limitation without another network.
+
+### 5. What might still be measured incorrectly?
+
+There are already concrete reporting/implementation hazards in the new diagnostic, in addition to prospective protocol risks. These observations concern the code at `96779a9`; they do not assert that a listed branch affected the published default run.
+
+#### Directly observed in the current coverage code
+
+**M1 — The disproved baseline is still generated as prose.** [coverage.py:185](../scripts/coverage.py#L185) hardcodes 56.4% and the near-equivalence-to-agent conclusion into every report. Both current coverage Markdown files contain that prose above tables showing 49.7% or 50.1%. This is precisely how a corrected computation can continue propagating an incorrect strategic conclusion. Generate headline statements from the actual counted outcomes and attach the cohort/predictor ID. Do not calculate a component's causal contribution by dividing two accuracies.
+
+**M2 — A finite geographic probe is not exact coverage, and the stated bound is backwards.** [nearest_legal](../scripts/coverage.py#L113) checks only 64 geographic neighbors by default. If they are all the query's sequence, it returns infinity. The caller counts that query as uncovered and describes the result as a “floor on class 1” at [line 168](../scripts/coverage.py#L168). It is instead an **upper bound on the uncovered fraction** under otherwise correct eligibility/coordinates: a legal 65th neighbor may still be inside the radius.
+
+A concrete counterexample needs no model: the first 64 geographic neighbors are same-drive, a different-drive row at rank 65 is 200 m away, and the cached top-1 is that legal row. The geographic probe says uncovered while the retrieval calculation says solved. Since [the partition](../scripts/coverage.py#L209) computes these flags independently, one query can enter both classes. The diagnostic also computes distance percentiles only over finite results at [line 234](../scripts/coverage.py#L234), excluding unresolved queries. The reported nearest-distance distribution is therefore conditional if any probe was exhausted.
+
+Required evidence before calling the measurements exact: record the exhausted-query count in the artifact, then expand the search for unresolved queries until a legal neighbor is found or all rows are exhausted. For a fixed radius, a radius search can stop once all within-radius candidates are known. Assert per query that `top1_hit implies topK_hit implies covered` and that the four partition indicators sum to exactly one. Rounded aggregate percentages cannot substitute for these checks. If the original run exhausted zero probes, this hazard does not alter that run's coverage numbers.
+
+**M3 — The spatial-split guard is incomplete.** [coverage.py:152](../scripts/coverage.py#L152) calls `sp.ineligible` with zero x/y arrays and only handles `bad_rel`, ignoring `bad_ext`. Real extension tile coordinates are required to validate a geographic holdout. This is not evidence against the default sequence-split result, but the script accepts other kNN files and must not silently label those banks eligible under a cell split.
+
+**M4 — The diagnostic trusts more cache identity than it establishes.** At [lines 143-159](../scripts/coverage.py#L143), it reads live labels and cached neighbor IDs without checking the cached split hash against the live hash or establishing each neighbor's current eligibility through the full shared validation path. Checking `bank_rows` and release membership is not equivalent to verifying the cached `idx` rows, same-sequence exclusion, and row-order identity. Require the same manifest/neighbor checks as production evaluation and record hashes in the report. No malformed current cache was demonstrated in this follow-up.
+
+**M5 — Physical bank coverage and tile-center coverage are conflated at small radii.** [bank_coords](../scripts/coverage.py#L87) uses true lat/lon for release rows but z16 tile centers for extension rows. A roughly 611-m-wide equatorial tile has a half-diagonal of about 432 m; this is not negligible beside a 1-km threshold or a reported 340-m median nearest distance. Ground scale varies with latitude. A center can fall inside the threshold while the original photograph falls outside, or vice versa.
+
+If candidate prediction really returns that center, its candidate-coordinate oracle remains a valid diagnostic of that output policy. It is not exact physical coverage of the original bank photographs. Recover original GPS where possible and report both definitions. Otherwise, for each tile derive a conservative center-to-point distance bound delta: `d_center + delta < r` is definitely inside, `d_center - delta >= r` is definitely outside, and the remainder is ambiguous. Quantify that ambiguity before attributing small within-1-km differences to higher resolution. Also align whether rank-1, agent, and coverage evaluation use true coordinates, tile centers, or learned offsets.
+
+These issues are documented here only; no reporting script or artifact was corrected during this task.
+
+#### Next protocol checks, in priority order
+
+1. **Put every baseline on identical query IDs.** The relevant agent comparison is a paired evaluation of rank-1, reranker, agent, and agent-plus-reranker on the same bank and same images. Numerically, 57.5 minus 49.7 is 7.8 pp, not 7.4; 57.5 minus the 1536-bank 50.1 gives 7.4 but changes the retrieval arm. Neither establishes a paired treatment effect across different cohorts. Repartition the agent's actual errors; the 33.2% ranking bucket belongs to rank-1, not automatically to the agent.
+2. **Freeze cohorts by stable identity, not a seed alone.** A seed against a differently ordered or extended parquet file selects different images. Export a sorted ID manifest, source/shard/sequence composition, and inclusion probabilities. If balancing geography or sequence length, report that target population separately from the natural per-image average. Do not tune on a repeatedly inspected test cohort and continue calling it untouched.
+3. **Publish every denominator and missingness count.** Account for decode failures, absent detail rows, invalid GPS, absent maps, exhausted probes, and skipped sequences. Paired intersection-only evaluation can favor easy, cache-complete images; report the original cohort and fallback outcomes. The median over finite geographic probes is a concrete instance of this hazard.
+4. **Audit capture identity across release/extension boundaries.** Same-sequence filtering is not cross-sequence duplicate detection. Check canonical IDs, duplicate frames across sources, null sequence IDs, and sequence truncation: the diagnostic casts IDs to `U40`, so verify that truncation does not merge distinct real sequences. Do not declare a new leak without those checks, but do not infer independence merely from different sequence strings.
+5. **Check coordinates and thresholds with independent fixtures.** Latitude/longitude order, degrees/radians, Earth-radius convention, strict `<` versus `<=`, projection limits, antimeridian behavior, and extension row offsets should have small analytical tests. Report boundary counts near 1 km and use original GPS when interpreting physical proximity. A 25-meter VPR metric and a 25-kilometer geolocation metric are different tasks, not interchangeable recalls.
+6. **Quantify churn in the PCA control.** A net 0.4-pp difference does not imply that only 0.4% of queries changed or that PCA has no subgroup effect. Export paired top-1 flips, correct-candidate gains/losses, and oracle-set overlap. The similar aggregate ceiling makes PCA an unlikely explanation for the entire gap, not a proof that projection is irrelevant.
+7. **Keep repeated-search and uncertainty accounting honest.** Paired/grouped intervals, preregistered primary radius, and a fresh confirmation cohort matter more than another best-of-many number. Count how many lambdas, token counts, layers, seeds, and metrics were tried. A paired interval on the same biased first-N cohort estimates the effect on that cohort; pairing does not repair its geographic selection bias.
+8. **Decompose KartaView independently.** The corrected OSV coverage result neither proves nor disproves an external coverage bottleneck. Use the external query IDs and the exact bank the external evaluator searched. Stratify genuine original resolution separately from source, camera, compression, and crop field of view. Remove GPS overlays under one documented policy and keep a sensitivity report rather than crediting them as localization skill.
+
+### Recommended commitment, revised from the earlier roadmap
+
+Authorize no corpus-scale encoding on the evidence available. The next useful sequence is: repair/validate the coverage diagnostic and establish a same-cohort agent baseline; audit overlap; run one descriptor-specificity control and the bounded frozen-feature verification pilot; expand only a surviving fixed recipe. Investigate regional fine retrieval separately for 1 km. Keep the image-to-geography branch as an alternative if overlap is too rare, rather than treating it as the immediate answer to a nonexistent OSV 25-km coverage shortage.
+
+The falsifiable central claim is: **on unchanged legal candidate lists, local pair evidence produces more correct replacements than incorrect replacements beyond what the current agent already achieves, at an affordable extraction/storage cost.** The proposed controls distinguish an invalid implementation, insufficient token representation, missing visual overlap, and a genuine failure to improve decisions. None of those outcomes is yet measured by this document.
