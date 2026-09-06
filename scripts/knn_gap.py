@@ -37,11 +37,48 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config                                    # noqa: E402
+import provenance as prov                        # noqa: E402
 import splits as sp                              # noqa: E402
 from tile_pool import paired                     # noqa: E402
 from query_only import great_circle              # noqa: E402
 
 THRESH = (1, 25, 200, 750, 2500)
+
+
+def coords(ds, name):
+    """(lat, lon) over the whole bank a cache searched: release, then extension.
+
+    `idx` holds bank rows, and with a `--bank-ext` those run PAST the release:
+    the caches this compares index 1,250,000 rows against a 500,000-row
+    release, so every extension neighbour raised IndexError and the final
+    measurement of a four-hour tile pass never ran. The cell8 gate passed only
+    because it compares un-extended caches.
+
+    The extension's true coordinates are in its parquet, so they are joined by
+    `image_id` rather than recovered from the metadata's z16 addresses -- a
+    z16 cell is 611 m across and half of that is a large fraction of the 1 km
+    threshold this script reports.
+    """
+    lat = np.asarray(ds["lat"], np.float64)
+    lon = np.asarray(ds["lon"], np.float64)
+    z = np.load(config.STREET_CACHE / name, allow_pickle=True)
+    ext = str(z["bank_ext"]) if "bank_ext" in z.files else ""
+    if not ext:
+        return lat, lon
+    m = prov.bank_ext(ext, config.RELEASE)
+    want = np.asarray(m["image_id"])
+    t = pq.read_table(config.PROCESSED / (ext + ".parquet"),
+                      columns=["image_id", "lat", "lon"])
+    have = np.asarray(t["image_id"])
+    order = np.argsort(have)
+    pos = order[np.searchsorted(have, want, sorter=order)]
+    if not np.array_equal(have[pos], want):
+        raise SystemExit(
+            "{}.parquet does not contain every id {} names, so the extension's "
+            "coordinates cannot be joined to its bank rows"
+            .format(ext, config.bank_meta(ext).name))
+    return (np.concatenate([lat, np.asarray(t["lat"], np.float64)[pos]]),
+            np.concatenate([lon, np.asarray(t["lon"], np.float64)[pos]]))
 
 
 def load(name, lat, lon, te, ranks):
@@ -79,8 +116,12 @@ def main():
     a = ap.parse_args()
 
     ds = pq.read_table(config.DATASET_PARQUET)
-    lat = np.asarray(ds["lat"], np.float64)
-    lon = np.asarray(ds["lon"], np.float64)
+    lat, lon = coords(ds, a.a)
+    lat_b, lon_b = coords(ds, a.b)
+    if len(lat_b) != len(lat):
+        raise SystemExit(
+            "--a searched {:,} bank rows and --b searched {:,}; they are not "
+            "measuring the same corpus".format(len(lat), len(lat_b)))
     te = np.flatnonzero(sp.read(ds, a.split_mode)[0] == "test")
     print("{:,} test queries, split {}\n".format(len(te), a.split_mode))
 

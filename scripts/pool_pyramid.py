@@ -54,6 +54,14 @@ import sys
 import time
 from pathlib import Path
 
+# BEFORE torch and before any large mmap, deliberately. `pq.read_table`
+# imports `pyarrow.dataset` lazily on first use, and that DLL load takes an
+# access violation once CUDA has been initialised OR a multi-gigabyte mmap is
+# open -- either alone is enough, measured. The tiles arm hit both, so it died
+# at 0xC0000005 with an empty log and three identical retries. Importing here
+# costs nothing and the crash does not reproduce.
+import pyarrow.dataset          # noqa: F401  (imported for its side effect)
+import pyarrow.parquet as pq
 import numpy as np
 import torch
 
@@ -106,7 +114,6 @@ def check_tile_identity(stem, rows):
     Missing metadata is reported and allowed -- `tile6` predates both fields
     and holds 500,000 finished rows -- but never treated as agreement.
     """
-    import pyarrow.parquet as pq
     import provenance as prov
 
     meta_p = config.STREET_CACHE / (stem + "_meta.npz")

@@ -80,9 +80,14 @@ EXT_ROWS = 750000
 # So: `pyrMIX` == `pyrL0L1`, and only the new artifacts get the honest name.
 #
 # arm -> (release 1536-d cache, extension 1536-d cache, tile stem, out prefix)
+# The extension embedding names must read `<ext_stem>_<scheme>`:
+# `provenance.ext_stem_for` finds the metadata by stripping suffixes from the
+# RIGHT, so `pyr_l0_ext` resolved to None and `stack_bank` refused every arm
+# with "no metadata found for extension". `bank_ext_pyrl0` resolves to
+# `bank_ext`, which is the file that actually names these 750,000 ids.
 ARMS = {
-    "pyrL0": ("pyr_l0", "pyr_l0_ext", None, "pyr_l0"),
-    "pyrL0L1": ("pyr_mix", "pyr_l0l1_ext", EXT_TILES, "pyr_l0l1"),
+    "pyrL0": ("pyr_l0", "bank_ext_pyrl0", None, "pyr_l0"),
+    "pyrL0L1": ("pyr_mix", "bank_ext_pyrl0l1", EXT_TILES, "pyr_l0l1"),
 }
 BASIS = {"pyrL0": "pyr768_l0_pca.npz", "pyrL0L1": "pyr768_mix_pca.npz"}
 LADDER = {n: ["{}-b115-e{}".format(n, e) for e in (2, 4, 6)]
