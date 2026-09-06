@@ -34,6 +34,7 @@ a metadata npz. Resumable through a done-mask, like `tile_cache.py`.
 
 import argparse
 import json
+import io
 import os
 import sys
 import time
@@ -50,6 +51,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config
+import shards
 from res_probe import variants, MODELS
 
 LEVELS = ["crop3_224", "tile6", "tile24"]      # 3 + 6 + 24 = 33 tokens
@@ -131,6 +133,7 @@ def main():
         r = json.loads(line)
         recs[r["id"]] = r                       # append-only; last wins
     ids = sorted(recs)
+    RD = shards.Reader(root / "img")
     rng = np.random.default_rng(a.seed)
     # A permutation prefix, so raising --n later extends the same cache rather
     # than invalidating it -- the trick tile_cache.py uses.
@@ -200,7 +203,7 @@ def main():
         against roughly 18 MB for the decoded 6 MP image.
         """
         try:
-            im = Image.open(root / "img" / ("%s.jpg" % order[k]))
+            im = Image.open(io.BytesIO(RD.read(recs[order[k]]["file"])))
             im.load()
             v = variants(im.convert("RGB"), LEVELS)
             return k, np.concatenate([v[name] for name in LEVELS])
