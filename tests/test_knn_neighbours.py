@@ -108,3 +108,75 @@ def test_the_release_only_case_needs_no_extension():
     idx = np.array([[1], [0], [1], [0]], np.int64)
     _check_neighbours(idx, Cache(bank_rows=np.array([0, 1])), "t", 4,
                       np.array(["a", "b", "c", "d"], "U40"), None)
+
+
+# --- REVIEW8 #1: membership does not establish that the bank is ALLOWED ------
+
+def test_the_reviewers_repro_is_now_refused():
+    """Verbatim from REVIEW8 #1, which returned successfully before this.
+
+    Live labels are [train, train, test]. Row 2 is held out, appears in both
+    `bank_rows` and `idx`, every query retrieves a different row, and every
+    sequence differs -- so membership, range, self and sequence all pass.
+    """
+    idx = np.array([[2], [0], [1]], np.int64)
+    z = Cache(bank_rows=np.array([0, 1, 2]))
+    seq = np.array(["a", "b", "c"], "U40")
+    labels = np.array(["train", "train", "test"], dtype=object)
+    _check_neighbours(idx, z, "probe", 3, seq, None)      # the old contract
+    with pytest.raises(SystemExit, match="this split holds out"):
+        _check_neighbours(idx, z, "probe", 3, seq, None, labels=labels,
+                          mode="sequence", x16=np.zeros(3), y16=np.zeros(3))
+
+
+def test_a_restricted_training_bank_is_still_allowed():
+    """Banking fewer rows than the split permits is a choice, not a leak, so
+    the rule has to be one-directional."""
+    idx = np.array([[1], [0], [0]], np.int64)
+    z = Cache(bank_rows=np.array([0, 1]))
+    seq = np.array(["a", "b", "c"], "U40")
+    labels = np.array(["train", "train", "test"], dtype=object)
+    _check_neighbours(idx, z, "probe", 3, seq, None, labels=labels,
+                      mode="sequence", x16=np.zeros(3), y16=np.zeros(3))
+
+
+def test_an_extension_row_in_a_held_out_cell_is_refused():
+    """The extension carries no split label, so a cell split can only exclude
+    it geographically -- and that decision lived in the builder alone."""
+    labels = np.array(["train", "train", "test", "train"], dtype=object)
+    seq = np.array(["a", "b", "c", "d"], "U40")
+    ext = np.array(["e", "f"], "U40")
+    # row 2 is held out and sits in z8 cell (1000>>8, 2000>>8); extension row 4
+    # lands in the same cell, extension row 5 does not.
+    x16 = np.array([10, 20, 1000, 30, 1001, 50000], np.int64)
+    y16 = np.array([10, 20, 2000, 30, 2001, 50000], np.int64)
+    idx = np.array([[1], [0], [0], [1]], np.int64)
+    z = Cache(bank_rows=np.array([0, 1, 3, 4]))
+    with pytest.raises(SystemExit, match="held-out"):
+        _check_neighbours(idx, z, "probe", 6, seq, ext, labels=labels,
+                          mode="cell8", x16=x16, y16=y16)
+    z2 = Cache(bank_rows=np.array([0, 1, 3, 5]))
+    _check_neighbours(idx, z2, "probe", 6, seq, ext, labels=labels,
+                      mode="cell8", x16=x16, y16=y16)
+
+
+def test_sequence_mode_holds_out_no_cells():
+    """`sequence` excludes by drive, not by region, so an extension row is
+    never geographically ineligible -- the same-sequence check covers it."""
+    labels = np.array(["train", "train", "test", "train"], dtype=object)
+    seq = np.array(["a", "b", "c", "d"], "U40")
+    ext = np.array(["e", "f"], "U40")
+    x16 = np.array([10, 20, 1000, 30, 1001, 50000], np.int64)
+    y16 = np.array([10, 20, 2000, 30, 2001, 50000], np.int64)
+    idx = np.array([[1], [0], [0], [1]], np.int64)
+    _check_neighbours(idx, Cache(bank_rows=np.array([0, 1, 3, 4])), "probe", 6,
+                      seq, ext, labels=labels, mode="sequence",
+                      x16=x16, y16=y16)
+
+
+def test_eligibility_is_skipped_when_the_caller_has_no_labels():
+    """Consumers that genuinely cannot supply the live split still get every
+    other check, rather than the none they had before."""
+    idx = np.array([[2], [0], [1]], np.int64)
+    _check_neighbours(idx, Cache(bank_rows=np.array([0, 1, 2])), "probe", 3,
+                      np.array(["a", "b", "c"], "U40"), None)

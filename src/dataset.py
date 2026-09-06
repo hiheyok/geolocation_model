@@ -268,7 +268,8 @@ def _check_fetched(done_p, tok_row, zs, n_neg, split):
             .format(len(miss), len(used), split, done_p))
 
 
-def _check_neighbours(idx, z, what, n_addr, rel_seq, ext_seq):
+def _check_neighbours(idx, z, what, n_addr, rel_seq, ext_seq,
+                      labels=None, mode=None, x16=None, y16=None):
     """In range is not in the bank, and not the query is not a different drive.
 
     The range check that was here established only that every neighbour id
@@ -315,6 +316,25 @@ def _check_neighbours(idx, z, what, n_addr, rel_seq, ext_seq):
                 "outside the bank are the split's held-out side."
                 .format(what, int(off.sum()), idx.size, len(rows),
                         ", ".join(str(int(b)) for b in bad[:5])))
+        # Membership says the neighbours came from the bank the cache declares.
+        # It says nothing about whether that bank is ALLOWED, and the two are
+        # independent: a builder regression can put a held-out row in both
+        # `bank_rows` and `idx`, keep correct split metadata, and pass every
+        # check above while evaluation retrieves the photographs it is being
+        # measured on (REVIEW8 #1).
+        if labels is not None and mode is not None:
+            bad_rel, bad_ext = sp.ineligible(rows, len(labels), labels, mode,
+                                             x16, y16)
+            if len(bad_rel) or len(bad_ext):
+                raise SystemExit(
+                    "{}: the cache banks {:,} release rows this split holds "
+                    "out (e.g. {}) and {:,} extension rows inside its held-out "
+                    "cells. The split hash matches, so the label assignment is "
+                    "the right one -- the bank was simply not drawn from it, "
+                    "and those rows carry the coordinates being evaluated."
+                    .format(what, len(bad_rel),
+                            ", ".join(str(int(b)) for b in bad_rel[:5]) or "-",
+                            len(bad_ext)))
 
     q = np.arange(idx.shape[0], dtype=np.int64)
     if (idx == q[:, None]).any():
@@ -560,7 +580,8 @@ class GeoStepDataset(Dataset):
             _check_neighbours(idx_all, z, knn_file, len(self.all_x16),
                               np.asarray(ds["sequence"].to_pylist(),
                                          dtype=object).astype("U40"),
-                              ext_seq)
+                              ext_seq, labels=splits, mode=split_mode,
+                              x16=self.all_x16, y16=self.all_y16)
             sim_all = z["sim"][:, :knn_k].astype(np.float32)
             if sim_all.shape != idx_all.shape:
                 raise SystemExit(

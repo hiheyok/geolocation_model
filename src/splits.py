@@ -172,3 +172,50 @@ def read(table, mode):
             "every split mode as its own column.".format(col))
     labels = np.asarray(table[col].to_pylist(), dtype=object)
     return labels, split_hash(mode, labels)
+
+
+def cell_ids(x16, y16, zc):
+    """z16 addresses -> cell ids at zoom `zc`. One definition, both sides.
+
+    This lived in `build_knn` with a docstring claiming it was used on both
+    sides of the comparison. It was used on one: the builder decided which
+    extension rows a cell split may bank, and nothing downstream could restate
+    the question, because `src` cannot import from `scripts`.
+    """
+    sh = 4 * tm.STEPS - zc
+    return ((np.asarray(x16).astype(np.int64) >> sh) * (1 << zc)
+            + (np.asarray(y16).astype(np.int64) >> sh))
+
+
+def ineligible(rows, n_rel, labels, mode, x16, y16):
+    """Bank rows this split does not permit: (release rows, extension rows).
+
+    A cache's `bank_rows` is a claim about what was searched, and until now it
+    was only ever checked for shape -- in range, unique, non-negative, and
+    (after REVIEW6 #4) that the neighbours are drawn from it. None of that asks
+    whether the bank itself is *allowed*, so a builder regression could put a
+    held-out row in both `bank_rows` and `idx` while keeping correct split
+    metadata, and every check would pass while evaluation retrieved the
+    photographs it is measured on (REVIEW8 #1).
+
+    Two rules, because the two halves of the address space are held out
+    differently:
+
+    * a **release** row must carry the live `train` label. A restricted bank is
+      a subset of the training rows, so this is one-directional: fewer rows
+      than the split allows is a choice, a row the split forbids is a leak.
+    * an **extension** row has no split label, so for a cell mode it must not
+      fall in a cell the split holds out. `sequence` holds out no cells, and
+      same-sequence exclusion covers it separately.
+    """
+    rows = np.asarray(rows, np.int64)
+    rel, ext = rows[rows < n_rel], rows[rows >= n_rel]
+    bad_rel = rel[np.asarray(labels, dtype=object)[rel] != "train"]
+
+    zc = MODES.get(mode)
+    if zc is None or not len(ext):
+        return bad_rel, ext[:0]
+    held = np.unique(cell_ids(np.asarray(x16)[:n_rel][labels != "train"],
+                              np.asarray(y16)[:n_rel][labels != "train"], zc))
+    ec = cell_ids(np.asarray(x16)[ext], np.asarray(y16)[ext], zc)
+    return bad_rel, ext[np.isin(ec, held)]

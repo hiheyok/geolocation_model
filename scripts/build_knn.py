@@ -69,11 +69,10 @@ def held_cells(ds, labels, zc):
     return cell_ids(x16, y16, zc)[labels != "train"]
 
 
-def cell_ids(x16, y16, zc):
-    """z16 addresses -> cell ids at zoom zc. One definition, used both sides."""
-    sh = 4 * tm.STEPS - zc
-    return ((x16.astype(np.int64) >> sh) * (1 << zc)
-            + (y16.astype(np.int64) >> sh))
+# One definition, and now genuinely on both sides: this lived here, where
+# `src` could not reach it, so the builder decided which extension rows a cell
+# split may bank and nothing downstream could restate the question (REVIEW8 #1).
+cell_ids = sp.cell_ids
 
 
 def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
