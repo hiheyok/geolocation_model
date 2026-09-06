@@ -53,7 +53,6 @@ import argparse
 import io
 import sys
 import time
-import zipfile
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -69,7 +68,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import config
 import maskio
 import provenance as prov
-from embed_street import slurp
+import shards
 
 DINO = "vit_base_patch14_dinov2.lvd142m"
 SIGLIP = "vit_base_patch16_siglip_224.v2_webli"
@@ -376,9 +375,7 @@ def main():
 
     chunk = []
     for shard, items in sorted(by_zip.items()):
-        zp = Path(config.OSV_ROOT) / "images" / "train" / (shard + ".zip")
-        src = slurp(zp) if a.preload else zp
-        with zipfile.ZipFile(src) as zf:
+        with shards.archive(shard, preload=a.preload) as zf:
             for i, parts in decoded(items, zf, max(4 * a.workers, 2 * a.batch)):
                 if parts is None:
                     state["bad"] += 1
@@ -387,7 +384,6 @@ def main():
                 if len(chunk) == a.batch:
                     flush(chunk)
                     chunk = []
-        del src                       # the next shard wants the 2.5 GB back
     flush(chunk)
     pool.shutdown()
 
