@@ -137,12 +137,47 @@ def test_a_wrong_query_count_is_refused(world):
         knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
 
 
-def test_a_cache_recording_no_bank_rows_is_refused_not_widened(world):
-    """"Which rows it searched is unknown" is not "it searched all of them"."""
+def test_a_restricted_bank_with_no_rows_is_refused_not_widened(world):
+    """"Which rows it searched is unknown" is not "it searched all of them".
+
+    `--bank-limit` draws a seeded subset that nothing inside the file records,
+    so the only survivor of the derivation rule is a hard refusal: recomputing
+    would hand back the whole train side and report it as the restricted-bank
+    result. The `_bank25k` in the name is the only evidence there is.
+    """
+    tmp, ck, cache = world
+    del cache["bank_rows"]
+    np.savez(tmp / "k_bank25k.npz", **cache)
+    with pytest.raises(SystemExit, match="bank was restricted"):
+        knnmeta.bank_for_checkpoint(ck, "k_bank25k.npz", 4, "bank.f16.npy", "t")
+
+
+def test_an_unrestricted_cache_with_no_rows_is_recomputed(world):
+    """Seven caches on disk predate the stamp, including both cell8 ones.
+
+    The split is already pinned by the checks above, so where the bank is not
+    restricted the rows are determined and recomputing them is exact -- on the
+    real caches it reproduces serve.py's own derivation row for row.
+
+    Runs the real `splits.bank_rows_for` rather than a stub. Stubbing it here
+    passed while the moved function still referred to a module alias it no
+    longer had, so the test was green and every call on real data raised
+    NameError.
+    """
     tmp, ck, cache = world
     del cache["bank_rows"]
     np.savez(tmp / "k.npz", **cache)
-    with pytest.raises(SystemExit, match="records no bank rows"):
+    rows = knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
+    assert np.array_equal(rows, [0, 1, 3])   # the parquet's train rows
+
+
+def test_a_stamped_bank_n_that_disagrees_with_the_split_is_refused(world):
+    """The check that catches an extension rebuilt since the cache was."""
+    tmp, ck, cache = world
+    del cache["bank_rows"]
+    cache["bank_n"] = np.array(999)
+    np.savez(tmp / "k.npz", **cache)
+    with pytest.raises(SystemExit, match="stamped a bank of"):
         knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
 
 
