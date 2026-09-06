@@ -1,0 +1,85 @@
+{
+  "about": "The entire world in one tile. Web Mercator covers latitudes -85.05 to 85.05, so the poles are cut off. Coastlines and country-level landuse only; at this zoom the source data is heavily generalised and buildings and minor roads do not exist.",
+  "tile": {
+    "z": 0,
+    "x": 0,
+    "y": 0
+  },
+  "center": {
+    "lat": 0,
+    "lng": 0
+  },
+  "requests": {
+    "image": "/tile/0/0/0.png",
+    "mask": "/tile/0/0/0/mask.png",
+    "maskAmbiguous": "/tile/0/0/0/mask.png?mode=ambiguous",
+    "labels": "/tile/0/0/0/labels.json"
+  },
+  "files": {
+    "image.png": {
+      "bytes": 14982,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Photometric greyscale. Pixel values are cartographic brightness, not class ids."
+    },
+    "mask.png": {
+      "bytes": 16028,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Class-index mask. Every pixel is one of the values in /classes."
+    },
+    "mask_ambiguous.png": {
+      "bytes": 16028,
+      "channels": 1,
+      "size": "512x512",
+      "description": "As mask.png, but boundary pixels whose vote was split carry 255 (ignore_index) instead of a guessed class. Unflagged pixels are identical."
+    },
+    "labels.json": {
+      "bytes": 4915,
+      "count": 46,
+      "description": "Named features with x/y in pixels from the tile top-left."
+    }
+  },
+  "maskClassBreakdown": [
+    {
+      "class": "water",
+      "value": 23,
+      "percent": 61.75
+    },
+    {
+      "class": "ice",
+      "value": 46,
+      "percent": 19.59
+    },
+    {
+      "class": "background",
+      "value": 0,
+      "percent": 18.66
+    }
+  ],
+  "ambiguous": {
+    "value": 255,
+    "flaggedPercent": 0,
+    "byClass": [
+      {
+        "class": "water",
+        "value": 23,
+        "flaggedPercent": 0
+      },
+      {
+        "class": "ice",
+        "value": 46,
+        "flaggedPercent": 0
+      },
+      {
+        "class": "background",
+        "value": 0,
+        "flaggedPercent": 0
+      }
+    ]
+  },
+  "labelsByLayer": {
+    "place": 37,
+    "water_name": 9
+  }
+}

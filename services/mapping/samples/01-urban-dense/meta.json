@@ -1,0 +1,167 @@
+{
+  "about": "Southwark, London. Dense buildings, full road hierarchy, a corner of the Thames.",
+  "tile": {
+    "z": 14,
+    "x": 8187,
+    "y": 5448
+  },
+  "center": {
+    "lat": 51.5045,
+    "lng": -0.095
+  },
+  "requests": {
+    "image": "/tile/14/8187/5448.png",
+    "mask": "/tile/14/8187/5448/mask.png",
+    "maskAmbiguous": "/tile/14/8187/5448/mask.png?mode=ambiguous",
+    "labels": "/tile/14/8187/5448/labels.json"
+  },
+  "files": {
+    "image.png": {
+      "bytes": 132520,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Photometric greyscale. Pixel values are cartographic brightness, not class ids."
+    },
+    "mask.png": {
+      "bytes": 83409,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Class-index mask. Every pixel is one of the values in /classes."
+    },
+    "mask_ambiguous.png": {
+      "bytes": 86877,
+      "channels": 1,
+      "size": "512x512",
+      "description": "As mask.png, but boundary pixels whose vote was split carry 255 (ignore_index) instead of a guessed class. Unflagged pixels are identical."
+    },
+    "labels.json": {
+      "bytes": 126539,
+      "count": 1122,
+      "description": "Named features with x/y in pixels from the tile top-left."
+    }
+  },
+  "maskClassBreakdown": [
+    {
+      "class": "building",
+      "value": 161,
+      "percent": 30.51
+    },
+    {
+      "class": "landuse",
+      "value": 138,
+      "percent": 26.13
+    },
+    {
+      "class": "road_minor",
+      "value": 207,
+      "percent": 18.23
+    },
+    {
+      "class": "background",
+      "value": 0,
+      "percent": 11.44
+    },
+    {
+      "class": "road_major",
+      "value": 230,
+      "percent": 7.31
+    },
+    {
+      "class": "water",
+      "value": 23,
+      "percent": 3.82
+    },
+    {
+      "class": "railway",
+      "value": 184,
+      "percent": 2.45
+    },
+    {
+      "class": "grass",
+      "value": 92,
+      "percent": 0.09
+    },
+    {
+      "class": "farmland",
+      "value": 115,
+      "percent": 0.01
+    },
+    {
+      "class": "wood",
+      "value": 69,
+      "percent": 0.01
+    },
+    {
+      "class": "ice",
+      "value": 46,
+      "percent": 0
+    }
+  ],
+  "ambiguous": {
+    "value": 255,
+    "flaggedPercent": 2.65,
+    "byClass": [
+      {
+        "class": "building",
+        "value": 161,
+        "flaggedPercent": 1
+      },
+      {
+        "class": "landuse",
+        "value": 138,
+        "flaggedPercent": 2.6
+      },
+      {
+        "class": "road_minor",
+        "value": 207,
+        "flaggedPercent": 5
+      },
+      {
+        "class": "background",
+        "value": 0,
+        "flaggedPercent": 3.2
+      },
+      {
+        "class": "road_major",
+        "value": 230,
+        "flaggedPercent": 2.6
+      },
+      {
+        "class": "water",
+        "value": 23,
+        "flaggedPercent": 0.8
+      },
+      {
+        "class": "railway",
+        "value": 184,
+        "flaggedPercent": 5
+      },
+      {
+        "class": "grass",
+        "value": 92,
+        "flaggedPercent": 18.1
+      },
+      {
+        "class": "farmland",
+        "value": 115,
+        "flaggedPercent": 94.6
+      },
+      {
+        "class": "wood",
+        "value": 69,
+        "flaggedPercent": 100
+      },
+      {
+        "class": "ice",
+        "value": 46,
+        "flaggedPercent": 88.9
+      }
+    ]
+  },
+  "labelsByLayer": {
+    "poi": 694,
+    "place": 4,
+    "water_name": 1,
+    "transportation_name": 423
+  }
+}

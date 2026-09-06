@@ -1,0 +1,166 @@
+{
+  "about": "Same place as 01 but above the source maxzoom of 14, so the renderer overzooms a z14 parent. Label coordinates are scaled and offset to match.",
+  "tile": {
+    "z": 16,
+    "x": 32750,
+    "y": 21793
+  },
+  "center": {
+    "lat": 51.5045,
+    "lng": -0.095
+  },
+  "requests": {
+    "image": "/tile/16/32750/21793.png",
+    "mask": "/tile/16/32750/21793/mask.png",
+    "maskAmbiguous": "/tile/16/32750/21793/mask.png?mode=ambiguous",
+    "labels": "/tile/16/32750/21793/labels.json"
+  },
+  "files": {
+    "image.png": {
+      "bytes": 58080,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Photometric greyscale. Pixel values are cartographic brightness, not class ids."
+    },
+    "mask.png": {
+      "bytes": 39091,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Class-index mask. Every pixel is one of the values in /classes."
+    },
+    "mask_ambiguous.png": {
+      "bytes": 40063,
+      "channels": 1,
+      "size": "512x512",
+      "description": "As mask.png, but boundary pixels whose vote was split carry 255 (ignore_index) instead of a guessed class. Unflagged pixels are identical."
+    },
+    "labels.json": {
+      "bytes": 10334,
+      "count": 92,
+      "description": "Named features with x/y in pixels from the tile top-left."
+    }
+  },
+  "maskClassBreakdown": [
+    {
+      "class": "building",
+      "value": 161,
+      "percent": 34.08
+    },
+    {
+      "class": "landuse",
+      "value": 138,
+      "percent": 27.6
+    },
+    {
+      "class": "background",
+      "value": 0,
+      "percent": 23.01
+    },
+    {
+      "class": "road_minor",
+      "value": 207,
+      "percent": 7.05
+    },
+    {
+      "class": "road_major",
+      "value": 230,
+      "percent": 4.99
+    },
+    {
+      "class": "railway",
+      "value": 184,
+      "percent": 3.25
+    },
+    {
+      "class": "farmland",
+      "value": 115,
+      "percent": 0.01
+    },
+    {
+      "class": "water",
+      "value": 23,
+      "percent": 0
+    },
+    {
+      "class": "wood",
+      "value": 69,
+      "percent": 0
+    },
+    {
+      "class": "grass",
+      "value": 92,
+      "percent": 0
+    },
+    {
+      "class": "ice",
+      "value": 46,
+      "percent": 0
+    }
+  ],
+  "ambiguous": {
+    "value": 255,
+    "flaggedPercent": 0.68,
+    "byClass": [
+      {
+        "class": "building",
+        "value": 161,
+        "flaggedPercent": 0
+      },
+      {
+        "class": "landuse",
+        "value": 138,
+        "flaggedPercent": 0.5
+      },
+      {
+        "class": "background",
+        "value": 0,
+        "flaggedPercent": 0.7
+      },
+      {
+        "class": "road_minor",
+        "value": 207,
+        "flaggedPercent": 3.3
+      },
+      {
+        "class": "road_major",
+        "value": 230,
+        "flaggedPercent": 1.2
+      },
+      {
+        "class": "railway",
+        "value": 184,
+        "flaggedPercent": 1.6
+      },
+      {
+        "class": "farmland",
+        "value": 115,
+        "flaggedPercent": 20
+      },
+      {
+        "class": "water",
+        "value": 23,
+        "flaggedPercent": 100
+      },
+      {
+        "class": "wood",
+        "value": 69,
+        "flaggedPercent": 100
+      },
+      {
+        "class": "grass",
+        "value": 92,
+        "flaggedPercent": 85.7
+      },
+      {
+        "class": "ice",
+        "value": 46,
+        "flaggedPercent": 100
+      }
+    ]
+  },
+  "labelsByLayer": {
+    "poi": 56,
+    "place": 1,
+    "transportation_name": 35
+  }
+}

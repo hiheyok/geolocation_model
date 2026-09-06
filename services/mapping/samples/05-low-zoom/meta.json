@@ -1,0 +1,167 @@
+{
+  "about": "Greater London at z10. Whole-city context; note how little building detail survives.",
+  "tile": {
+    "z": 10,
+    "x": 511,
+    "y": 340
+  },
+  "center": {
+    "lat": 51.5074,
+    "lng": -0.1278
+  },
+  "requests": {
+    "image": "/tile/10/511/340.png",
+    "mask": "/tile/10/511/340/mask.png",
+    "maskAmbiguous": "/tile/10/511/340/mask.png?mode=ambiguous",
+    "labels": "/tile/10/511/340/labels.json"
+  },
+  "files": {
+    "image.png": {
+      "bytes": 134412,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Photometric greyscale. Pixel values are cartographic brightness, not class ids."
+    },
+    "mask.png": {
+      "bytes": 79002,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Class-index mask. Every pixel is one of the values in /classes."
+    },
+    "mask_ambiguous.png": {
+      "bytes": 82466,
+      "channels": 1,
+      "size": "512x512",
+      "description": "As mask.png, but boundary pixels whose vote was split carry 255 (ignore_index) instead of a guessed class. Unflagged pixels are identical."
+    },
+    "labels.json": {
+      "bytes": 10495,
+      "count": 93,
+      "description": "Named features with x/y in pixels from the tile top-left."
+    }
+  },
+  "maskClassBreakdown": [
+    {
+      "class": "background",
+      "value": 0,
+      "percent": 50.73
+    },
+    {
+      "class": "landuse",
+      "value": 138,
+      "percent": 24.91
+    },
+    {
+      "class": "road_major",
+      "value": 230,
+      "percent": 17.48
+    },
+    {
+      "class": "railway",
+      "value": 184,
+      "percent": 2.89
+    },
+    {
+      "class": "water",
+      "value": 23,
+      "percent": 2.11
+    },
+    {
+      "class": "wood",
+      "value": 69,
+      "percent": 1.18
+    },
+    {
+      "class": "grass",
+      "value": 92,
+      "percent": 0.43
+    },
+    {
+      "class": "farmland",
+      "value": 115,
+      "percent": 0.15
+    },
+    {
+      "class": "building",
+      "value": 161,
+      "percent": 0.07
+    },
+    {
+      "class": "road_minor",
+      "value": 207,
+      "percent": 0.04
+    },
+    {
+      "class": "ice",
+      "value": 46,
+      "percent": 0.02
+    }
+  ],
+  "ambiguous": {
+    "value": 255,
+    "flaggedPercent": 3.11,
+    "byClass": [
+      {
+        "class": "background",
+        "value": 0,
+        "flaggedPercent": 2
+      },
+      {
+        "class": "landuse",
+        "value": 138,
+        "flaggedPercent": 1.7
+      },
+      {
+        "class": "road_major",
+        "value": 230,
+        "flaggedPercent": 5.7
+      },
+      {
+        "class": "railway",
+        "value": 184,
+        "flaggedPercent": 15
+      },
+      {
+        "class": "water",
+        "value": 23,
+        "flaggedPercent": 1.9
+      },
+      {
+        "class": "wood",
+        "value": 69,
+        "flaggedPercent": 1.7
+      },
+      {
+        "class": "grass",
+        "value": 92,
+        "flaggedPercent": 6.4
+      },
+      {
+        "class": "farmland",
+        "value": 115,
+        "flaggedPercent": 21.3
+      },
+      {
+        "class": "building",
+        "value": 161,
+        "flaggedPercent": 94.8
+      },
+      {
+        "class": "road_minor",
+        "value": 207,
+        "flaggedPercent": 91
+      },
+      {
+        "class": "ice",
+        "value": 46,
+        "flaggedPercent": 90.9
+      }
+    ]
+  },
+  "labelsByLayer": {
+    "place": 42,
+    "mountain_peak": 6,
+    "park": 30,
+    "transportation_name": 15
+  }
+}

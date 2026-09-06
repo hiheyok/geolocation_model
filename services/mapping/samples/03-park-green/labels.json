@@ -1,0 +1,7101 @@
+{
+  "z": 14,
+  "x": 8184,
+  "y": 5448,
+  "size": 512,
+  "count": 788,
+  "labels": [
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "railway",
+      "rank": 1,
+      "geometry": "point",
+      "x": 348.6,
+      "y": 261.6
+    },
+    {
+      "layer": "poi",
+      "text": "Dorchester Hotel",
+      "class": "bus",
+      "rank": 1,
+      "geometry": "point",
+      "x": 480.6,
+      "y": 7.1
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Station / Harrods",
+      "class": "bus",
+      "rank": 1,
+      "geometry": "point",
+      "x": 293.6,
+      "y": 261.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Old Police House",
+      "class": "police",
+      "rank": 1,
+      "geometry": "point",
+      "x": 242,
+      "y": 22.8
+    },
+    {
+      "layer": "poi",
+      "text": "Pont Street",
+      "class": "bus",
+      "rank": 1,
+      "geometry": "point",
+      "x": 393,
+      "y": 453.8
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Coffee House",
+      "class": "bar",
+      "rank": 1,
+      "geometry": "point",
+      "x": 67.3,
+      "y": 119.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Corner",
+      "class": "railway",
+      "rank": 1,
+      "geometry": "point",
+      "x": 500,
+      "y": 225.3
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria and Albert Museum",
+      "class": "bus",
+      "rank": 1,
+      "geometry": "point",
+      "x": 138.4,
+      "y": 464.9
+    },
+    {
+      "layer": "poi",
+      "text": "Harrods",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 280.8,
+      "y": 346.8
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park",
+      "class": "park",
+      "rank": 2,
+      "geometry": "point",
+      "x": 316.4,
+      "y": 46.9
+    },
+    {
+      "layer": "poi",
+      "text": "Prince Of Wales Gate",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 109.3,
+      "y": 253.3
+    },
+    {
+      "layer": "poi",
+      "text": "The Boat House",
+      "class": "shop",
+      "rank": 2,
+      "geometry": "point",
+      "x": 292.8,
+      "y": 112.6
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Station / Harrods",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 325.3,
+      "y": 266.9
+    },
+    {
+      "layer": "poi",
+      "text": "Dorchester Hotel",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 502,
+      "y": 9.1
+    },
+    {
+      "layer": "poi",
+      "text": "Exhibition Road",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 57.8,
+      "y": 261.3
+    },
+    {
+      "layer": "poi",
+      "text": "Pont Street",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 390.9,
+      "y": 415
+    },
+    {
+      "layer": "poi",
+      "text": "Brompton Square",
+      "class": "bus",
+      "rank": 3,
+      "geometry": "point",
+      "x": 188.9,
+      "y": 416.8
+    },
+    {
+      "layer": "poi",
+      "text": "Sloane Street / Knightsbridge Station",
+      "class": "bus",
+      "rank": 3,
+      "geometry": "point",
+      "x": 371.9,
+      "y": 307.4
+    },
+    {
+      "layer": "poi",
+      "text": "Prince Of Wales Gate",
+      "class": "bus",
+      "rank": 3,
+      "geometry": "point",
+      "x": 152.4,
+      "y": 260
+    },
+    {
+      "layer": "poi",
+      "text": "Triangle Car Park",
+      "class": "bicycle_rental",
+      "rank": 3,
+      "geometry": "point",
+      "x": 131.6,
+      "y": 89.3
+    },
+    {
+      "layer": "poi",
+      "text": "Fold",
+      "class": "attraction",
+      "rank": 3,
+      "geometry": "point",
+      "x": 423.6,
+      "y": 427.9
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge School",
+      "class": "school",
+      "rank": 4,
+      "geometry": "point",
+      "x": 300.5,
+      "y": 458.1
+    },
+    {
+      "layer": "poi",
+      "text": "Colicci",
+      "class": "cafe",
+      "rank": 4,
+      "geometry": "point",
+      "x": 71.9,
+      "y": 119.9
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria and Albert Museum",
+      "class": "bus",
+      "rank": 4,
+      "geometry": "point",
+      "x": 117.3,
+      "y": 466.6
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Barracks",
+      "class": "bus",
+      "rank": 4,
+      "geometry": "point",
+      "x": 231,
+      "y": 263.8
+    },
+    {
+      "layer": "poi",
+      "text": "The Triangle",
+      "class": "cafe",
+      "rank": 4,
+      "geometry": "point",
+      "x": 146,
+      "y": 96.8
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Station",
+      "class": "bus",
+      "rank": 4,
+      "geometry": "point",
+      "x": 365.8,
+      "y": 296.9
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Station / Harrods",
+      "class": "bus",
+      "rank": 5,
+      "geometry": "point",
+      "x": 310.3,
+      "y": 315.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hill House School",
+      "class": "school",
+      "rank": 5,
+      "geometry": "point",
+      "x": 365.3,
+      "y": 422.5
+    },
+    {
+      "layer": "poi",
+      "text": "Brompton Square",
+      "class": "bus",
+      "rank": 5,
+      "geometry": "point",
+      "x": 193.4,
+      "y": 424.1
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria and Albert Museum",
+      "class": "bus",
+      "rank": 5,
+      "geometry": "point",
+      "x": 74.6,
+      "y": 480.1
+    },
+    {
+      "layer": "poi",
+      "text": "Rutland Gardens",
+      "class": "bus",
+      "rank": 5,
+      "geometry": "point",
+      "x": 201.9,
+      "y": 257.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Cockpit",
+      "class": "garden",
+      "rank": 5,
+      "geometry": "point",
+      "x": 161,
+      "y": 78.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hudson Memorial",
+      "class": "art_gallery",
+      "rank": 6,
+      "geometry": "point",
+      "x": 157.6,
+      "y": 16.5
+    },
+    {
+      "layer": "poi",
+      "text": "Kent House Knightsbridge",
+      "class": "town_hall",
+      "rank": 6,
+      "geometry": "point",
+      "x": 211,
+      "y": 278.9
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Station",
+      "class": "bus",
+      "rank": 6,
+      "geometry": "point",
+      "x": 315.8,
+      "y": 300.5
+    },
+    {
+      "layer": "poi",
+      "text": "More House School",
+      "class": "school",
+      "rank": 6,
+      "geometry": "point",
+      "x": 379.3,
+      "y": 428.6
+    },
+    {
+      "layer": "poi",
+      "text": "Harrods",
+      "class": "bus",
+      "rank": 6,
+      "geometry": "point",
+      "x": 269.5,
+      "y": 350.5
+    },
+    {
+      "layer": "poi",
+      "text": "Holy Trinity Brompton Cemetery",
+      "class": "cemetery",
+      "rank": 7,
+      "geometry": "point",
+      "x": 122.8,
+      "y": 387.9
+    },
+    {
+      "layer": "poi",
+      "text": "The Boat House",
+      "class": "cafe",
+      "rank": 7,
+      "geometry": "point",
+      "x": 296.1,
+      "y": 112.4
+    },
+    {
+      "layer": "poi",
+      "text": "Austrian Cultural Forum",
+      "class": "town_hall",
+      "rank": 7,
+      "geometry": "point",
+      "x": 183.8,
+      "y": 323
+    },
+    {
+      "layer": "poi",
+      "text": "Chucs Serpentine",
+      "class": "restaurant",
+      "rank": 7,
+      "geometry": "point",
+      "x": 98.4,
+      "y": 59.6
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Post Office",
+      "class": "post",
+      "rank": 7,
+      "geometry": "point",
+      "x": 300.1,
+      "y": 292.1
+    },
+    {
+      "layer": "poi",
+      "text": "Cadogan Place South Garden",
+      "class": "park",
+      "rank": 7,
+      "geometry": "point",
+      "x": 415,
+      "y": 479.4
+    },
+    {
+      "layer": "poi",
+      "text": "Milestone",
+      "class": "attraction",
+      "rank": 7,
+      "geometry": "point",
+      "x": 17.5,
+      "y": 267.5
+    },
+    {
+      "layer": "poi",
+      "text": "Bird Sanctuary",
+      "class": "garden",
+      "rank": 8,
+      "geometry": "point",
+      "x": 158.3,
+      "y": 18.1
+    },
+    {
+      "layer": "poi",
+      "text": "Cuttler & Gross",
+      "class": "shop",
+      "rank": 8,
+      "geometry": "point",
+      "x": 313.4,
+      "y": 283.5
+    },
+    {
+      "layer": "poi",
+      "text": "Chesham Place",
+      "class": "park",
+      "rank": 8,
+      "geometry": "point",
+      "x": 471.6,
+      "y": 427.6
+    },
+    {
+      "layer": "poi",
+      "text": "South Kensington Museums",
+      "class": "bus",
+      "rank": 8,
+      "geometry": "point",
+      "x": 45.5,
+      "y": 432.8
+    },
+    {
+      "layer": "poi",
+      "text": "Rutland Gate South Garden",
+      "class": "park",
+      "rank": 8,
+      "geometry": "point",
+      "x": 175.6,
+      "y": 335.9
+    },
+    {
+      "layer": "poi",
+      "text": "Trevor Square",
+      "class": "park",
+      "rank": 8,
+      "geometry": "point",
+      "x": 261.9,
+      "y": 311.1
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Sackler Gallery",
+      "class": "art_gallery",
+      "rank": 9,
+      "geometry": "point",
+      "x": 105.4,
+      "y": 61.9
+    },
+    {
+      "layer": "poi",
+      "text": "Dyson School of Design Engineering",
+      "class": "college",
+      "rank": 9,
+      "geometry": "point",
+      "x": 70.4,
+      "y": 322.5
+    },
+    {
+      "layer": "poi",
+      "text": "Old Football Pitches",
+      "class": "park",
+      "rank": 9,
+      "geometry": "point",
+      "x": 180,
+      "y": 213.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Parade Ground",
+      "class": "garden",
+      "rank": 9,
+      "geometry": "point",
+      "x": 391.1,
+      "y": 19.9
+    },
+    {
+      "layer": "poi",
+      "text": "Ugg",
+      "class": "shop",
+      "rank": 9,
+      "geometry": "point",
+      "x": 355.4,
+      "y": 268.9
+    },
+    {
+      "layer": "poi",
+      "text": "Triangle Carpark",
+      "class": "parking",
+      "rank": 10,
+      "geometry": "point",
+      "x": 135.5,
+      "y": 81
+    },
+    {
+      "layer": "poi",
+      "text": "Hogan",
+      "class": "shop",
+      "rank": 10,
+      "geometry": "point",
+      "x": 361.4,
+      "y": 308.3
+    },
+    {
+      "layer": "poi",
+      "text": "Pantechnicon",
+      "class": "shop",
+      "rank": 10,
+      "geometry": "point",
+      "x": 431.3,
+      "y": 358.4
+    },
+    {
+      "layer": "poi",
+      "text": "Rutland Gate Upper Garden",
+      "class": "park",
+      "rank": 10,
+      "geometry": "point",
+      "x": 179.1,
+      "y": 276
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Finland",
+      "class": "embassy",
+      "rank": 10,
+      "geometry": "point",
+      "x": 501.5,
+      "y": 417.4
+    },
+    {
+      "layer": "poi",
+      "text": "Chaplaincy Multi-Faith Centre",
+      "class": "college",
+      "rank": 10,
+      "geometry": "point",
+      "x": 70.8,
+      "y": 324.9
+    },
+    {
+      "layer": "poi",
+      "text": "Ennismore Gardens",
+      "class": "park",
+      "rank": 10,
+      "geometry": "point",
+      "x": 125.4,
+      "y": 345
+    },
+    {
+      "layer": "place",
+      "text": "Knightsbridge",
+      "class": "suburb",
+      "rank": 11,
+      "geometry": "point",
+      "x": 205.4,
+      "y": 295.6
+    },
+    {
+      "layer": "poi",
+      "text": "Topshop",
+      "class": "clothing_store",
+      "rank": 11,
+      "geometry": "point",
+      "x": 291.5,
+      "y": 323.8
+    },
+    {
+      "layer": "poi",
+      "text": "South Kensington Museums",
+      "class": "bus",
+      "rank": 11,
+      "geometry": "point",
+      "x": 40.1,
+      "y": 410.1
+    },
+    {
+      "layer": "poi",
+      "text": "Bridges",
+      "class": "shop",
+      "rank": 11,
+      "geometry": "point",
+      "x": 307.5,
+      "y": 282.3
+    },
+    {
+      "layer": "poi",
+      "text": "Robert Frew Ltd",
+      "class": "library",
+      "rank": 11,
+      "geometry": "point",
+      "x": 129.9,
+      "y": 468.9
+    },
+    {
+      "layer": "poi",
+      "text": "Gio Genco",
+      "class": "shop",
+      "rank": 11,
+      "geometry": "point",
+      "x": 426.4,
+      "y": 362.3
+    },
+    {
+      "layer": "poi",
+      "text": "Mail Boxes Etc",
+      "class": "post",
+      "rank": 12,
+      "geometry": "point",
+      "x": 240.9,
+      "y": 362.8
+    },
+    {
+      "layer": "poi",
+      "text": "Cathedral of the Dormition and All Saints",
+      "class": "place_of_worship",
+      "rank": 12,
+      "geometry": "point",
+      "x": 156.6,
+      "y": 305.9
+    },
+    {
+      "layer": "poi",
+      "text": "Temporary Exhibit",
+      "class": "attraction",
+      "rank": 12,
+      "geometry": "point",
+      "x": 29.3,
+      "y": 468.9
+    },
+    {
+      "layer": "poi",
+      "text": "Hastern",
+      "class": "shop",
+      "rank": 12,
+      "geometry": "point",
+      "x": 363.1,
+      "y": 296.6
+    },
+    {
+      "layer": "poi",
+      "text": "Bvlgari",
+      "class": "shop",
+      "rank": 12,
+      "geometry": "point",
+      "x": 380.9,
+      "y": 349.5
+    },
+    {
+      "layer": "poi",
+      "text": "Carolina Bucci",
+      "class": "shop",
+      "rank": 13,
+      "geometry": "point",
+      "x": 449.8,
+      "y": 353.5
+    },
+    {
+      "layer": "poi",
+      "text": "Jay's Village Store",
+      "class": "shop",
+      "rank": 13,
+      "geometry": "point",
+      "x": 436.9,
+      "y": 276.6
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Swimming Club",
+      "class": "swimming_pool",
+      "rank": 13,
+      "geometry": "point",
+      "x": 172.3,
+      "y": 145.5
+    },
+    {
+      "layer": "poi",
+      "text": "Church's",
+      "class": "shop",
+      "rank": 13,
+      "geometry": "point",
+      "x": 262.4,
+      "y": 368.5
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Germany",
+      "class": "embassy",
+      "rank": 14,
+      "geometry": "point",
+      "x": 496.5,
+      "y": 401.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Putting Course",
+      "class": "golf",
+      "rank": 14,
+      "geometry": "point",
+      "x": 69.5,
+      "y": 221.9
+    },
+    {
+      "layer": "poi",
+      "text": "Neill Strain Floral Couture",
+      "class": "shop",
+      "rank": 14,
+      "geometry": "point",
+      "x": 438.1,
+      "y": 372.1
+    },
+    {
+      "layer": "poi",
+      "text": "The Lido",
+      "class": "cafe",
+      "rank": 14,
+      "geometry": "point",
+      "x": 142.8,
+      "y": 152.5
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Corner Station",
+      "class": "bus",
+      "rank": 14,
+      "geometry": "point",
+      "x": 510.1,
+      "y": 217.1
+    },
+    {
+      "layer": "poi",
+      "text": "Sub-Zero & Wolf",
+      "class": "shop",
+      "rank": 14,
+      "geometry": "point",
+      "x": 153.8,
+      "y": 463
+    },
+    {
+      "layer": "poi",
+      "text": "Roger Vivier",
+      "class": "shop",
+      "rank": 14,
+      "geometry": "point",
+      "x": 376.1,
+      "y": 327.5
+    },
+    {
+      "layer": "poi",
+      "text": "Kuoni",
+      "class": "shop",
+      "rank": 15,
+      "geometry": "point",
+      "x": 233.5,
+      "y": 369.1
+    },
+    {
+      "layer": "poi",
+      "text": "Amouage",
+      "class": "shop",
+      "rank": 15,
+      "geometry": "point",
+      "x": 429.4,
+      "y": 371.9
+    },
+    {
+      "layer": "poi",
+      "text": "Bang & Olufsen",
+      "class": "shop",
+      "rank": 15,
+      "geometry": "point",
+      "x": 310.3,
+      "y": 301.4
+    },
+    {
+      "layer": "poi",
+      "text": "Memorial Scrolls Trust",
+      "class": "museum",
+      "rank": 15,
+      "geometry": "point",
+      "x": 214.5,
+      "y": 278.6
+    },
+    {
+      "layer": "poi",
+      "text": "Elizabeth Gage",
+      "class": "shop",
+      "rank": 16,
+      "geometry": "point",
+      "x": 447.9,
+      "y": 375.5
+    },
+    {
+      "layer": "poi",
+      "text": "Zuma",
+      "class": "restaurant",
+      "rank": 16,
+      "geometry": "point",
+      "x": 293.6,
+      "y": 292.5
+    },
+    {
+      "layer": "poi",
+      "text": "Frank Partridge",
+      "class": "shop",
+      "rank": 16,
+      "geometry": "point",
+      "x": 429.5,
+      "y": 282.8
+    },
+    {
+      "layer": "poi",
+      "text": "Snow & Rock",
+      "class": "shop",
+      "rank": 16,
+      "geometry": "point",
+      "x": 289.8,
+      "y": 356.1
+    },
+    {
+      "layer": "poi",
+      "text": "Imperial College London",
+      "class": "college",
+      "rank": 16,
+      "geometry": "point",
+      "x": 4,
+      "y": 369.5
+    },
+    {
+      "layer": "poi",
+      "text": "Yoko Pearls",
+      "class": "shop",
+      "rank": 17,
+      "geometry": "point",
+      "x": 307.5,
+      "y": 272.3
+    },
+    {
+      "layer": "poi",
+      "text": "Consulate General of Turkey",
+      "class": "embassy",
+      "rank": 17,
+      "geometry": "point",
+      "x": 205,
+      "y": 301.8
+    },
+    {
+      "layer": "poi",
+      "text": "Vis-a-Vis",
+      "class": "shop",
+      "rank": 17,
+      "geometry": "point",
+      "x": 454.5,
+      "y": 351
+    },
+    {
+      "layer": "poi",
+      "text": "Knights",
+      "class": "shop",
+      "rank": 17,
+      "geometry": "point",
+      "x": 232.1,
+      "y": 365.4
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Watches & Jewellers",
+      "class": "shop",
+      "rank": 18,
+      "geometry": "point",
+      "x": 277.6,
+      "y": 338.4
+    },
+    {
+      "layer": "poi",
+      "text": "Pristine Watches",
+      "class": "shop",
+      "rank": 18,
+      "geometry": "point",
+      "x": 309.3,
+      "y": 276.9
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Libya",
+      "class": "embassy",
+      "rank": 18,
+      "geometry": "point",
+      "x": 141,
+      "y": 312.9
+    },
+    {
+      "layer": "poi",
+      "text": "Jimmy Choo",
+      "class": "shop",
+      "rank": 18,
+      "geometry": "point",
+      "x": 369,
+      "y": 352.3
+    },
+    {
+      "layer": "poi",
+      "text": "Westminster Synagogue",
+      "class": "place_of_worship",
+      "rank": 19,
+      "geometry": "point",
+      "x": 211,
+      "y": 269.6
+    },
+    {
+      "layer": "poi",
+      "text": "Romanian Cultural Institute in London",
+      "class": "town_hall",
+      "rank": 19,
+      "geometry": "point",
+      "x": 507.1,
+      "y": 317.1
+    },
+    {
+      "layer": "poi",
+      "text": "Samer Halimeh",
+      "class": "shop",
+      "rank": 19,
+      "geometry": "point",
+      "x": 306.8,
+      "y": 269.3
+    },
+    {
+      "layer": "poi",
+      "text": "Giuseppe Zanotti Design",
+      "class": "shop",
+      "rank": 19,
+      "geometry": "point",
+      "x": 375.4,
+      "y": 387.8
+    },
+    {
+      "layer": "poi",
+      "text": "Octavia Foundation",
+      "class": "shop",
+      "rank": 19,
+      "geometry": "point",
+      "x": 195.4,
+      "y": 424.9
+    },
+    {
+      "layer": "poi",
+      "text": "Pavilion",
+      "class": "cafe",
+      "rank": 19,
+      "geometry": "point",
+      "x": 45.6,
+      "y": 235.6
+    },
+    {
+      "layer": "poi",
+      "text": "Prince of Wales Gate",
+      "class": "gate",
+      "rank": 20,
+      "geometry": "point",
+      "x": 131.8,
+      "y": 251.4
+    },
+    {
+      "layer": "poi",
+      "text": "Kulinariâ",
+      "class": "shop",
+      "rank": 20,
+      "geometry": "point",
+      "x": 444.3,
+      "y": 347.6
+    },
+    {
+      "layer": "poi",
+      "text": "Cromwell Gardens",
+      "class": "park",
+      "rank": 20,
+      "geometry": "point",
+      "x": 78.1,
+      "y": 492.6
+    },
+    {
+      "layer": "poi",
+      "text": "Lord's",
+      "class": "shop",
+      "rank": 20,
+      "geometry": "point",
+      "x": 197.8,
+      "y": 422.4
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Advanced Beauty",
+      "class": "shop",
+      "rank": 20,
+      "geometry": "point",
+      "x": 300,
+      "y": 259.6
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of the Sultanate of Oman",
+      "class": "embassy",
+      "rank": 21,
+      "geometry": "point",
+      "x": 146.6,
+      "y": 313.3
+    },
+    {
+      "layer": "poi",
+      "text": "Laura Ashley",
+      "class": "shop",
+      "rank": 21,
+      "geometry": "point",
+      "x": 385.8,
+      "y": 313.1
+    },
+    {
+      "layer": "poi",
+      "text": "Coalbrookdale Gates",
+      "class": "gate",
+      "rank": 21,
+      "geometry": "point",
+      "x": 23.3,
+      "y": 246.3
+    },
+    {
+      "layer": "poi",
+      "text": "Christian Louboutin",
+      "class": "shop",
+      "rank": 21,
+      "geometry": "point",
+      "x": 424.1,
+      "y": 366.1
+    },
+    {
+      "layer": "poi",
+      "text": "Loreta Jag",
+      "class": "shop",
+      "rank": 21,
+      "geometry": "point",
+      "x": 201.4,
+      "y": 425.9
+    },
+    {
+      "layer": "poi",
+      "text": "Berluti",
+      "class": "shop",
+      "rank": 22,
+      "geometry": "point",
+      "x": 380.5,
+      "y": 322.5
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Car Park",
+      "class": "parking",
+      "rank": 22,
+      "geometry": "point",
+      "x": 71.9,
+      "y": 144.8
+    },
+    {
+      "layer": "poi",
+      "text": "Little Waitrose",
+      "class": "shop",
+      "rank": 22,
+      "geometry": "point",
+      "x": 251.9,
+      "y": 359.9
+    },
+    {
+      "layer": "poi",
+      "text": "Kingston Gate",
+      "class": "gate",
+      "rank": 22,
+      "geometry": "point",
+      "x": 105.4,
+      "y": 252.4
+    },
+    {
+      "layer": "poi",
+      "text": "Blakes",
+      "class": "shop",
+      "rank": 22,
+      "geometry": "point",
+      "x": 440,
+      "y": 337.3
+    },
+    {
+      "layer": "poi",
+      "text": "East Lawn",
+      "class": "park",
+      "rank": 22,
+      "geometry": "point",
+      "x": 24.4,
+      "y": 482.8
+    },
+    {
+      "layer": "poi",
+      "text": "Kutchinsky",
+      "class": "shop",
+      "rank": 23,
+      "geometry": "point",
+      "x": 314.4,
+      "y": 316.6
+    },
+    {
+      "layer": "poi",
+      "text": "Mayhew Newsagents",
+      "class": "shop",
+      "rank": 23,
+      "geometry": "point",
+      "x": 441.9,
+      "y": 349.9
+    },
+    {
+      "layer": "poi",
+      "text": "Prince of Wales Gate",
+      "class": "gate",
+      "rank": 23,
+      "geometry": "point",
+      "x": 128.5,
+      "y": 251.3
+    },
+    {
+      "layer": "poi",
+      "text": "Princes Gardens",
+      "class": "park",
+      "rank": 23,
+      "geometry": "point",
+      "x": 65.5,
+      "y": 358
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Gallery",
+      "class": "art_gallery",
+      "rank": 23,
+      "geometry": "point",
+      "x": 19,
+      "y": 152.6
+    },
+    {
+      "layer": "poi",
+      "text": "Sainsbury's Local",
+      "class": "shop",
+      "rank": 23,
+      "geometry": "point",
+      "x": 255.6,
+      "y": 356.9
+    },
+    {
+      "layer": "poi",
+      "text": "Rutland Gate",
+      "class": "gate",
+      "rank": 24,
+      "geometry": "point",
+      "x": 172,
+      "y": 256.3
+    },
+    {
+      "layer": "poi",
+      "text": "Vine Vera",
+      "class": "shop",
+      "rank": 24,
+      "geometry": "point",
+      "x": 185.8,
+      "y": 434.8
+    },
+    {
+      "layer": "poi",
+      "text": "Corthay",
+      "class": "shop",
+      "rank": 24,
+      "geometry": "point",
+      "x": 429.6,
+      "y": 369.3
+    },
+    {
+      "layer": "poi",
+      "text": "Alexandra Gate",
+      "class": "gate",
+      "rank": 24,
+      "geometry": "point",
+      "x": 29,
+      "y": 256.9
+    },
+    {
+      "layer": "poi",
+      "text": "Ecco",
+      "class": "shop",
+      "rank": 24,
+      "geometry": "point",
+      "x": 328.3,
+      "y": 297.3
+    },
+    {
+      "layer": "poi",
+      "text": "♥ from London",
+      "class": "shop",
+      "rank": 25,
+      "geometry": "point",
+      "x": 280.9,
+      "y": 335.5
+    },
+    {
+      "layer": "poi",
+      "text": "Montpelier Square",
+      "class": "garden",
+      "rank": 25,
+      "geometry": "point",
+      "x": 215.4,
+      "y": 319.8
+    },
+    {
+      "layer": "poi",
+      "text": "V&A Bookstore",
+      "class": "library",
+      "rank": 25,
+      "geometry": "point",
+      "x": 85.3,
+      "y": 452.4
+    },
+    {
+      "layer": "poi",
+      "text": "Rolex",
+      "class": "shop",
+      "rank": 25,
+      "geometry": "point",
+      "x": 351.5,
+      "y": 251.3
+    },
+    {
+      "layer": "poi",
+      "text": "Will to Win Hyde Park",
+      "class": "pitch",
+      "rank": 25,
+      "geometry": "point",
+      "x": 66.1,
+      "y": 207.5
+    },
+    {
+      "layer": "poi",
+      "text": "michaeljohn",
+      "class": "shop",
+      "rank": 25,
+      "geometry": "point",
+      "x": 454.5,
+      "y": 347.9
+    },
+    {
+      "layer": "poi",
+      "text": "Garden Hall",
+      "class": "lodging",
+      "rank": 26,
+      "geometry": "point",
+      "x": 78.4,
+      "y": 321.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Lido",
+      "class": "sports_centre",
+      "rank": 26,
+      "geometry": "point",
+      "x": 157.9,
+      "y": 164.3
+    },
+    {
+      "layer": "poi",
+      "text": "Waitrose",
+      "class": "grocery",
+      "rank": 26,
+      "geometry": "point",
+      "x": 441.3,
+      "y": 365
+    },
+    {
+      "layer": "poi",
+      "text": "Cesare Paciotti",
+      "class": "shop",
+      "rank": 26,
+      "geometry": "point",
+      "x": 363.8,
+      "y": 301.3
+    },
+    {
+      "layer": "poi",
+      "text": "Press Bureau",
+      "class": "shop",
+      "rank": 26,
+      "geometry": "point",
+      "x": 192.9,
+      "y": 427.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Geology Shop",
+      "class": "shop",
+      "rank": 27,
+      "geometry": "point",
+      "x": 15.6,
+      "y": 462.5
+    },
+    {
+      "layer": "poi",
+      "text": "Gina",
+      "class": "shop",
+      "rank": 27,
+      "geometry": "point",
+      "x": 375.8,
+      "y": 324.6
+    },
+    {
+      "layer": "poi",
+      "text": "Harrods",
+      "class": "grocery",
+      "rank": 27,
+      "geometry": "point",
+      "x": 299.5,
+      "y": 357.8
+    },
+    {
+      "layer": "poi",
+      "text": "Smallbone of Devizes",
+      "class": "shop",
+      "rank": 27,
+      "geometry": "point",
+      "x": 142.1,
+      "y": 462.3
+    },
+    {
+      "layer": "poi",
+      "text": "Polish Institute and Sikorski Museum",
+      "class": "museum",
+      "rank": 27,
+      "geometry": "point",
+      "x": 67.8,
+      "y": 273.9
+    },
+    {
+      "layer": "poi",
+      "text": "Riding arena",
+      "class": "pitch",
+      "rank": 27,
+      "geometry": "point",
+      "x": 282.8,
+      "y": 215.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Bowling Green",
+      "class": "pitch",
+      "rank": 28,
+      "geometry": "point",
+      "x": 47.4,
+      "y": 223.5
+    },
+    {
+      "layer": "poi",
+      "text": "London Souvenirs",
+      "class": "shop",
+      "rank": 28,
+      "geometry": "point",
+      "x": 273.4,
+      "y": 342.1
+    },
+    {
+      "layer": "poi",
+      "text": "Jeeves",
+      "class": "clothing_store",
+      "rank": 28,
+      "geometry": "point",
+      "x": 443.5,
+      "y": 420.9
+    },
+    {
+      "layer": "poi",
+      "text": "Boodles",
+      "class": "shop",
+      "rank": 28,
+      "geometry": "point",
+      "x": 358.1,
+      "y": 268.3
+    },
+    {
+      "layer": "poi",
+      "text": "Hermes",
+      "class": "clothing_store",
+      "rank": 29,
+      "geometry": "point",
+      "x": 380.5,
+      "y": 345.5
+    },
+    {
+      "layer": "poi",
+      "text": "Mint",
+      "class": "shop",
+      "rank": 29,
+      "geometry": "point",
+      "x": 134.1,
+      "y": 470.5
+    },
+    {
+      "layer": "poi",
+      "text": "Sergio Rossi",
+      "class": "shop",
+      "rank": 29,
+      "geometry": "point",
+      "x": 369.5,
+      "y": 284.6
+    },
+    {
+      "layer": "poi",
+      "text": "Heart of London",
+      "class": "shop",
+      "rank": 30,
+      "geometry": "point",
+      "x": 275,
+      "y": 340.9
+    },
+    {
+      "layer": "poi",
+      "text": "Luxury Living",
+      "class": "shop",
+      "rank": 30,
+      "geometry": "point",
+      "x": 320.1,
+      "y": 283.6
+    },
+    {
+      "layer": "poi",
+      "text": "Ovale",
+      "class": "clothing_store",
+      "rank": 30,
+      "geometry": "point",
+      "x": 371.5,
+      "y": 361.6
+    },
+    {
+      "layer": "poi",
+      "text": "Accessorize",
+      "class": "shop",
+      "rank": 31,
+      "geometry": "point",
+      "x": 325.4,
+      "y": 301.1
+    },
+    {
+      "layer": "poi",
+      "text": "Essentials",
+      "class": "shop",
+      "rank": 31,
+      "geometry": "point",
+      "x": 84.9,
+      "y": 333.6
+    },
+    {
+      "layer": "poi",
+      "text": "Dior",
+      "class": "clothing_store",
+      "rank": 31,
+      "geometry": "point",
+      "x": 369.4,
+      "y": 348.3
+    },
+    {
+      "layer": "poi",
+      "text": "Derma Medica",
+      "class": "shop",
+      "rank": 31,
+      "geometry": "point",
+      "x": 220.5,
+      "y": 365.6
+    },
+    {
+      "layer": "poi",
+      "text": "Molteni&C / Dada",
+      "class": "shop",
+      "rank": 32,
+      "geometry": "point",
+      "x": 158.9,
+      "y": 459.9
+    },
+    {
+      "layer": "poi",
+      "text": "Fendi",
+      "class": "clothing_store",
+      "rank": 32,
+      "geometry": "point",
+      "x": 379,
+      "y": 340.1
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbride Mobile & Accessories",
+      "class": "shop",
+      "rank": 32,
+      "geometry": "point",
+      "x": 312.4,
+      "y": 281.8
+    },
+    {
+      "layer": "poi",
+      "text": "Prince's Gate Garden",
+      "class": "garden",
+      "rank": 33,
+      "geometry": "point",
+      "x": 85.5,
+      "y": 292.1
+    },
+    {
+      "layer": "poi",
+      "text": "Dolce & Gabbana",
+      "class": "clothing_store",
+      "rank": 33,
+      "geometry": "point",
+      "x": 381.6,
+      "y": 354.4
+    },
+    {
+      "layer": "poi",
+      "text": "Divertimenti",
+      "class": "shop",
+      "rank": 33,
+      "geometry": "point",
+      "x": 175.8,
+      "y": 441.8
+    },
+    {
+      "layer": "poi",
+      "text": "Swarovski",
+      "class": "shop",
+      "rank": 33,
+      "geometry": "point",
+      "x": 322.6,
+      "y": 305
+    },
+    {
+      "layer": "poi",
+      "text": "Alexandre de Paris",
+      "class": "shop",
+      "rank": 34,
+      "geometry": "point",
+      "x": 358.4,
+      "y": 270.9
+    },
+    {
+      "layer": "poi",
+      "text": "Arthur Morrice",
+      "class": "shop",
+      "rank": 34,
+      "geometry": "point",
+      "x": 272.5,
+      "y": 372.4
+    },
+    {
+      "layer": "poi",
+      "text": "Alexandra Gate",
+      "class": "gate",
+      "rank": 34,
+      "geometry": "point",
+      "x": 26.3,
+      "y": 257.1
+    },
+    {
+      "layer": "poi",
+      "text": "Tod's",
+      "class": "clothing_store",
+      "rank": 34,
+      "geometry": "point",
+      "x": 373.9,
+      "y": 361.5
+    },
+    {
+      "layer": "poi",
+      "text": "The Map House",
+      "class": "shop",
+      "rank": 35,
+      "geometry": "point",
+      "x": 243.8,
+      "y": 412
+    },
+    {
+      "layer": "poi",
+      "text": "Austrian Embassy Commercial Section",
+      "class": "embassy",
+      "rank": 35,
+      "geometry": "point",
+      "x": 39.8,
+      "y": 322
+    },
+    {
+      "layer": "poi",
+      "text": "Russell & Bromley",
+      "class": "shop",
+      "rank": 35,
+      "geometry": "point",
+      "x": 311.5,
+      "y": 320.5
+    },
+    {
+      "layer": "poi",
+      "text": "Versace",
+      "class": "clothing_store",
+      "rank": 35,
+      "geometry": "point",
+      "x": 378.6,
+      "y": 338.1
+    },
+    {
+      "layer": "poi",
+      "text": "Crocket & Jones",
+      "class": "shop",
+      "rank": 36,
+      "geometry": "point",
+      "x": 256,
+      "y": 374.4
+    },
+    {
+      "layer": "poi",
+      "text": "Marni",
+      "class": "clothing_store",
+      "rank": 36,
+      "geometry": "point",
+      "x": 364.9,
+      "y": 341.3
+    },
+    {
+      "layer": "poi",
+      "text": "Exhibition Road Museums",
+      "class": "bicycle_rental",
+      "rank": 36,
+      "geometry": "point",
+      "x": 44.4,
+      "y": 442.8
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Tunisia",
+      "class": "embassy",
+      "rank": 36,
+      "geometry": "point",
+      "x": 39.4,
+      "y": 275.9
+    },
+    {
+      "layer": "poi",
+      "text": "Noura",
+      "class": "grocery",
+      "rank": 36,
+      "geometry": "point",
+      "x": 407.5,
+      "y": 270.9
+    },
+    {
+      "layer": "poi",
+      "text": "Harvey Nichols",
+      "class": "grocery",
+      "rank": 37,
+      "geometry": "point",
+      "x": 375.1,
+      "y": 269.5
+    },
+    {
+      "layer": "poi",
+      "text": "Giuseppe Zanotti",
+      "class": "clothing_store",
+      "rank": 37,
+      "geometry": "point",
+      "x": 418.1,
+      "y": 388.4
+    },
+    {
+      "layer": "poi",
+      "text": "Exhibition Road",
+      "class": "bicycle_rental",
+      "rank": 37,
+      "geometry": "point",
+      "x": 27.8,
+      "y": 330.1
+    },
+    {
+      "layer": "poi",
+      "text": "Jamaican High Commission",
+      "class": "embassy",
+      "rank": 37,
+      "geometry": "point",
+      "x": 20.5,
+      "y": 320.9
+    },
+    {
+      "layer": "poi",
+      "text": "Tom Davies",
+      "class": "shop",
+      "rank": 37,
+      "geometry": "point",
+      "x": 231.8,
+      "y": 363.6
+    },
+    {
+      "layer": "poi",
+      "text": "\"Berlin Wall\"",
+      "class": "garden",
+      "rank": 38,
+      "geometry": "point",
+      "x": 38.1,
+      "y": 198.1
+    },
+    {
+      "layer": "poi",
+      "text": "Mazaya Express",
+      "class": "fast_food",
+      "rank": 38,
+      "geometry": "point",
+      "x": 313.9,
+      "y": 284.8
+    },
+    {
+      "layer": "poi",
+      "text": "Hield",
+      "class": "clothing_store",
+      "rank": 38,
+      "geometry": "point",
+      "x": 421.3,
+      "y": 355.9
+    },
+    {
+      "layer": "poi",
+      "text": "Snappy Snaps",
+      "class": "shop",
+      "rank": 38,
+      "geometry": "point",
+      "x": 241.9,
+      "y": 366.4
+    },
+    {
+      "layer": "poi",
+      "text": "Imperial College Health Centre",
+      "class": "doctors",
+      "rank": 38,
+      "geometry": "point",
+      "x": 84.9,
+      "y": 377.6
+    },
+    {
+      "layer": "poi",
+      "text": "Imperial Ethos Sports Centre",
+      "class": "sports_centre",
+      "rank": 39,
+      "geometry": "point",
+      "x": 54.3,
+      "y": 323.6
+    },
+    {
+      "layer": "poi",
+      "text": "Carphone Warehouse",
+      "class": "shop",
+      "rank": 39,
+      "geometry": "point",
+      "x": 242.5,
+      "y": 368.5
+    },
+    {
+      "layer": "poi",
+      "text": "La Perla",
+      "class": "clothing_store",
+      "rank": 39,
+      "geometry": "point",
+      "x": 386.9,
+      "y": 379.1
+    },
+    {
+      "layer": "poi",
+      "text": "N Peal",
+      "class": "clothing_store",
+      "rank": 39,
+      "geometry": "point",
+      "x": 359.8,
+      "y": 277.1
+    },
+    {
+      "layer": "poi",
+      "text": "Imperial College Dentist",
+      "class": "dentist",
+      "rank": 39,
+      "geometry": "point",
+      "x": 74.1,
+      "y": 379.1
+    },
+    {
+      "layer": "poi",
+      "text": "Shanghai Tang",
+      "class": "clothing_store",
+      "rank": 40,
+      "geometry": "point",
+      "x": 362.8,
+      "y": 294.4
+    },
+    {
+      "layer": "poi",
+      "text": "Stein's Berlin",
+      "class": "restaurant",
+      "rank": 40,
+      "geometry": "point",
+      "x": 44,
+      "y": 346.3
+    },
+    {
+      "layer": "poi",
+      "text": "Holland & Barrett",
+      "class": "grocery",
+      "rank": 40,
+      "geometry": "point",
+      "x": 271.6,
+      "y": 343.5
+    },
+    {
+      "layer": "poi",
+      "text": "Arije",
+      "class": "clothing_store",
+      "rank": 40,
+      "geometry": "point",
+      "x": 386.5,
+      "y": 375
+    },
+    {
+      "layer": "poi",
+      "text": "On",
+      "class": "clothing_store",
+      "rank": 41,
+      "geometry": "point",
+      "x": 446,
+      "y": 345.6
+    },
+    {
+      "layer": "poi",
+      "text": "McDonald's",
+      "class": "fast_food",
+      "rank": 41,
+      "geometry": "point",
+      "x": 235.9,
+      "y": 391.1
+    },
+    {
+      "layer": "poi",
+      "text": "H&M",
+      "class": "clothing_store",
+      "rank": 41,
+      "geometry": "point",
+      "x": 347.4,
+      "y": 275.4
+    },
+    {
+      "layer": "poi",
+      "text": "Ognisko Restaurant",
+      "class": "restaurant",
+      "rank": 41,
+      "geometry": "point",
+      "x": 40.5,
+      "y": 361.4
+    },
+    {
+      "layer": "poi",
+      "text": "Roberto Cavalli",
+      "class": "clothing_store",
+      "rank": 42,
+      "geometry": "point",
+      "x": 363.9,
+      "y": 335.4
+    },
+    {
+      "layer": "poi",
+      "text": "Liu Jo",
+      "class": "clothing_store",
+      "rank": 42,
+      "geometry": "point",
+      "x": 336.5,
+      "y": 285.6
+    },
+    {
+      "layer": "poi",
+      "text": "Gap",
+      "class": "clothing_store",
+      "rank": 42,
+      "geometry": "point",
+      "x": 259.1,
+      "y": 371.4
+    },
+    {
+      "layer": "poi",
+      "text": "Ted Baker",
+      "class": "clothing_store",
+      "rank": 43,
+      "geometry": "point",
+      "x": 313,
+      "y": 318.5
+    },
+    {
+      "layer": "poi",
+      "text": "Mulberry",
+      "class": "clothing_store",
+      "rank": 43,
+      "geometry": "point",
+      "x": 239.6,
+      "y": 388.1
+    },
+    {
+      "layer": "poi",
+      "text": "Eres",
+      "class": "clothing_store",
+      "rank": 43,
+      "geometry": "point",
+      "x": 428.3,
+      "y": 370.5
+    },
+    {
+      "layer": "poi",
+      "text": "La Stupenderia",
+      "class": "clothing_store",
+      "rank": 44,
+      "geometry": "point",
+      "x": 440.5,
+      "y": 351.1
+    },
+    {
+      "layer": "poi",
+      "text": "Reiss",
+      "class": "clothing_store",
+      "rank": 44,
+      "geometry": "point",
+      "x": 247.6,
+      "y": 382.1
+    },
+    {
+      "layer": "poi",
+      "text": "Tom Ford",
+      "class": "clothing_store",
+      "rank": 44,
+      "geometry": "point",
+      "x": 371.3,
+      "y": 294.9
+    },
+    {
+      "layer": "poi",
+      "text": "Bally",
+      "class": "clothing_store",
+      "rank": 45,
+      "geometry": "point",
+      "x": 333.8,
+      "y": 289.5
+    },
+    {
+      "layer": "poi",
+      "text": "Rigby & Peller",
+      "class": "clothing_store",
+      "rank": 45,
+      "geometry": "point",
+      "x": 277.5,
+      "y": 376.1
+    },
+    {
+      "layer": "poi",
+      "text": "College Café",
+      "class": "cafe",
+      "rank": 45,
+      "geometry": "point",
+      "x": 25.1,
+      "y": 365.1
+    },
+    {
+      "layer": "poi",
+      "text": "Lowndes",
+      "class": "clothing_store",
+      "rank": 45,
+      "geometry": "point",
+      "x": 418,
+      "y": 374
+    },
+    {
+      "layer": "poi",
+      "text": "The Deep Listener",
+      "class": "art_gallery",
+      "rank": 46,
+      "geometry": "point",
+      "x": 9.4,
+      "y": 163.8
+    },
+    {
+      "layer": "poi",
+      "text": "Shi Cashmere",
+      "class": "clothing_store",
+      "rank": 46,
+      "geometry": "point",
+      "x": 234.3,
+      "y": 348.5
+    },
+    {
+      "layer": "poi",
+      "text": "Pucci",
+      "class": "clothing_store",
+      "rank": 46,
+      "geometry": "point",
+      "x": 384.6,
+      "y": 368.3
+    },
+    {
+      "layer": "poi",
+      "text": "San Carlo",
+      "class": "clothing_store",
+      "rank": 46,
+      "geometry": "point",
+      "x": 406.8,
+      "y": 266.6
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria & Albert Cafe",
+      "class": "cafe",
+      "rank": 46,
+      "geometry": "point",
+      "x": 77.3,
+      "y": 426.5
+    },
+    {
+      "layer": "poi",
+      "text": "Miu Miu",
+      "class": "clothing_store",
+      "rank": 47,
+      "geometry": "point",
+      "x": 378,
+      "y": 334.4
+    },
+    {
+      "layer": "poi",
+      "text": "Ela",
+      "class": "clothing_store",
+      "rank": 47,
+      "geometry": "point",
+      "x": 207.8,
+      "y": 414.9
+    },
+    {
+      "layer": "poi",
+      "text": "Zara",
+      "class": "clothing_store",
+      "rank": 47,
+      "geometry": "point",
+      "x": 308.1,
+      "y": 324
+    },
+    {
+      "layer": "poi",
+      "text": "Loro Piana",
+      "class": "clothing_store",
+      "rank": 48,
+      "geometry": "point",
+      "x": 374.9,
+      "y": 384.6
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria & Albert Museum",
+      "class": "bicycle_rental",
+      "rank": 48,
+      "geometry": "point",
+      "x": 67.6,
+      "y": 481
+    },
+    {
+      "layer": "poi",
+      "text": "ICICI Bank",
+      "class": "bank",
+      "rank": 48,
+      "geometry": "point",
+      "x": 498.9,
+      "y": 239
+    },
+    {
+      "layer": "poi",
+      "text": "Escada",
+      "class": "clothing_store",
+      "rank": 48,
+      "geometry": "point",
+      "x": 373.6,
+      "y": 307.4
+    },
+    {
+      "layer": "poi",
+      "text": "Lalage Beaumont",
+      "class": "clothing_store",
+      "rank": 48,
+      "geometry": "point",
+      "x": 231.8,
+      "y": 404.1
+    },
+    {
+      "layer": "poi",
+      "text": "Kid Space",
+      "class": "clothing_store",
+      "rank": 49,
+      "geometry": "point",
+      "x": 359,
+      "y": 272.9
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Car Park",
+      "class": "bicycle_rental",
+      "rank": 49,
+      "geometry": "point",
+      "x": 71.4,
+      "y": 139.5
+    },
+    {
+      "layer": "poi",
+      "text": "Louise Kennesy",
+      "class": "clothing_store",
+      "rank": 49,
+      "geometry": "point",
+      "x": 433.5,
+      "y": 375
+    },
+    {
+      "layer": "poi",
+      "text": "Angelo Galasso",
+      "class": "clothing_store",
+      "rank": 49,
+      "geometry": "point",
+      "x": 290,
+      "y": 384.6
+    },
+    {
+      "layer": "poi",
+      "text": "MCM",
+      "class": "clothing_store",
+      "rank": 50,
+      "geometry": "point",
+      "x": 360.5,
+      "y": 281.4
+    },
+    {
+      "layer": "poi",
+      "text": "Coccinelle",
+      "class": "clothing_store",
+      "rank": 50,
+      "geometry": "point",
+      "x": 222.6,
+      "y": 401.1
+    },
+    {
+      "layer": "poi",
+      "text": "Prada",
+      "class": "clothing_store",
+      "rank": 50,
+      "geometry": "point",
+      "x": 374.6,
+      "y": 379
+    },
+    {
+      "layer": "poi",
+      "text": "Kipling",
+      "class": "clothing_store",
+      "rank": 51,
+      "geometry": "point",
+      "x": 342,
+      "y": 279.6
+    },
+    {
+      "layer": "poi",
+      "text": "Mini Park Lane",
+      "class": "car",
+      "rank": 51,
+      "geometry": "point",
+      "x": 501.8,
+      "y": 0
+    },
+    {
+      "layer": "poi",
+      "text": "Rochester Big & Tall",
+      "class": "clothing_store",
+      "rank": 51,
+      "geometry": "point",
+      "x": 276.5,
+      "y": 339.4
+    },
+    {
+      "layer": "poi",
+      "text": "Herve Leger",
+      "class": "clothing_store",
+      "rank": 51,
+      "geometry": "point",
+      "x": 422.8,
+      "y": 386
+    },
+    {
+      "layer": "poi",
+      "text": "Michael Kors",
+      "class": "clothing_store",
+      "rank": 52,
+      "geometry": "point",
+      "x": 365.6,
+      "y": 345.1
+    },
+    {
+      "layer": "poi",
+      "text": "Jitrois",
+      "class": "clothing_store",
+      "rank": 52,
+      "geometry": "point",
+      "x": 363.5,
+      "y": 299
+    },
+    {
+      "layer": "poi",
+      "text": "Emperio Armani",
+      "class": "clothing_store",
+      "rank": 52,
+      "geometry": "point",
+      "x": 218.1,
+      "y": 405.9
+    },
+    {
+      "layer": "poi",
+      "text": "The Flower Bar & School",
+      "class": "bar",
+      "rank": 53,
+      "geometry": "point",
+      "x": 184.8,
+      "y": 435.6
+    },
+    {
+      "layer": "poi",
+      "text": "Agent Provocateur",
+      "class": "clothing_store",
+      "rank": 53,
+      "geometry": "point",
+      "x": 432.3,
+      "y": 423.1
+    },
+    {
+      "layer": "poi",
+      "text": "The Kooples",
+      "class": "clothing_store",
+      "rank": 53,
+      "geometry": "point",
+      "x": 317.1,
+      "y": 312.8
+    },
+    {
+      "layer": "poi",
+      "text": "Baby Dior",
+      "class": "clothing_store",
+      "rank": 54,
+      "geometry": "point",
+      "x": 384,
+      "y": 320.5
+    },
+    {
+      "layer": "poi",
+      "text": "Stewart Parvin",
+      "class": "clothing_store",
+      "rank": 54,
+      "geometry": "point",
+      "x": 443,
+      "y": 348.8
+    },
+    {
+      "layer": "poi",
+      "text": "Luna Café",
+      "class": "cafe",
+      "rank": 54,
+      "geometry": "point",
+      "x": 202.4,
+      "y": 402
+    },
+    {
+      "layer": "poi",
+      "text": "Barclays",
+      "class": "bank",
+      "rank": 55,
+      "geometry": "point",
+      "x": 265.6,
+      "y": 365.5
+    },
+    {
+      "layer": "poi",
+      "text": "Carine Gilson",
+      "class": "clothing_store",
+      "rank": 55,
+      "geometry": "point",
+      "x": 436.3,
+      "y": 426.6
+    },
+    {
+      "layer": "poi",
+      "text": "Boss",
+      "class": "clothing_store",
+      "rank": 55,
+      "geometry": "point",
+      "x": 339.4,
+      "y": 281.8
+    },
+    {
+      "layer": "poi",
+      "text": "Burberry",
+      "class": "clothing_store",
+      "rank": 56,
+      "geometry": "point",
+      "x": 336.3,
+      "y": 269
+    },
+    {
+      "layer": "poi",
+      "text": "Shanghai Knightsbride",
+      "class": "restaurant",
+      "rank": 56,
+      "geometry": "point",
+      "x": 229.9,
+      "y": 379.4
+    },
+    {
+      "layer": "poi",
+      "text": "Rachel Riley",
+      "class": "clothing_store",
+      "rank": 56,
+      "geometry": "point",
+      "x": 435.5,
+      "y": 422.8
+    },
+    {
+      "layer": "poi",
+      "text": "Saint Laurent",
+      "class": "clothing_store",
+      "rank": 57,
+      "geometry": "point",
+      "x": 383.5,
+      "y": 363.4
+    },
+    {
+      "layer": "poi",
+      "text": "Zia Teresa",
+      "class": "restaurant",
+      "rank": 57,
+      "geometry": "point",
+      "x": 282.5,
+      "y": 380.9
+    },
+    {
+      "layer": "poi",
+      "text": "Gucci",
+      "class": "clothing_store",
+      "rank": 57,
+      "geometry": "point",
+      "x": 362.1,
+      "y": 324
+    },
+    {
+      "layer": "poi",
+      "text": "Bottega Veneta",
+      "class": "clothing_store",
+      "rank": 58,
+      "geometry": "point",
+      "x": 370.4,
+      "y": 354.8
+    },
+    {
+      "layer": "poi",
+      "text": "Alnoor Pharmacy",
+      "class": "pharmacy",
+      "rank": 58,
+      "geometry": "point",
+      "x": 213.5,
+      "y": 392.8
+    },
+    {
+      "layer": "poi",
+      "text": "Aquascutum",
+      "class": "clothing_store",
+      "rank": 58,
+      "geometry": "point",
+      "x": 350,
+      "y": 273.1
+    },
+    {
+      "layer": "poi",
+      "text": "Louis Vuitton",
+      "class": "clothing_store",
+      "rank": 59,
+      "geometry": "point",
+      "x": 375.5,
+      "y": 315.6
+    },
+    {
+      "layer": "poi",
+      "text": "Holy Trinity Brompton",
+      "class": "place_of_worship",
+      "rank": 59,
+      "geometry": "point",
+      "x": 137.3,
+      "y": 408.4
+    },
+    {
+      "layer": "poi",
+      "text": "Valentino",
+      "class": "clothing_store",
+      "rank": 59,
+      "geometry": "point",
+      "x": 382.4,
+      "y": 358.1
+    },
+    {
+      "layer": "poi",
+      "text": "Billionaire",
+      "class": "clothing_store",
+      "rank": 60,
+      "geometry": "point",
+      "x": 364.8,
+      "y": 307.3
+    },
+    {
+      "layer": "poi",
+      "text": "Bonhams’ Knightsbridge",
+      "class": "art_gallery",
+      "rank": 60,
+      "geometry": "point",
+      "x": 226.1,
+      "y": 357.3
+    },
+    {
+      "layer": "poi",
+      "text": "The Hari",
+      "class": "lodging",
+      "rank": 60,
+      "geometry": "point",
+      "x": 457.3,
+      "y": 425.6
+    },
+    {
+      "layer": "poi",
+      "text": "Science Museum",
+      "class": "museum",
+      "rank": 61,
+      "geometry": "point",
+      "x": 26.3,
+      "y": 425.1
+    },
+    {
+      "layer": "poi",
+      "text": "L'Opera of Brompton",
+      "class": "cafe",
+      "rank": 61,
+      "geometry": "point",
+      "x": 161.8,
+      "y": 456.8
+    },
+    {
+      "layer": "poi",
+      "text": "Rococo Chocolates",
+      "class": "cafe",
+      "rank": 61,
+      "geometry": "point",
+      "x": 450.8,
+      "y": 352.6
+    },
+    {
+      "layer": "poi",
+      "text": "Lacoste",
+      "class": "clothing_store",
+      "rank": 61,
+      "geometry": "point",
+      "x": 313.9,
+      "y": 295.9
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Colombia",
+      "class": "embassy",
+      "rank": 62,
+      "geometry": "point",
+      "x": 333.3,
+      "y": 362.4
+    },
+    {
+      "layer": "poi",
+      "text": "Beaufort House Apartments",
+      "class": "information",
+      "rank": 62,
+      "geometry": "point",
+      "x": 243.9,
+      "y": 397.8
+    },
+    {
+      "layer": "poi",
+      "text": "Kulu Kulu Sushi",
+      "class": "restaurant",
+      "rank": 62,
+      "geometry": "point",
+      "x": 45.8,
+      "y": 509
+    },
+    {
+      "layer": "poi",
+      "text": "Massimo Dutti",
+      "class": "clothing_store",
+      "rank": 62,
+      "geometry": "point",
+      "x": 315.8,
+      "y": 314.8
+    },
+    {
+      "layer": "poi",
+      "text": "The Diplomat Hotel",
+      "class": "lodging",
+      "rank": 63,
+      "geometry": "point",
+      "x": 469.5,
+      "y": 459
+    },
+    {
+      "layer": "poi",
+      "text": "Richoux",
+      "class": "restaurant",
+      "rank": 63,
+      "geometry": "point",
+      "x": 279.3,
+      "y": 337
+    },
+    {
+      "layer": "poi",
+      "text": "Azagury",
+      "class": "clothing_store",
+      "rank": 63,
+      "geometry": "point",
+      "x": 424.9,
+      "y": 237
+    },
+    {
+      "layer": "poi",
+      "text": "Thai Square",
+      "class": "restaurant",
+      "rank": 63,
+      "geometry": "point",
+      "x": 47.8,
+      "y": 507.9
+    },
+    {
+      "layer": "poi",
+      "text": "Pierino",
+      "class": "restaurant",
+      "rank": 64,
+      "geometry": "point",
+      "x": 41,
+      "y": 512
+    },
+    {
+      "layer": "poi",
+      "text": "Basler",
+      "class": "clothing_store",
+      "rank": 64,
+      "geometry": "point",
+      "x": 324,
+      "y": 303.1
+    },
+    {
+      "layer": "poi",
+      "text": "Consulate General Of Egypt",
+      "class": "embassy",
+      "rank": 64,
+      "geometry": "point",
+      "x": 458.6,
+      "y": 400.1
+    },
+    {
+      "layer": "poi",
+      "text": "L'Eto",
+      "class": "cafe",
+      "rank": 64,
+      "geometry": "point",
+      "x": 160.5,
+      "y": 458.4
+    },
+    {
+      "layer": "poi",
+      "text": "Guess",
+      "class": "clothing_store",
+      "rank": 65,
+      "geometry": "point",
+      "x": 300.9,
+      "y": 315.8
+    },
+    {
+      "layer": "poi",
+      "text": "Petrus",
+      "class": "restaurant",
+      "rank": 65,
+      "geometry": "point",
+      "x": 441.8,
+      "y": 341.4
+    },
+    {
+      "layer": "poi",
+      "text": "Montpeliano",
+      "class": "restaurant",
+      "rank": 65,
+      "geometry": "point",
+      "x": 225.9,
+      "y": 348.8
+    },
+    {
+      "layer": "poi",
+      "text": "Zee Zain",
+      "class": "restaurant",
+      "rank": 65,
+      "geometry": "point",
+      "x": 43.4,
+      "y": 510.5
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Chapel",
+      "class": "place_of_worship",
+      "rank": 66,
+      "geometry": "point",
+      "x": 47.9,
+      "y": 402.4
+    },
+    {
+      "layer": "poi",
+      "text": "Lesotho High Commission",
+      "class": "embassy",
+      "rank": 66,
+      "geometry": "point",
+      "x": 473,
+      "y": 412.4
+    },
+    {
+      "layer": "poi",
+      "text": "Blom Bank France",
+      "class": "bank",
+      "rank": 66,
+      "geometry": "point",
+      "x": 215.8,
+      "y": 408.5
+    },
+    {
+      "layer": "poi",
+      "text": "Karen Millen",
+      "class": "clothing_store",
+      "rank": 66,
+      "geometry": "point",
+      "x": 344.6,
+      "y": 277.5
+    },
+    {
+      "layer": "poi",
+      "text": "Tommy Hilfiger",
+      "class": "clothing_store",
+      "rank": 67,
+      "geometry": "point",
+      "x": 318.5,
+      "y": 310.9
+    },
+    {
+      "layer": "poi",
+      "text": "Holy Trinity Brompton",
+      "class": "bicycle_rental",
+      "rank": 67,
+      "geometry": "point",
+      "x": 159.6,
+      "y": 435.4
+    },
+    {
+      "layer": "poi",
+      "text": "Austrian Embassy",
+      "class": "embassy",
+      "rank": 67,
+      "geometry": "point",
+      "x": 483.5,
+      "y": 388.8
+    },
+    {
+      "layer": "poi",
+      "text": "Bistro Montpelier",
+      "class": "restaurant",
+      "rank": 68,
+      "geometry": "point",
+      "x": 232.8,
+      "y": 367.3
+    },
+    {
+      "layer": "poi",
+      "text": "South Kensington",
+      "class": "entrance",
+      "rank": 68,
+      "geometry": "point",
+      "x": 39.3,
+      "y": 407.3
+    },
+    {
+      "layer": "poi",
+      "text": "Cadogan Hotel",
+      "class": "lodging",
+      "rank": 68,
+      "geometry": "point",
+      "x": 387.5,
+      "y": 441.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Cashmere Shop / House of Scotland",
+      "class": "clothing_store",
+      "rank": 68,
+      "geometry": "point",
+      "x": 331,
+      "y": 293.4
+    },
+    {
+      "layer": "poi",
+      "text": "Caffe Concerto",
+      "class": "cafe",
+      "rank": 69,
+      "geometry": "point",
+      "x": 284,
+      "y": 332.9
+    },
+    {
+      "layer": "poi",
+      "text": "Brunei Darrusalam High Commission",
+      "class": "embassy",
+      "rank": 69,
+      "geometry": "point",
+      "x": 494.6,
+      "y": 389.4
+    },
+    {
+      "layer": "poi",
+      "text": "Bonpoint",
+      "class": "clothing_store",
+      "rank": 69,
+      "geometry": "point",
+      "x": 362.8,
+      "y": 316.1
+    },
+    {
+      "layer": "poi",
+      "text": "The Star Tavern",
+      "class": "beer",
+      "rank": 70,
+      "geometry": "point",
+      "x": 464.4,
+      "y": 385.6
+    },
+    {
+      "layer": "poi",
+      "text": "Anne Fontaine",
+      "class": "clothing_store",
+      "rank": 70,
+      "geometry": "point",
+      "x": 365,
+      "y": 313.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Rembrandt",
+      "class": "lodging",
+      "rank": 70,
+      "geometry": "point",
+      "x": 127.4,
+      "y": 475.4
+    },
+    {
+      "layer": "poi",
+      "text": "Ismaili Centre",
+      "class": "place_of_worship",
+      "rank": 70,
+      "geometry": "point",
+      "x": 63,
+      "y": 496.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Good Earth",
+      "class": "restaurant",
+      "rank": 71,
+      "geometry": "point",
+      "x": 169.8,
+      "y": 447.8
+    },
+    {
+      "layer": "poi",
+      "text": "Dolce & Gabbana",
+      "class": "clothing_store",
+      "rank": 71,
+      "geometry": "point",
+      "x": 362.8,
+      "y": 303.3
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Peru",
+      "class": "embassy",
+      "rank": 71,
+      "geometry": "point",
+      "x": 379,
+      "y": 395.8
+    },
+    {
+      "layer": "poi",
+      "text": "The return of the prodigal",
+      "class": "art_gallery",
+      "rank": 72,
+      "geometry": "point",
+      "x": 158.4,
+      "y": 442.9
+    },
+    {
+      "layer": "poi",
+      "text": "The Osborne Studio Gallery",
+      "class": "art_gallery",
+      "rank": 72,
+      "geometry": "point",
+      "x": 446.5,
+      "y": 355.6
+    },
+    {
+      "layer": "poi",
+      "text": "Joseph",
+      "class": "clothing_store",
+      "rank": 72,
+      "geometry": "point",
+      "x": 363.4,
+      "y": 318.8
+    },
+    {
+      "layer": "poi",
+      "text": "Motcombs",
+      "class": "restaurant",
+      "rank": 73,
+      "geometry": "point",
+      "x": 432.3,
+      "y": 367.8
+    },
+    {
+      "layer": "poi",
+      "text": "Salvatore Ferragamo",
+      "class": "clothing_store",
+      "rank": 73,
+      "geometry": "point",
+      "x": 369.1,
+      "y": 281.1
+    },
+    {
+      "layer": "poi",
+      "text": "Victoria and Albert Museum",
+      "class": "museum",
+      "rank": 73,
+      "geometry": "point",
+      "x": 98.1,
+      "y": 445.8
+    },
+    {
+      "layer": "poi",
+      "text": "The Church of Jesus Christ of Latter-day Saints",
+      "class": "place_of_worship",
+      "rank": 73,
+      "geometry": "point",
+      "x": 49.9,
+      "y": 405.4
+    },
+    {
+      "layer": "poi",
+      "text": "BMW Park Lane",
+      "class": "car",
+      "rank": 74,
+      "geometry": "point",
+      "x": 511.8,
+      "y": 20.9
+    },
+    {
+      "layer": "poi",
+      "text": "L'Eto",
+      "class": "cafe",
+      "rank": 74,
+      "geometry": "point",
+      "x": 436.5,
+      "y": 373.5
+    },
+    {
+      "layer": "poi",
+      "text": "Porsche Design",
+      "class": "clothing_store",
+      "rank": 74,
+      "geometry": "point",
+      "x": 321.3,
+      "y": 307
+    },
+    {
+      "layer": "poi",
+      "text": "Elan café",
+      "class": "cafe",
+      "rank": 74,
+      "geometry": "point",
+      "x": 166.1,
+      "y": 447.6
+    },
+    {
+      "layer": "poi",
+      "text": "Tizard Hall",
+      "class": "lodging",
+      "rank": 75,
+      "geometry": "point",
+      "x": 78.1,
+      "y": 378.5
+    },
+    {
+      "layer": "poi",
+      "text": "San Lorenzo",
+      "class": "restaurant",
+      "rank": 75,
+      "geometry": "point",
+      "x": 264.6,
+      "y": 420.1
+    },
+    {
+      "layer": "poi",
+      "text": "Moncler",
+      "class": "clothing_store",
+      "rank": 75,
+      "geometry": "point",
+      "x": 372.4,
+      "y": 301.1
+    },
+    {
+      "layer": "poi",
+      "text": "Elias",
+      "class": "laundry",
+      "rank": 75,
+      "geometry": "point",
+      "x": 448.3,
+      "y": 354.9
+    },
+    {
+      "layer": "poi",
+      "text": "Selkirk Hall",
+      "class": "lodging",
+      "rank": 76,
+      "geometry": "point",
+      "x": 88.4,
+      "y": 377
+    },
+    {
+      "layer": "poi",
+      "text": "Boots",
+      "class": "pharmacy",
+      "rank": 76,
+      "geometry": "point",
+      "x": 204.4,
+      "y": 418
+    },
+    {
+      "layer": "poi",
+      "text": "Missoni",
+      "class": "clothing_store",
+      "rank": 76,
+      "geometry": "point",
+      "x": 374.1,
+      "y": 310.5
+    },
+    {
+      "layer": "poi",
+      "text": "Errol Douglas",
+      "class": "hairdresser",
+      "rank": 76,
+      "geometry": "point",
+      "x": 438,
+      "y": 353.5
+    },
+    {
+      "layer": "poi",
+      "text": "Crane Kalman Gallery",
+      "class": "art_gallery",
+      "rank": 77,
+      "geometry": "point",
+      "x": 201.3,
+      "y": 402.9
+    },
+    {
+      "layer": "poi",
+      "text": "Falmouth Hall",
+      "class": "lodging",
+      "rank": 77,
+      "geometry": "point",
+      "x": 66.3,
+      "y": 380
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Portugal",
+      "class": "embassy",
+      "rank": 77,
+      "geometry": "point",
+      "x": 470,
+      "y": 357.6
+    },
+    {
+      "layer": "poi",
+      "text": "L.K.Bennett",
+      "class": "clothing_store",
+      "rank": 77,
+      "geometry": "point",
+      "x": 332.4,
+      "y": 291.5
+    },
+    {
+      "layer": "poi",
+      "text": "Miss Sixty",
+      "class": "clothing_store",
+      "rank": 78,
+      "geometry": "point",
+      "x": 308.9,
+      "y": 303.5
+    },
+    {
+      "layer": "poi",
+      "text": "Eastside",
+      "class": "beer",
+      "rank": 78,
+      "geometry": "point",
+      "x": 86.1,
+      "y": 365.6
+    },
+    {
+      "layer": "poi",
+      "text": "Ghana High Commission",
+      "class": "embassy",
+      "rank": 78,
+      "geometry": "point",
+      "x": 476.9,
+      "y": 372.3
+    },
+    {
+      "layer": "poi",
+      "text": "Kartell",
+      "class": "restaurant",
+      "rank": 78,
+      "geometry": "point",
+      "x": 183.4,
+      "y": 437.3
+    },
+    {
+      "layer": "poi",
+      "text": "Al Arez 2",
+      "class": "restaurant",
+      "rank": 79,
+      "geometry": "point",
+      "x": 244.3,
+      "y": 367
+    },
+    {
+      "layer": "poi",
+      "text": "Mosimann's",
+      "class": "restaurant",
+      "rank": 79,
+      "geometry": "point",
+      "x": 450.1,
+      "y": 363
+    },
+    {
+      "layer": "poi",
+      "text": "Fratelli Rossetti",
+      "class": "clothing_store",
+      "rank": 79,
+      "geometry": "point",
+      "x": 373,
+      "y": 304.3
+    },
+    {
+      "layer": "poi",
+      "text": "Ermenegildo Zegna",
+      "class": "clothing_store",
+      "rank": 80,
+      "geometry": "point",
+      "x": 370.6,
+      "y": 291.8
+    },
+    {
+      "layer": "poi",
+      "text": "Wilkinson Hall",
+      "class": "lodging",
+      "rank": 80,
+      "geometry": "point",
+      "x": 86,
+      "y": 337.3
+    },
+    {
+      "layer": "poi",
+      "text": "Natwest",
+      "class": "bank",
+      "rank": 80,
+      "geometry": "point",
+      "x": 198.4,
+      "y": 404.8
+    },
+    {
+      "layer": "poi",
+      "text": "Jumeirah Hotel",
+      "class": "lodging",
+      "rank": 80,
+      "geometry": "point",
+      "x": 401.5,
+      "y": 378.5
+    },
+    {
+      "layer": "poi",
+      "text": "Ermano Scervino",
+      "class": "clothing_store",
+      "rank": 81,
+      "geometry": "point",
+      "x": 371.8,
+      "y": 298
+    },
+    {
+      "layer": "poi",
+      "text": "Grand Café Concerto",
+      "class": "restaurant",
+      "rank": 81,
+      "geometry": "point",
+      "x": 163.8,
+      "y": 454.8
+    },
+    {
+      "layer": "poi",
+      "text": "Jeroboams",
+      "class": "alcohol_shop",
+      "rank": 81,
+      "geometry": "point",
+      "x": 445.6,
+      "y": 420.9
+    },
+    {
+      "layer": "poi",
+      "text": "Linstead Hall",
+      "class": "lodging",
+      "rank": 81,
+      "geometry": "point",
+      "x": 88,
+      "y": 363.1
+    },
+    {
+      "layer": "poi",
+      "text": "Dolce & Gabbana",
+      "class": "clothing_store",
+      "rank": 82,
+      "geometry": "point",
+      "x": 362.1,
+      "y": 289.8
+    },
+    {
+      "layer": "poi",
+      "text": "Café Vienna",
+      "class": "cafe",
+      "rank": 82,
+      "geometry": "point",
+      "x": 166.8,
+      "y": 450.9
+    },
+    {
+      "layer": "poi",
+      "text": "Gabor Hall",
+      "class": "lodging",
+      "rank": 82,
+      "geometry": "point",
+      "x": 86.9,
+      "y": 350.5
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Portugal",
+      "class": "embassy",
+      "rank": 82,
+      "geometry": "point",
+      "x": 479.4,
+      "y": 343
+    },
+    {
+      "layer": "poi",
+      "text": "COS",
+      "class": "clothing_store",
+      "rank": 83,
+      "geometry": "point",
+      "x": 311.9,
+      "y": 298.8
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge Dry Cleaners",
+      "class": "laundry",
+      "rank": 83,
+      "geometry": "point",
+      "x": 172.4,
+      "y": 444.8
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of the Syrian Arab Republic",
+      "class": "embassy",
+      "rank": 83,
+      "geometry": "point",
+      "x": 486.4,
+      "y": 334.3
+    },
+    {
+      "layer": "poi",
+      "text": "Keogh Hall",
+      "class": "lodging",
+      "rank": 83,
+      "geometry": "point",
+      "x": 67.3,
+      "y": 386.6
+    },
+    {
+      "layer": "poi",
+      "text": "Feya",
+      "class": "cafe",
+      "rank": 84,
+      "geometry": "point",
+      "x": 222.5,
+      "y": 385.8
+    },
+    {
+      "layer": "poi",
+      "text": "Alberta Ferretti",
+      "class": "clothing_store",
+      "rank": 84,
+      "geometry": "point",
+      "x": 370,
+      "y": 288.6
+    },
+    {
+      "layer": "poi",
+      "text": "Neville",
+      "class": "hairdresser",
+      "rank": 84,
+      "geometry": "point",
+      "x": 445.9,
+      "y": 425
+    },
+    {
+      "layer": "poi",
+      "text": "Henry the Navigator statue",
+      "class": "monument",
+      "rank": 85,
+      "geometry": "point",
+      "x": 493.6,
+      "y": 356.9
+    },
+    {
+      "layer": "poi",
+      "text": "Harvie & Hudson",
+      "class": "clothing_store",
+      "rank": 85,
+      "geometry": "point",
+      "x": 445.9,
+      "y": 245.4
+    },
+    {
+      "layer": "poi",
+      "text": "Lloyds Bank Knightsbridge",
+      "class": "bank",
+      "rank": 85,
+      "geometry": "point",
+      "x": 265.8,
+      "y": 347.4
+    },
+    {
+      "layer": "poi",
+      "text": "Orsini",
+      "class": "restaurant",
+      "rank": 86,
+      "geometry": "point",
+      "x": 127.9,
+      "y": 469.6
+    },
+    {
+      "layer": "poi",
+      "text": "Laduree",
+      "class": "restaurant",
+      "rank": 86,
+      "geometry": "point",
+      "x": 308,
+      "y": 383.3
+    },
+    {
+      "layer": "poi",
+      "text": "Mandarin Bar",
+      "class": "bar",
+      "rank": 86,
+      "geometry": "point",
+      "x": 362.8,
+      "y": 242.5
+    },
+    {
+      "layer": "poi",
+      "text": "Caffe Nero",
+      "class": "cafe",
+      "rank": 87,
+      "geometry": "point",
+      "x": 247.5,
+      "y": 363.9
+    },
+    {
+      "layer": "poi",
+      "text": "South Kensington",
+      "class": "entrance",
+      "rank": 87,
+      "geometry": "point",
+      "x": 55.4,
+      "y": 499.8
+    },
+    {
+      "layer": "poi",
+      "text": "Blue Bar",
+      "class": "bar",
+      "rank": 87,
+      "geometry": "point",
+      "x": 459.3,
+      "y": 254.8
+    },
+    {
+      "layer": "poi",
+      "text": "Al Maskoof",
+      "class": "restaurant",
+      "rank": 88,
+      "geometry": "point",
+      "x": 307.9,
+      "y": 273.8
+    },
+    {
+      "layer": "poi",
+      "text": "Hair at 38",
+      "class": "hairdresser",
+      "rank": 88,
+      "geometry": "point",
+      "x": 44.8,
+      "y": 510.9
+    },
+    {
+      "layer": "poi",
+      "text": "Chapati & Karak",
+      "class": "cafe",
+      "rank": 88,
+      "geometry": "point",
+      "x": 226.3,
+      "y": 382.5
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Denmark",
+      "class": "embassy",
+      "rank": 88,
+      "geometry": "point",
+      "x": 380.3,
+      "y": 405.8
+    },
+    {
+      "layer": "poi",
+      "text": "Albert Gate",
+      "class": "gate",
+      "rank": 89,
+      "geometry": "point",
+      "x": 402.1,
+      "y": 231
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Iceland",
+      "class": "embassy",
+      "rank": 89,
+      "geometry": "point",
+      "x": 380.4,
+      "y": 410.3
+    },
+    {
+      "layer": "poi",
+      "text": "Zakusočnaâ",
+      "class": "cafe",
+      "rank": 89,
+      "geometry": "point",
+      "x": 260.8,
+      "y": 352
+    },
+    {
+      "layer": "poi",
+      "text": "BBVA",
+      "class": "bank",
+      "rank": 90,
+      "geometry": "point",
+      "x": 228.1,
+      "y": 381
+    },
+    {
+      "layer": "poi",
+      "text": "Mazaya Restaurant",
+      "class": "restaurant",
+      "rank": 90,
+      "geometry": "point",
+      "x": 314.8,
+      "y": 284.4
+    },
+    {
+      "layer": "poi",
+      "text": "Great Flora L",
+      "class": "art_gallery",
+      "rank": 90,
+      "geometry": "point",
+      "x": 490,
+      "y": 413.9
+    },
+    {
+      "layer": "poi",
+      "text": "Scalini",
+      "class": "restaurant",
+      "rank": 91,
+      "geometry": "point",
+      "x": 255.9,
+      "y": 480.8
+    },
+    {
+      "layer": "poi",
+      "text": "EL&N",
+      "class": "cafe",
+      "rank": 91,
+      "geometry": "point",
+      "x": 316.8,
+      "y": 336
+    },
+    {
+      "layer": "poi",
+      "text": "Havana Cigar Exchange",
+      "class": "alcohol_shop",
+      "rank": 91,
+      "geometry": "point",
+      "x": 391.4,
+      "y": 258.1
+    },
+    {
+      "layer": "poi",
+      "text": "Emirates NBD",
+      "class": "bank",
+      "rank": 92,
+      "geometry": "point",
+      "x": 487.4,
+      "y": 241.9
+    },
+    {
+      "layer": "poi",
+      "text": "The Enterprise",
+      "class": "beer",
+      "rank": 92,
+      "geometry": "point",
+      "x": 227.8,
+      "y": 506.3
+    },
+    {
+      "layer": "poi",
+      "text": "Daniel Galvin Jr",
+      "class": "hairdresser",
+      "rank": 92,
+      "geometry": "point",
+      "x": 452.1,
+      "y": 373.5
+    },
+    {
+      "layer": "poi",
+      "text": "McLaren London",
+      "class": "car",
+      "rank": 93,
+      "geometry": "point",
+      "x": 330.9,
+      "y": 254.9
+    },
+    {
+      "layer": "poi",
+      "text": "Sanrizz",
+      "class": "hairdresser",
+      "rank": 93,
+      "geometry": "point",
+      "x": 233.6,
+      "y": 376.3
+    },
+    {
+      "layer": "poi",
+      "text": "Amaya Restaurant",
+      "class": "restaurant",
+      "rank": 93,
+      "geometry": "point",
+      "x": 430.1,
+      "y": 357.6
+    },
+    {
+      "layer": "poi",
+      "text": "Paul",
+      "class": "bakery",
+      "rank": 94,
+      "geometry": "point",
+      "x": 248.9,
+      "y": 362.8
+    },
+    {
+      "layer": "poi",
+      "text": "Pavilion",
+      "class": "parking",
+      "rank": 94,
+      "geometry": "point",
+      "x": 349.1,
+      "y": 341
+    },
+    {
+      "layer": "poi",
+      "text": "Masgouf",
+      "class": "restaurant",
+      "rank": 94,
+      "geometry": "point",
+      "x": 407.5,
+      "y": 256.6
+    },
+    {
+      "layer": "poi",
+      "text": "Haywards",
+      "class": "laundry",
+      "rank": 95,
+      "geometry": "point",
+      "x": 417.4,
+      "y": 372.3
+    },
+    {
+      "layer": "poi",
+      "text": "Shezan",
+      "class": "restaurant",
+      "rank": 95,
+      "geometry": "point",
+      "x": 210.9,
+      "y": 372.5
+    },
+    {
+      "layer": "poi",
+      "text": "The Knightsbridge Cafe",
+      "class": "cafe",
+      "rank": 95,
+      "geometry": "point",
+      "x": 407.4,
+      "y": 258.3
+    },
+    {
+      "layer": "poi",
+      "text": "High Commission of Pakistan",
+      "class": "embassy",
+      "rank": 96,
+      "geometry": "point",
+      "x": 393.1,
+      "y": 347.8
+    },
+    {
+      "layer": "poi",
+      "text": "Amathus",
+      "class": "alcohol_shop",
+      "rank": 96,
+      "geometry": "point",
+      "x": 206.1,
+      "y": 416.4
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of France",
+      "class": "embassy",
+      "rank": 96,
+      "geometry": "point",
+      "x": 413,
+      "y": 234.1
+    },
+    {
+      "layer": "poi",
+      "text": "The Good Life Eatery",
+      "class": "cafe",
+      "rank": 97,
+      "geometry": "point",
+      "x": 427.5,
+      "y": 361.1
+    },
+    {
+      "layer": "poi",
+      "text": "Hawksmoor",
+      "class": "restaurant",
+      "rank": 97,
+      "geometry": "point",
+      "x": 204,
+      "y": 423.8
+    },
+    {
+      "layer": "poi",
+      "text": "London Park Towers Hotel",
+      "class": "parking",
+      "rank": 97,
+      "geometry": "point",
+      "x": 394.5,
+      "y": 260.8
+    },
+    {
+      "layer": "poi",
+      "text": "Hayatt Pharmacy",
+      "class": "pharmacy",
+      "rank": 98,
+      "geometry": "point",
+      "x": 220.4,
+      "y": 403.9
+    },
+    {
+      "layer": "poi",
+      "text": "Millennium Hotel",
+      "class": "lodging",
+      "rank": 98,
+      "geometry": "point",
+      "x": 362.6,
+      "y": 329.8
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "entrance",
+      "rank": 98,
+      "geometry": "point",
+      "x": 355.6,
+      "y": 266.6
+    },
+    {
+      "layer": "poi",
+      "text": "Saint Columba's",
+      "class": "place_of_worship",
+      "rank": 99,
+      "geometry": "point",
+      "x": 289.3,
+      "y": 455.1
+    },
+    {
+      "layer": "poi",
+      "text": "Mari Vanna",
+      "class": "restaurant",
+      "rank": 99,
+      "geometry": "point",
+      "x": 310,
+      "y": 260.9
+    },
+    {
+      "layer": "poi",
+      "text": "Sheraton Belgravia",
+      "class": "lodging",
+      "rank": 99,
+      "geometry": "point",
+      "x": 456.1,
+      "y": 426
+    },
+    {
+      "layer": "poi",
+      "text": "La Dolce Vita",
+      "class": "restaurant",
+      "rank": 100,
+      "geometry": "point",
+      "x": 329.6,
+      "y": 295.4
+    },
+    {
+      "layer": "poi",
+      "text": "Deutsche Evangelische Christuskirche",
+      "class": "place_of_worship",
+      "rank": 100,
+      "geometry": "point",
+      "x": 218.9,
+      "y": 341.1
+    },
+    {
+      "layer": "poi",
+      "text": "Cadogan Square Garden",
+      "class": "garden",
+      "rank": 100,
+      "geometry": "point",
+      "x": 354.1,
+      "y": 511.4
+    },
+    {
+      "layer": "poi",
+      "text": "Hans Place",
+      "class": "garden",
+      "rank": 101,
+      "geometry": "point",
+      "x": 345,
+      "y": 410.3
+    },
+    {
+      "layer": "poi",
+      "text": "Tattersalls Tavern",
+      "class": "beer",
+      "rank": 101,
+      "geometry": "point",
+      "x": 309,
+      "y": 285.8
+    },
+    {
+      "layer": "poi",
+      "text": "Mamounia",
+      "class": "cafe",
+      "rank": 101,
+      "geometry": "point",
+      "x": 231.8,
+      "y": 377.9
+    },
+    {
+      "layer": "poi",
+      "text": "Omniya Ph",
+      "class": "pharmacy",
+      "rank": 102,
+      "geometry": "point",
+      "x": 234.8,
+      "y": 372.9
+    },
+    {
+      "layer": "poi",
+      "text": "Gallery 83",
+      "class": "art_gallery",
+      "rank": 102,
+      "geometry": "point",
+      "x": 432.5,
+      "y": 260.9
+    },
+    {
+      "layer": "poi",
+      "text": "Zafferano",
+      "class": "restaurant",
+      "rank": 102,
+      "geometry": "point",
+      "x": 421.4,
+      "y": 361.5
+    },
+    {
+      "layer": "poi",
+      "text": "Sumosan Twiga",
+      "class": "restaurant",
+      "rank": 103,
+      "geometry": "point",
+      "x": 386.6,
+      "y": 377.3
+    },
+    {
+      "layer": "poi",
+      "text": "Patisserie Valerie",
+      "class": "cafe",
+      "rank": 103,
+      "geometry": "point",
+      "x": 190.5,
+      "y": 429.9
+    },
+    {
+      "layer": "poi",
+      "text": "Capital Hotel",
+      "class": "lodging",
+      "rank": 103,
+      "geometry": "point",
+      "x": 333.6,
+      "y": 323.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Buddha Bar",
+      "class": "restaurant",
+      "rank": 104,
+      "geometry": "point",
+      "x": 327.8,
+      "y": 268.3
+    },
+    {
+      "layer": "poi",
+      "text": "The Bunch of Grapes",
+      "class": "beer",
+      "rank": 104,
+      "geometry": "point",
+      "x": 202.8,
+      "y": 419.5
+    },
+    {
+      "layer": "poi",
+      "text": "Pierre Herme Paris",
+      "class": "ice_cream",
+      "rank": 104,
+      "geometry": "point",
+      "x": 431.1,
+      "y": 373.8
+    },
+    {
+      "layer": "poi",
+      "text": "Mr Chow",
+      "class": "restaurant",
+      "rank": 105,
+      "geometry": "point",
+      "x": 320.9,
+      "y": 268.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Terrace",
+      "class": "restaurant",
+      "rank": 105,
+      "geometry": "point",
+      "x": 426.6,
+      "y": 349.3
+    },
+    {
+      "layer": "poi",
+      "text": "Caffe Concerto",
+      "class": "cafe",
+      "rank": 105,
+      "geometry": "point",
+      "x": 217.9,
+      "y": 389.6
+    },
+    {
+      "layer": "poi",
+      "text": "Brompton Oratory",
+      "class": "place_of_worship",
+      "rank": 106,
+      "geometry": "point",
+      "x": 146,
+      "y": 441.3
+    },
+    {
+      "layer": "poi",
+      "text": "The Park Tower, Knightsbridge",
+      "class": "lodging",
+      "rank": 106,
+      "geometry": "point",
+      "x": 394.9,
+      "y": 262
+    },
+    {
+      "layer": "poi",
+      "text": "The Alfred Tennyson",
+      "class": "beer",
+      "rank": 106,
+      "geometry": "point",
+      "x": 450.6,
+      "y": 341.4
+    },
+    {
+      "layer": "poi",
+      "text": "Haandi",
+      "class": "restaurant",
+      "rank": 107,
+      "geometry": "point",
+      "x": 224.8,
+      "y": 368.4
+    },
+    {
+      "layer": "poi",
+      "text": "Abu Dhabi Islamic Bank",
+      "class": "bank",
+      "rank": 107,
+      "geometry": "point",
+      "x": 341.4,
+      "y": 253.4
+    },
+    {
+      "layer": "poi",
+      "text": "Lowndes Bar & Kitchen",
+      "class": "restaurant",
+      "rank": 107,
+      "geometry": "point",
+      "x": 419.3,
+      "y": 350.6
+    },
+    {
+      "layer": "poi",
+      "text": "Paxton’s Head",
+      "class": "beer",
+      "rank": 108,
+      "geometry": "point",
+      "x": 314,
+      "y": 269.4
+    },
+    {
+      "layer": "poi",
+      "text": "Harrods Car Park",
+      "class": "parking",
+      "rank": 108,
+      "geometry": "point",
+      "x": 284.3,
+      "y": 395.3
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "entrance",
+      "rank": 108,
+      "geometry": "point",
+      "x": 306,
+      "y": 330
+    },
+    {
+      "layer": "poi",
+      "text": "Pret A Manger",
+      "class": "cafe",
+      "rank": 109,
+      "geometry": "point",
+      "x": 235.4,
+      "y": 374.6
+    },
+    {
+      "layer": "poi",
+      "text": "Jumeirah Lowndes Hotel",
+      "class": "lodging",
+      "rank": 109,
+      "geometry": "point",
+      "x": 421.6,
+      "y": 354.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Wilton Arms",
+      "class": "beer",
+      "rank": 109,
+      "geometry": "point",
+      "x": 434.6,
+      "y": 269.9
+    },
+    {
+      "layer": "poi",
+      "text": "Ropston Ltd",
+      "class": "pharmacy",
+      "rank": 110,
+      "geometry": "point",
+      "x": 419.8,
+      "y": 375.4
+    },
+    {
+      "layer": "poi",
+      "text": "Pearls Of Knightsbridge",
+      "class": "laundry",
+      "rank": 110,
+      "geometry": "point",
+      "x": 221.6,
+      "y": 364.9
+    },
+    {
+      "layer": "poi",
+      "text": "Albert Gate",
+      "class": "bicycle_rental",
+      "rank": 110,
+      "geometry": "point",
+      "x": 402.3,
+      "y": 217
+    },
+    {
+      "layer": "poi",
+      "text": "The Gloucester",
+      "class": "beer",
+      "rank": 111,
+      "geometry": "point",
+      "x": 379.8,
+      "y": 329.3
+    },
+    {
+      "layer": "poi",
+      "text": "Nannies' Lawn",
+      "class": "garden",
+      "rank": 111,
+      "geometry": "point",
+      "x": 413.9,
+      "y": 157.8
+    },
+    {
+      "layer": "poi",
+      "text": "R.W. Wolf",
+      "class": "hairdresser",
+      "rank": 111,
+      "geometry": "point",
+      "x": 224.4,
+      "y": 384.1
+    },
+    {
+      "layer": "poi",
+      "text": "Beiteddine",
+      "class": "restaurant",
+      "rank": 112,
+      "geometry": "point",
+      "x": 386.5,
+      "y": 320.1
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Ecuador",
+      "class": "embassy",
+      "rank": 112,
+      "geometry": "point",
+      "x": 337,
+      "y": 365.9
+    },
+    {
+      "layer": "poi",
+      "text": "Paul Edmonds",
+      "class": "hairdresser",
+      "rank": 112,
+      "geometry": "point",
+      "x": 188.1,
+      "y": 432.3
+    },
+    {
+      "layer": "poi",
+      "text": "Bar Boulud",
+      "class": "restaurant",
+      "rank": 113,
+      "geometry": "point",
+      "x": 360.3,
+      "y": 248.6
+    },
+    {
+      "layer": "poi",
+      "text": "QPark Knightsbridge",
+      "class": "parking",
+      "rank": 113,
+      "geometry": "point",
+      "x": 431.8,
+      "y": 332.3
+    },
+    {
+      "layer": "poi",
+      "text": "Halifax",
+      "class": "bank",
+      "rank": 113,
+      "geometry": "point",
+      "x": 258.4,
+      "y": 354.4
+    },
+    {
+      "layer": "poi",
+      "text": "Montpelier Street",
+      "class": "bicycle_rental",
+      "rank": 114,
+      "geometry": "point",
+      "x": 240.8,
+      "y": 371.5
+    },
+    {
+      "layer": "poi",
+      "text": "Cadogan Place NCP",
+      "class": "parking",
+      "rank": 114,
+      "geometry": "point",
+      "x": 412.1,
+      "y": 414.6
+    },
+    {
+      "layer": "poi",
+      "text": "Park Passage Gate",
+      "class": "gate",
+      "rank": 114,
+      "geometry": "point",
+      "x": 299.5,
+      "y": 244.3
+    },
+    {
+      "layer": "poi",
+      "text": "Barclays",
+      "class": "bank",
+      "rank": 115,
+      "geometry": "point",
+      "x": 438.5,
+      "y": 381.5
+    },
+    {
+      "layer": "poi",
+      "text": "HSBC",
+      "class": "bank",
+      "rank": 115,
+      "geometry": "point",
+      "x": 263.4,
+      "y": 349.5
+    },
+    {
+      "layer": "poi",
+      "text": "Starbucks",
+      "class": "cafe",
+      "rank": 115,
+      "geometry": "point",
+      "x": 307.1,
+      "y": 305.8
+    },
+    {
+      "layer": "poi",
+      "text": "Ladurée at Harrods",
+      "class": "cafe",
+      "rank": 116,
+      "geometry": "point",
+      "x": 300.9,
+      "y": 380.6
+    },
+    {
+      "layer": "poi",
+      "text": "Edinburgh Gate",
+      "class": "gate",
+      "rank": 116,
+      "geometry": "point",
+      "x": 314.9,
+      "y": 241.8
+    },
+    {
+      "layer": "poi",
+      "text": "La Casa del Habano",
+      "class": "alcohol_shop",
+      "rank": 117,
+      "geometry": "point",
+      "x": 310.8,
+      "y": 370
+    },
+    {
+      "layer": "poi",
+      "text": "Dinner by Heston Blumenthal",
+      "class": "restaurant",
+      "rank": 117,
+      "geometry": "point",
+      "x": 360.5,
+      "y": 238.9
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Luxembourg",
+      "class": "embassy",
+      "rank": 118,
+      "geometry": "point",
+      "x": 494.6,
+      "y": 288.4
+    },
+    {
+      "layer": "poi",
+      "text": "Pont Street",
+      "class": "bicycle_rental",
+      "rank": 118,
+      "geometry": "point",
+      "x": 335.6,
+      "y": 443.5
+    },
+    {
+      "layer": "poi",
+      "text": "Salloos",
+      "class": "restaurant",
+      "rank": 119,
+      "geometry": "point",
+      "x": 439.3,
+      "y": 264.3
+    },
+    {
+      "layer": "poi",
+      "text": "Saint Paul's Knightsbridge",
+      "class": "place_of_worship",
+      "rank": 120,
+      "geometry": "point",
+      "x": 468.9,
+      "y": 271.6
+    },
+    {
+      "layer": "poi",
+      "text": "Signor Sassi",
+      "class": "restaurant",
+      "rank": 121,
+      "geometry": "point",
+      "x": 311.1,
+      "y": 279.8
+    },
+    {
+      "layer": "poi",
+      "text": "One One Restaurant",
+      "class": "restaurant",
+      "rank": 122,
+      "geometry": "point",
+      "x": 396.9,
+      "y": 254.3
+    },
+    {
+      "layer": "poi",
+      "text": "Seville Street",
+      "class": "bicycle_rental",
+      "rank": 123,
+      "geometry": "point",
+      "x": 385.8,
+      "y": 257.4
+    },
+    {
+      "layer": "poi",
+      "text": "Harriet Street",
+      "class": "bicycle_rental",
+      "rank": 124,
+      "geometry": "point",
+      "x": 389.5,
+      "y": 316
+    },
+    {
+      "layer": "poi",
+      "text": "The Nags Head",
+      "class": "beer",
+      "rank": 125,
+      "geometry": "point",
+      "x": 438.3,
+      "y": 285.4
+    },
+    {
+      "layer": "poi",
+      "text": "The Rose Garden",
+      "class": "garden",
+      "rank": 126,
+      "geometry": "point",
+      "x": 464.6,
+      "y": 178.1
+    },
+    {
+      "layer": "poi",
+      "text": "Roseberry Garden",
+      "class": "garden",
+      "rank": 127,
+      "geometry": "point",
+      "x": 365.8,
+      "y": 234.5
+    },
+    {
+      "layer": "poi",
+      "text": "White Horse Gate",
+      "class": "gate",
+      "rank": 128,
+      "geometry": "point",
+      "x": 464.8,
+      "y": 228.8
+    },
+    {
+      "layer": "poi",
+      "text": "Collins Rooms",
+      "class": "restaurant",
+      "rank": 129,
+      "geometry": "point",
+      "x": 457.5,
+      "y": 248.6
+    },
+    {
+      "layer": "poi",
+      "text": "Serpentine Bar & Kitchen",
+      "class": "restaurant",
+      "rank": 130,
+      "geometry": "point",
+      "x": 372.4,
+      "y": 141.4
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "entrance",
+      "rank": 131,
+      "geometry": "point",
+      "x": 365.9,
+      "y": 261.6
+    },
+    {
+      "layer": "poi",
+      "text": "Hyde Park Playground",
+      "class": "playground",
+      "rank": 132,
+      "geometry": "point",
+      "x": 304.8,
+      "y": 210.9
+    },
+    {
+      "layer": "poi",
+      "text": "Mandarin Oriental Hyde Park",
+      "class": "lodging",
+      "rank": 133,
+      "geometry": "point",
+      "x": 367,
+      "y": 244.6
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "entrance",
+      "rank": 134,
+      "geometry": "point",
+      "x": 358,
+      "y": 267.4
+    },
+    {
+      "layer": "poi",
+      "text": "Bulgari Hotel",
+      "class": "lodging",
+      "rank": 135,
+      "geometry": "point",
+      "x": 301.5,
+      "y": 276.3
+    },
+    {
+      "layer": "poi",
+      "text": "The Dell",
+      "class": "garden",
+      "rank": 136,
+      "geometry": "point",
+      "x": 380,
+      "y": 166
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "bicycle_rental",
+      "rank": 137,
+      "geometry": "point",
+      "x": 478,
+      "y": 226
+    },
+    {
+      "layer": "poi",
+      "text": "Marcus",
+      "class": "restaurant",
+      "rank": 138,
+      "geometry": "point",
+      "x": 460.8,
+      "y": 258
+    },
+    {
+      "layer": "poi",
+      "text": "Albert Gate",
+      "class": "gate",
+      "rank": 139,
+      "geometry": "point",
+      "x": 403.5,
+      "y": 230.9
+    },
+    {
+      "layer": "poi",
+      "text": "Lloyds Bank",
+      "class": "bank",
+      "rank": 140,
+      "geometry": "point",
+      "x": 352.6,
+      "y": 271
+    },
+    {
+      "layer": "poi",
+      "text": "Triga",
+      "class": "art_gallery",
+      "rank": 141,
+      "geometry": "point",
+      "x": 314.1,
+      "y": 293.9
+    },
+    {
+      "layer": "poi",
+      "text": "Wasabi",
+      "class": "restaurant",
+      "rank": 142,
+      "geometry": "point",
+      "x": 305.1,
+      "y": 308.6
+    },
+    {
+      "layer": "poi",
+      "text": "Embassy of Kuwait",
+      "class": "embassy",
+      "rank": 143,
+      "geometry": "point",
+      "x": 397.3,
+      "y": 236.3
+    },
+    {
+      "layer": "poi",
+      "text": "Ishbilia",
+      "class": "restaurant",
+      "rank": 144,
+      "geometry": "point",
+      "x": 407,
+      "y": 262.3
+    },
+    {
+      "layer": "poi",
+      "text": "H.R Owen Ferrari Atelier",
+      "class": "car",
+      "rank": 145,
+      "geometry": "point",
+      "x": 461.4,
+      "y": 244
+    },
+    {
+      "layer": "poi",
+      "text": "Albert Gate",
+      "class": "gate",
+      "rank": 146,
+      "geometry": "point",
+      "x": 400.6,
+      "y": 231.1
+    },
+    {
+      "layer": "poi",
+      "text": "The Grenadier",
+      "class": "beer",
+      "rank": 147,
+      "geometry": "point",
+      "x": 486.4,
+      "y": 272.9
+    },
+    {
+      "layer": "poi",
+      "text": "Knightsbridge",
+      "class": "entrance",
+      "rank": 148,
+      "geometry": "point",
+      "x": 359.4,
+      "y": 253.3
+    },
+    {
+      "layer": "poi",
+      "text": "Burger & Lobster",
+      "class": "restaurant",
+      "rank": 149,
+      "geometry": "point",
+      "x": 374.3,
+      "y": 268.8
+    },
+    {
+      "layer": "poi",
+      "text": "Wagamama",
+      "class": "restaurant",
+      "rank": 150,
+      "geometry": "point",
+      "x": 381.6,
+      "y": 253.8
+    },
+    {
+      "layer": "poi",
+      "text": "Prince Pharmacy Knightsbridge",
+      "class": "pharmacy",
+      "rank": 151,
+      "geometry": "point",
+      "x": 434,
+      "y": 236.4
+    },
+    {
+      "layer": "poi",
+      "text": "Al Basha",
+      "class": "restaurant",
+      "rank": 152,
+      "geometry": "point",
+      "x": 428,
+      "y": 236.6
+    },
+    {
+      "layer": "poi",
+      "text": "The Rush of Green",
+      "class": "art_gallery",
+      "rank": 153,
+      "geometry": "point",
+      "x": 314.1,
+      "y": 240.5
+    },
+    {
+      "layer": "poi",
+      "text": "Mountbatten Copse",
+      "class": "garden",
+      "rank": 154,
+      "geometry": "point",
+      "x": 388.4,
+      "y": 216.4
+    },
+    {
+      "layer": "poi",
+      "text": "Grand Cafe",
+      "class": "cafe",
+      "rank": 155,
+      "geometry": "point",
+      "x": 309.8,
+      "y": 278.1
+    },
+    {
+      "layer": "water_name",
+      "text": "Joy of Life Fountain",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 463.5,
+      "y": 8.9
+    },
+    {
+      "layer": "water_name",
+      "text": "Huntress Fountain",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 478.8,
+      "y": 186.5
+    },
+    {
+      "layer": "water_name",
+      "text": "Boy and Dolphin Fountain",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 495.4,
+      "y": 185
+    },
+    {
+      "layer": "water_name",
+      "text": "The Serpentine",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 232.3,
+      "y": 132.5
+    },
+    {
+      "layer": "water_name",
+      "text": "Diana Memorial Fountain",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 108.9,
+      "y": 153.5
+    },
+    {
+      "layer": "water_name",
+      "text": "The Long Water",
+      "class": "lake",
+      "rank": null,
+      "geometry": "point",
+      "x": 23.9,
+      "y": 22.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "William Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 403.8,
+      "y": 245.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "William Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 402.9,
+      "y": 273.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Unwin Road",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 7.9,
+      "y": 345.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Edinburgh Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 315.4,
+      "y": 260.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Old Barrack Yard",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 473.5,
+      "y": 250.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 109.8,
+      "y": 74.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kinnerton Yard",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 440.5,
+      "y": 306.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cottage Place",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 162.4,
+      "y": 439.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "South Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 261.8,
+      "y": 238.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Road",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 105.8,
+      "y": 83
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Road",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 297.1,
+      "y": 106.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rotten Row",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 177,
+      "y": 184
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rotten Row",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 211.4,
+      "y": 189.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge Green",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 307.9,
+      "y": 278.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "The Broadwalk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 486.3,
+      "y": 88.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Clabon Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 316.3,
+      "y": 465.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 66.1,
+      "y": 117.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 62.6,
+      "y": 111.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 86.1,
+      "y": 74.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Clabon Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 317.3,
+      "y": 469.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Glynde Mews",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 249,
+      "y": 465.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 53.3,
+      "y": 391.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 77.9,
+      "y": 396.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 109,
+      "y": 261.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Eaton Mews North",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 506.5,
+      "y": 489
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lennox Gardens Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 269.1,
+      "y": 505.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Museum Lane",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 44.3,
+      "y": 437.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "New Ride",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 38.4,
+      "y": 233.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 29,
+      "y": 241.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Albert Approach Rd.",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 10.9,
+      "y": 246.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Albert Gate",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 403.8,
+      "y": 232.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Mount Walk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 9.3,
+      "y": 175
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 28.1,
+      "y": 242.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Albert Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 399.9,
+      "y": 225.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ann's Close",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 442.3,
+      "y": 285.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 24.1,
+      "y": 245.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Capener's Close",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 444.4,
+      "y": 293.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Park Close",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 301.4,
+      "y": 253
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 88.8,
+      "y": 75.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 479.3,
+      "y": 461.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 489.4,
+      "y": 458.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 508.4,
+      "y": 440.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 500.5,
+      "y": 439.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 157.3,
+      "y": 263.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Belgrave Mews West",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 483.4,
+      "y": 402.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Grosvenor Estate",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 489,
+      "y": 275
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Halkin Arcade",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 433.5,
+      "y": 354.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Halkin Arcade",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 441.4,
+      "y": 346.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Walk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 354.4,
+      "y": 237.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Place",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 275.6,
+      "y": 395.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Shafto Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 354.5,
+      "y": 463.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Close",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 117.6,
+      "y": 502.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Aldford Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 511.1,
+      "y": 7.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Close",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 482.1,
+      "y": 451.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Motcomb Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 438,
+      "y": 358.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 325,
+      "y": 348.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Crescent",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 308.8,
+      "y": 332.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Old Barrack Yard",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 485.3,
+      "y": 257
+    },
+    {
+      "layer": "transportation_name",
+      "text": "William Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 417,
+      "y": 272.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "William Street",
+      "class": "minor_construction",
+      "rank": null,
+      "geometry": "line",
+      "x": 404,
+      "y": 248.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 474.3,
+      "y": 404.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dorchester Ride",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 472.3,
+      "y": 2.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hyde Park Corner Subway",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 509.8,
+      "y": 230.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Policeman's Walk",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 134.6,
+      "y": 49.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Walk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 272.3,
+      "y": 293.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Place",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 259,
+      "y": 296.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 192.8,
+      "y": 263
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 162.6,
+      "y": 264.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 88.5,
+      "y": 264.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate Mews",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 53.9,
+      "y": 395.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gate",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 48.9,
+      "y": 267.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lovers' Walk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 494.5,
+      "y": 65.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Observatory Rd.",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 18.3,
+      "y": 414.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "North Ride",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 140.9,
+      "y": 84.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Exhibition Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 39,
+      "y": 397.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kinnerton Pl. North",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 435.8,
+      "y": 259.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Flower Walk",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 18.1,
+      "y": 193
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Gardens Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 205.9,
+      "y": 427.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 208.5,
+      "y": 452.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Terrace",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 196.8,
+      "y": 459.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 152,
+      "y": 316
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 170.6,
+      "y": 365
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Eresby House",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 181,
+      "y": 305.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Fairholt Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 200.6,
+      "y": 368.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "First Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 227.9,
+      "y": 510.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Gate Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 194.6,
+      "y": 289.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Glynde Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 255.6,
+      "y": 459
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Moncorvo Close",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 106.8,
+      "y": 315.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Pl.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 209.3,
+      "y": 347.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Terrace",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 203.3,
+      "y": 313.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Walk",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 195.1,
+      "y": 361.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montrose Court",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 44.9,
+      "y": 282.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Albert Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 402.4,
+      "y": 232.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Albert Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 403.5,
+      "y": 242.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Bowland Yard",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 437.8,
+      "y": 267.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pavilion Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 351,
+      "y": 310.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pavilion Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 362,
+      "y": 363.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pavilion Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 370.4,
+      "y": 417.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pavilion Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 393.8,
+      "y": 444.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pont St. Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 315.5,
+      "y": 428.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Raphael Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 275.9,
+      "y": 293.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Raphael Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 309.9,
+      "y": 282.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rysbrack Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 346.9,
+      "y": 350.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Seville Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 389.6,
+      "y": 279.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Stackhouse St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 344,
+      "y": 331.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Studio Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 434.9,
+      "y": 255.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Walton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 314.1,
+      "y": 388.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Halkin St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 453.5,
+      "y": 369.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 462.4,
+      "y": 302.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 507.6,
+      "y": 309.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 511.4,
+      "y": 310.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 489.4,
+      "y": 295.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 450.8,
+      "y": 259.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 479.8,
+      "y": 261.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 458,
+      "y": 287.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 462.5,
+      "y": 293
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Row",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 502.9,
+      "y": 280.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wilton Terrace",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 464.6,
+      "y": 335.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Prince of Wales Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 131.8,
+      "y": 251.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 416.4,
+      "y": 403.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Basil Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 340.6,
+      "y": 315.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Basil Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 317.1,
+      "y": 386.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Beaufort Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 236.5,
+      "y": 380.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 147.4,
+      "y": 385.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 466.1,
+      "y": 443.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 469,
+      "y": 491.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 469.1,
+      "y": 493.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 470,
+      "y": 497.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 473,
+      "y": 497.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cheval Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 224.3,
+      "y": 365.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Belgrave Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 480.1,
+      "y": 356.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Belgrave Mews North",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 467.6,
+      "y": 333.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 424.1,
+      "y": 377.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Grosvenor Cres. Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 497,
+      "y": 252.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Duplex Ride",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 433.9,
+      "y": 250.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Eaton Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 473.9,
+      "y": 503.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Frederic Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 440.3,
+      "y": 277.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Grosvenor Cres. Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 511.9,
+      "y": 264.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Halkin Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 460.1,
+      "y": 351.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Halkin Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 476.4,
+      "y": 365.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Crescent",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 345.9,
+      "y": 362.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 345.8,
+      "y": 391.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 349,
+      "y": 430.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 300.1,
+      "y": 385.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Hans Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 388.5,
+      "y": 414.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Harriet Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 391.8,
+      "y": 316.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Harriet Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 394.9,
+      "y": 314.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Harriet Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 395.1,
+      "y": 317.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Harriet Walk",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 400.5,
+      "y": 363.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Herbert Cres.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 361.8,
+      "y": 372.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kent Yard",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 202.6,
+      "y": 298.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kinnerton Pl. South",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 439.1,
+      "y": 272.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kinnerton St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 440.8,
+      "y": 317.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kinnerton St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 451.8,
+      "y": 263.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 357.4,
+      "y": 260.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge Green",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 313.8,
+      "y": 288.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge Green",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 325.9,
+      "y": 284.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge Green",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 316.9,
+      "y": 293.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lancelot Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 282.9,
+      "y": 323.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Landon Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 342.4,
+      "y": 362.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lennox Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 271.3,
+      "y": 456.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lennox Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 301.4,
+      "y": 447.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lennox Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 281.4,
+      "y": 484.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lennox Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 301.8,
+      "y": 481.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 506.6,
+      "y": 429.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 402.1,
+      "y": 276.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 397.1,
+      "y": 317.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 402.8,
+      "y": 279.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 424.4,
+      "y": 372.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 460,
+      "y": 413.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lowndes Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 468.3,
+      "y": 419.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Mews West",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 484.4,
+      "y": 466.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Lyall Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 479.3,
+      "y": 461.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 242.4,
+      "y": 346.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Sq.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 224.9,
+      "y": 310
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier Sq.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 205.9,
+      "y": 329.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montpelier St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 232,
+      "y": 350.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Motcomb Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 451,
+      "y": 346.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "North Terrace",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 143.1,
+      "y": 485.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ovington Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 220.8,
+      "y": 417.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ovington Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 227.8,
+      "y": 411.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ovington Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 261.4,
+      "y": 445.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 136.5,
+      "y": 319.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 115.1,
+      "y": 368.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 141.8,
+      "y": 355.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 135,
+      "y": 309
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 147.3,
+      "y": 307.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 141.8,
+      "y": 355.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Gardens Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 128.5,
+      "y": 372.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ennismore Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 136.6,
+      "y": 320.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Exhibition Road",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 27.6,
+      "y": 262.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 115.6,
+      "y": 69.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Cres.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 191.6,
+      "y": 505.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 156.8,
+      "y": 462.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 188.6,
+      "y": 475.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Egerton Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 162.3,
+      "y": 470.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Beaufort Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 251,
+      "y": 389.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Beaufort Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 250.5,
+      "y": 393.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 329.5,
+      "y": 443.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 330.6,
+      "y": 450.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 362.4,
+      "y": 484.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Close",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 117.6,
+      "y": 502.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Prince of Wales Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 129.5,
+      "y": 256
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Prince of Wales Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 130.1,
+      "y": 248.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Portland Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 183.3,
+      "y": 293.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Relton Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 220,
+      "y": 357.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 210.4,
+      "y": 301.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gardens Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 217.5,
+      "y": 292.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 167.4,
+      "y": 321.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 173.4,
+      "y": 354.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 184.5,
+      "y": 288.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Gate Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 159.5,
+      "y": 316.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Mews East",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 188.4,
+      "y": 361.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Mews South",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 174.6,
+      "y": 381.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Mews West",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 168.8,
+      "y": 360.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Rutland Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 180,
+      "y": 365.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Sterling Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 209.3,
+      "y": 347.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 245.5,
+      "y": 328.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 239.9,
+      "y": 300.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 282.4,
+      "y": 321.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 257.3,
+      "y": 296.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trevor Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 259,
+      "y": 296.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Walton Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 262.3,
+      "y": 469.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Yeomans row",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 246.4,
+      "y": 465.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Yeoman's Row",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 205.9,
+      "y": 427.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cadogan Place",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 426.6,
+      "y": 383
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Prince of Wales Gate",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 128.5,
+      "y": 250.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "South Carriage Dr.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 406.4,
+      "y": 224.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "South Carriage Dr.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 45.9,
+      "y": 245.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 29.5,
+      "y": 199.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Square",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 147.8,
+      "y": 379
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Prince Consort Rd.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 30.8,
+      "y": 325.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Princes Gardens",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 80.4,
+      "y": 328.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Pl. Mews",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 36.8,
+      "y": 506.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "West Carriage Dr.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 27.6,
+      "y": 262.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kensington Gore",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 5.4,
+      "y": 323.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kensington Gore",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 8.6,
+      "y": 324.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Montrose Court",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 34.6,
+      "y": 282.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Place",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 491,
+      "y": 416.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Place",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 511.8,
+      "y": 399.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesham Place",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 511.1,
+      "y": 398.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pont Street",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 329.5,
+      "y": 443.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Belgrave Square",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 487,
+      "y": 357
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Beauchamp Place",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 284.1,
+      "y": 437.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Sloane Street",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 365.5,
+      "y": 285.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Place",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 95.6,
+      "y": 478.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 150.9,
+      "y": 471.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 339,
+      "y": 261.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 293.8,
+      "y": 263.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cromwell Gardens",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 91.5,
+      "y": 479.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kensington Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 121.5,
+      "y": 255.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Kensington Gore",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 22.9,
+      "y": 263
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 150.4,
+      "y": 477.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 156,
+      "y": 455.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 345.8,
+      "y": 265.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Place",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 51.3,
+      "y": 509
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 437.1,
+      "y": 241.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 401,
+      "y": 246.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 403.5,
+      "y": 242.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 378.6,
+      "y": 252.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 361.8,
+      "y": 255.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 345,
+      "y": 270.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Place",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 110.1,
+      "y": 476.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thurloe Place",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 118.1,
+      "y": 468.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 177.4,
+      "y": 435.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 400,
+      "y": 245
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Park Lane",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 500.5,
+      "y": 10.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 173.6,
+      "y": 433.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Park Lane",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 489,
+      "y": 13.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 471.4,
+      "y": 237
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 476.5,
+      "y": 227.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cromwell Gardens",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 56.5,
+      "y": 488.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cromwell Road",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 0.8,
+      "y": 492.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brompton Road",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 308.6,
+      "y": 314.1
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Cromwell Gardens",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 78.9,
+      "y": 481.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 383.8,
+      "y": 251.9
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Knightsbridge",
+      "class": "trunk",
+      "rank": null,
+      "geometry": "line",
+      "x": 392.4,
+      "y": 246.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Bridge",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 83.8,
+      "y": 80.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Bridge",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 63.5,
+      "y": 109.8
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Serpentine Bridge",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 80.4,
+      "y": 78.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dalby Court",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 5.1,
+      "y": 361.4
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dalby Court",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 13.1,
+      "y": 360.1
+    }
+  ]
+}
