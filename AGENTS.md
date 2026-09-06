@@ -177,6 +177,26 @@ a substring, a size that gets sliced off.
   runner died instead of logging the line the monitor watched for, and the GPU
   sat idle for six hours. Verify the harness, not just the payload:
   `--help`-check every flag *and* the runner's own API.
+* **Check a running experiment every 30-60 minutes.** Not to watch it, but
+  because the alternative is discovering at hour nine that it died in hour
+  one. A nonexistent `Sampler.stop()` once cost six hours of idle GPU; a
+  branch switch once silently swapped the code under two stages of a
+  four-stage chain, and it was only caught because the numbers came back
+  identical to the ones being replaced. Neither was visible from the fact that
+  a process was still alive.
+
+  What to check, in this order, because each catches a different failure:
+
+  1. **the runner's own log** -- is the current stage the one you expect, and
+     has it been running longer than its estimate?
+  2. **the stage log's tail** -- is its mtime recent? A process can be alive
+     and producing nothing.
+  3. **GPU utilisation, sampled several times** -- a single reading lands in
+     the trough of a sawtooth and means nothing.
+  4. **the output artifact** -- does the result file exist and parse?
+
+  A stage that is merely slower than its estimate is fine and common. A stage
+  whose log has not moved in twenty minutes is not.
 * Estimate from prior runs of the same stage, and say what the estimate is
   based on.
 
