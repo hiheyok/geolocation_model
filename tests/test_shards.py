@@ -134,12 +134,13 @@ def test_an_existing_pack_is_never_overwritten(tmp_path):
     assert shards.blobs(["0000/1.jpg"], root=tmp_path, quiet=True) == [b"BYTES:1"]
 
 
-def test_image_bytes_reads_loose_and_packed_together(tmp_path):
+def test_blobs_reads_loose_and_packed_together(tmp_path):
     """A manifest is mixed while a pack run is pending, and consumers took
     only one of the two forms."""
     _pack(tmp_path, 0, ["1", "2"])
     (tmp_path / "3.jpg").write_bytes(b"BYTES:3")
-    got = shards.image_bytes(tmp_path, ["3.jpg", "0000/2.jpg", "0000/1.jpg"])
+    got = shards.blobs(["3.jpg", "0000/2.jpg", "0000/1.jpg"],
+                       root=tmp_path, quiet=True)
     assert got == [b"BYTES:3", b"BYTES:2", b"BYTES:1"]
 
 
@@ -166,3 +167,60 @@ def test_source_of_names_the_file_that_holds_the_bytes(tmp_path):
     """A cache key stamped on the loose path stops existing once it is packed."""
     assert shards.source_of(tmp_path, "0003/5.jpg") == tmp_path / "0003.zip"
     assert shards.source_of(tmp_path, "5.jpg") == tmp_path / "5.jpg"
+
+
+def test_a_string_root_and_a_loose_member_work(tmp_path):
+    """`root` is normalised once, the way `archive` does it. It was used raw
+    for the loose branch, so a string root -- or none at all -- raised
+    TypeError on `root / member` before reaching any archive."""
+    (tmp_path / "5.jpg").write_bytes(b"BYTES:5")
+    assert shards.blobs(["5.jpg"], root=str(tmp_path), quiet=True) == [b"BYTES:5"]
+    got = list(shards.iter_blobs(["5.jpg"], batch=8, root=str(tmp_path),
+                                 quiet=True))
+    assert [b for _, bs in got for b in bs] == [b"BYTES:5"]
+
+
+def test_iter_blobs_agrees_with_blobs_about_loose_members(tmp_path):
+    """`shard_of("5.jpg")` is the whole name, so the batched reader used to
+    look for `5.jpg.zip` where `blobs` read the file."""
+    _pack(tmp_path, 0, ["1", "2"])
+    (tmp_path / "5.jpg").write_bytes(b"BYTES:5")
+    names = ["0000/1.jpg", "5.jpg", "0000/2.jpg"]
+    want = shards.blobs(names, root=tmp_path, quiet=True)
+    seen = {}
+    for sel, got in shards.iter_blobs(names, batch=2, root=tmp_path, quiet=True):
+        seen.update(dict(zip(sel, got)))
+    assert [seen[i] for i in range(len(names))] == want
+
+
+def test_every_manifest_consumer_that_opens_images_uses_the_reader():
+    """A KartaView image's location is whatever its manifest record says.
+
+    Consumers reconstructed `"<id>.jpg"` or opened `rec["file"]` as a path.
+    Both work while the corpus is loose and neither works once it is packed --
+    the first fails only after the originals are deleted, which is later and
+    worse. Four were migrated and a fifth, `eval_highres`, was missed; it
+    raised FileNotFoundError through its own main().
+
+    So the rule is checked rather than remembered: read the manifest and open
+    images, and the images come through `shards`.
+    """
+    import re
+
+    bad = []
+    for path in sorted((ROOT / "scripts").glob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        if "manifest.jsonl" not in src:
+            continue
+        # Only opens of something stored. A harvester decoding bytes it has
+        # just downloaded -- `Image.open(BytesIO(blob))` -- reads nothing from
+        # the corpus and is not a consumer of it.
+        opens = [m for m in re.findall(r"Image\.open\(([^)]*)", src)
+                 if "BytesIO" not in m]
+        if not opens:
+            continue
+        if not re.search(r"\bshards\.", src):
+            bad.append(path.name)
+    assert not bad, (
+        "reads the KartaView manifest and opens images without going through "
+        "shards, so it breaks once the corpus is packed: " + ", ".join(bad))

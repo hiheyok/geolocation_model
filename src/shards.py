@@ -168,6 +168,7 @@ def blobs(members, root=None, min_slurp=MIN_SLURP, quiet=False):
     project's most expensive failure shape.
     """
     members = [str(m) for m in members]
+    root = Path(root) if root else config.TRAIN_ZIPS
     want = defaultdict(list)
     for i, m in enumerate(members):
         want["" if "/" not in m else shard_of(m)].append(i)
@@ -221,9 +222,18 @@ def iter_blobs(members, batch=256, root=None, min_slurp=MIN_SLURP, quiet=False):
     open across the batches yielded from it.
     """
     members = [str(m) for m in members]
+    root = Path(root) if root else config.TRAIN_ZIPS
     want = defaultdict(list)
     for i, m in enumerate(members):
-        want[shard_of(m)].append(i)
+        want["" if "/" not in m else shard_of(m)].append(i)
+
+    # Loose members first, in batches, so this agrees with `blobs` about what
+    # a bare name means. Without it `shard_of("12345.jpg")` is the whole name
+    # and the reader looks for `12345.jpg.zip`.
+    loose = want.pop("", None) or []
+    for s_ in range(0, len(loose), batch):
+        sel = loose[s_:s_ + batch]
+        yield sel, [(root / members[i]).read_bytes() for i in sel]
 
     for shard, idxs in sorted(want.items()):
         big = len(idxs) >= min_slurp
@@ -233,34 +243,6 @@ def iter_blobs(members, batch=256, root=None, min_slurp=MIN_SLURP, quiet=False):
             for s in range(0, len(idxs), batch):
                 sel = idxs[s:s + batch]
                 yield sel, [_read(zf, members[i], shard) for i in sel]
-
-
-def image_bytes(root, names, quiet=True):
-    """Bytes for manifest `file` values, loose or packed, in caller order.
-
-    A KartaView manifest record's `file` is either a bare `"12345.jpg"` while
-    the image is still loose or a `"0003/12345.jpg"` member path once it has
-    been packed. Consumers used `Image.open(root / rec["file"])`, which reads
-    the first and cannot read the second, so publishing packed paths broke
-    them; others hardcoded `f"{id}.jpg"` and broke only once the originals
-    were deleted, which is worse because it is later.
-
-    One accessor takes both, so a consumer does not have to know which state
-    the corpus is in -- and the packed ones go through `blobs`, so a pack is
-    opened once for all the members wanted from it rather than once per image.
-    """
-    root = Path(root)
-    names = [str(n) for n in names]
-    out = [None] * len(names)
-    packed = [i for i, n in enumerate(names) if "/" in n]
-    for i, n in enumerate(names):
-        if "/" not in n:
-            out[i] = (root / n).read_bytes()
-    if packed:
-        got = blobs([names[i] for i in packed], root=root, quiet=quiet)
-        for i, b in zip(packed, got):
-            out[i] = b
-    return out
 
 
 class Reader:

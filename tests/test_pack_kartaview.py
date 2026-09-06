@@ -95,7 +95,8 @@ def test_consumers_can_read_what_the_manifest_publishes(tmp_path):
     run(tmp_path, "--delete-originals")
     recs = pk.read_manifest(tmp_path / "manifest.jsonl")
     img = tmp_path / "img"
-    assert shards.image_bytes(img, [r["file"] for r in recs]) == \
+    assert shards.blobs([r["file"] for r in recs], root=img,
+                        quiet=True) == \
         [b"BYTES:1", b"BYTES:2"]
     with shards.Reader(img) as rd:
         assert [rd.read(r["file"]) for r in recs] == [b"BYTES:1", b"BYTES:2"]
