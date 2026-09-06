@@ -641,6 +641,42 @@ conditional blend; a single global constant keeps winning.
 
 ## 9c. Two claims of mine that are weaker than I presented them
 
+**NEW 2026-09-05: six k-NN caches on disk still carry the same-sequence leak,
+and the 1536-d corpus curve rests on them.** REVIEW6 #4's check, run against
+every cache in `cache/street/s10`, fails six of nineteen:
+
+| cache | same-sequence slots |
+|---|---|
+| `knn_dual_bal_bank25_sequence_k32_bank_ext` | 406,882 / 16M (2.5%) |
+| `knn_dual_c3_bank25_cell8_k32_bank_ext` | 326,016 / 16M (2.0%) |
+| `knn_dual_c3_bank25_sequence_k32_bank_ext` | 394,190 / 16M (2.5%) |
+| `knn_pool_bal_bank25_cell8_k32_bank_ext` | 332,462 / 16M (2.1%) |
+| `knn_pool_bal_bank25_sequence_k32_bank_ext` | 402,072 / 16M (2.5%) |
+| `knn_pool_bal_bank40_sequence_k32_bank_ext40` | 740,874 / 16M (4.6%) |
+| `knn_pool_bal_bank55_sequence_k32_bank_ext55` | 1,037,257 / 16M (6.5%) |
+
+The leak rate **grows with the bank**, which is the signature of §7: exclusion
+stopped applying across the corpus boundary, so the larger the extension the
+more of it leaked. The `pca768` line was rebuilt clean on 2026-09-04 and the
+`pyr768` caches were built after the fix — so **§9b's tiles headline and the
+768-d results in `BOOTSTRAP_seqfix_all.md` are clean**. What is not clean is
+the older 1536-d `pool_bal` line, and unlike their `pca768` siblings these six
+were never renamed `.LEAKY-preseqfix`, so nothing marked them.
+
+**What this touches.** `BOOTSTRAP_bank25.md`, `BOOTSTRAP_bank40.md` and
+`BOOTSTRAP_bank55.md` — the 1536-d corpus-scaling curve — and through them the
+"corpus still pays at 2M, +6.50 pp" claim. Every point on that curve leaks, and
+leaks *more* at the larger banks, so the slope is biased in the direction of
+the conclusion. It is not refuted; it is unmeasured. The `cell8` line is in the
+same position (`knn_dual_c3_bank25_cell8_k32_bank_ext`).
+
+**Consequence for what runs next.** The check is fatal, so `cell8.py`,
+`bank25.py` and `after.py` will now refuse to start until their caches are
+rebuilt. That is deliberate — `build_knn` masks every same-sequence pair to
+-2.0 and then refuses to emit a slot at -2.0, so zero is the contract, not a
+tolerance. **The six were not renamed and not deleted; that is your call.**
+
+
 **`RESMATCH`'s "resolution is inert" needs re-measuring.** Arm 3 was DINOv2 at
 its genuine native 518 paired with `vit_base_patch16_siglip_224.v2_webli` run
 at `img_size=512` — a 224 checkpoint with interpolated position embeddings, not

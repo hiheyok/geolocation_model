@@ -268,6 +268,78 @@ def _check_fetched(done_p, tok_row, zs, n_neg, split):
             .format(len(miss), len(used), split, done_p))
 
 
+def _check_neighbours(idx, z, what, n_addr, rel_seq, ext_seq):
+    """In range is not in the bank, and not the query is not a different drive.
+
+    The range check that was here established only that every neighbour id
+    resolves to *some* row of the address tables. Three things it cannot see,
+    all of which leave every index non-negative, in range, and ordinary
+    (REVIEW6 #4):
+
+    **Not in the bank.** `bank_rows` records which rows were searched. A cache
+    can name a clean train bank there and still carry val or test rows in
+    `idx`; the ids are perfectly valid rows of the release. Held-out images
+    would then be retrieved into training and evaluation as neighbours.
+
+    **The query itself.** A query that retrieves its own row scores a cosine of
+    1.0 against a photograph whose z16 address is the answer. That is not a
+    subtle leak; it is the label.
+
+    **Its own sequence.** OSV-5M captures run consecutively along a road, so a
+    same-sequence neighbour is a near-duplicate frame metres away. `build_knn`
+    masks those to -2.0 before the top-k, over release and extension together,
+    for every split mode. Nothing downstream ever confirmed it happened -- and
+    when this exclusion was found to be missing from the *bank*, it was worth
+    18 points of the headline. A silent regression in the builder would look
+    exactly like a good result.
+
+    Checked in full rather than sampled: the whole comparison is one gather and
+    one equality over the 16M ids a 500k x 32 cache holds, which is under two
+    seconds including the sequence encode.
+    """
+    rows = knnmeta.bank_rows(z, n_addr, what)
+    if rows is None:
+        print("warning: {} records no bank_rows, so its neighbours cannot be "
+              "checked for membership in the bank it searched".format(what),
+              flush=True)
+    else:
+        member = np.zeros(n_addr, bool)
+        member[rows] = True
+        off = ~member[idx]
+        if off.any():
+            bad = np.unique(idx[off])
+            raise SystemExit(
+                "{}: {:,} of {:,} cached neighbours are not in the {:,} rows "
+                "the cache says it searched (e.g. {}). Every one is a valid, "
+                "in-range row, so nothing else would have noticed -- but rows "
+                "outside the bank are the split's held-out side."
+                .format(what, int(off.sum()), idx.size, len(rows),
+                        ", ".join(str(int(b)) for b in bad[:5])))
+
+    q = np.arange(idx.shape[0], dtype=np.int64)
+    if (idx == q[:, None]).any():
+        n = int((idx == q[:, None]).any(1).sum())
+        raise SystemExit(
+            "{}: {:,} queries retrieve their own row. A self match is a cosine "
+            "of 1.0 against the answer's own z16 address.".format(what, n))
+
+    seq = rel_seq if ext_seq is None else np.concatenate([rel_seq, ext_seq])
+    if len(seq) != n_addr:
+        raise SystemExit(
+            "{}: {:,} sequence labels for {:,} addressable rows; the release "
+            "and the bank extension disagree about how many images there are."
+            .format(what, len(seq), n_addr))
+    _, sid = np.unique(seq, return_inverse=True)
+    same = sid[idx] == sid[q][:, None]
+    if same.any():
+        raise SystemExit(
+            "{}: {:,} of {:,} cached neighbours share their query's sequence. "
+            "OSV-5M captures run consecutively along a road, so those are "
+            "near-duplicate frames metres from the query -- build_knn masks "
+            "them to -2.0 before the top-k, and this cache has them anyway."
+            .format(what, int(same.sum()), idx.size))
+
+
 class GeoStepDataset(Dataset):
     def __init__(self, split="train", g=tm.G, steps=tm.STEPS, cache=None,
                  street_file=None, n_neg=0, neg_seed=0,
@@ -396,6 +468,7 @@ class GeoStepDataset(Dataset):
         if knn_k:
             z = np.load(config.STREET_CACHE / knn_file)
             ext = str(z["bank_ext"]) if "bank_ext" in z else ""
+            ext_seq = None
             if ext:
                 # neighbours may live past the release: extend the address
                 # tables so nbr index n+i resolves to the extension row i
@@ -404,6 +477,7 @@ class GeoStepDataset(Dataset):
                     [self.all_x16, m["x16"].astype(self.all_x16.dtype)])
                 self.all_y16 = np.concatenate(
                     [self.all_y16, m["y16"].astype(self.all_y16.dtype)])
+                ext_seq = np.asarray(m["sequence"]).astype("U40")
             # build_knn records five things about how the cache was made and
             # only one of them was ever checked.  Each of the others is a way
             # for the wrong neighbours to arrive silently, and none of them
@@ -483,8 +557,26 @@ class GeoStepDataset(Dataset):
                     "address tables have {:,} rows; a negative index would "
                     "read from the end and a large one is out of range."
                     .format(lo, hi, len(self.all_x16)))
+            _check_neighbours(idx_all, z, knn_file, len(self.all_x16),
+                              np.asarray(ds["sequence"].to_pylist(),
+                                         dtype=object).astype("U40"),
+                              ext_seq)
+            sim_all = z["sim"][:, :knn_k].astype(np.float32)
+            if sim_all.shape != idx_all.shape:
+                raise SystemExit(
+                    "{}: idx is {} but sim is {}. They are read with the same "
+                    "row index at item time, so the shorter one decides which "
+                    "rows raise and which silently pair a neighbour with "
+                    "another query's similarity."
+                    .format(knn_file, idx_all.shape, sim_all.shape))
+            if not np.isfinite(sim_all).all():
+                raise SystemExit(
+                    "{}: {:,} of the cached similarities are not finite. They "
+                    "become retrieval weights through a softmax, where a NaN "
+                    "silently takes the whole distribution with it."
+                    .format(knn_file, int((~np.isfinite(sim_all)).sum())))
             self.knn_idx = idx_all
-            self.knn_sim = z["sim"][:, :knn_k].astype(np.float32)
+            self.knn_sim = sim_all
 
         self.uv = np.stack([u[keep][:, steps], v[keep][:, steps]], 1)
         self.x0 = x0[keep]
