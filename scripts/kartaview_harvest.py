@@ -50,7 +50,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from pathlib import Path
@@ -104,6 +104,46 @@ def fetch(url, tries=2):
                 return None
             time.sleep(1.0)
     return None
+
+
+class DriveGaps:
+    """Every shot time kept per drive, so a candidate is compared with all.
+
+    Only the most recent was retained, and a candidate was compared with that
+    one alone. At `--per-sequence 3 --min-gap-s 30`, frames at 0 s, 60 s and
+    1 s were all accepted: the third was measured against 60 s and never
+    against 0 s, so the run kept two frames one second apart -- exactly the
+    near-duplicate the gap exists to reject. Resuming had the same shape,
+    because seeding took `max()` over the records already on disk.
+
+    A drive holds at most `--per-sequence` frames in a fresh run, so the
+    linear scan is over a handful of values.
+    """
+
+    def __init__(self, min_gap_s, times=None):
+        self.min_gap_s = min_gap_s
+        self.times = defaultdict(list)
+        for sid, ts in (times or {}).items():
+            self.times[sid] = list(ts)
+
+    def seed(self, records):
+        for r in records:
+            if r:
+                self.record(str(r.get("sequence_id")),
+                            shot_seconds(r.get("shot_date")))
+
+    def allows(self, sid, t):
+        """True if `t` is at least the gap away from every frame kept."""
+        if t is None:
+            return True                 # unknown time cannot satisfy a gap
+        return all(abs(t - p) >= self.min_gap_s for p in self.times.get(sid, ()))
+
+    def record(self, sid, t):
+        if t is not None:
+            self.times[sid].append(t)
+
+    def copy(self):
+        return DriveGaps(self.min_gap_s, self.times)
 
 
 def shot_seconds(v):
@@ -239,14 +279,10 @@ def main():
     # frames that would be dropped afterwards.
     seq_count = Counter(r["sequence_id"] for r in have.values())
     per_seed = Counter()
-    # Latest committed shot time per drive, seeded from what is already on
+    # EVERY committed shot time per drive, seeded from what is already on
     # disk so a resumed harvest honours the gap across runs.
-    seq_last_t = {}
-    for r in have.values():
-        t = shot_seconds(r.get("shot_date"))
-        if t is not None:
-            sid = str(r["sequence_id"])
-            seq_last_t[sid] = max(t, seq_last_t.get(sid, t))
+    gaps = DriveGaps(a.min_gap_s)
+    gaps.seed(have.values())
 
     def eligible(d):
         """Everything decidable before any bytes move."""
@@ -273,7 +309,9 @@ def main():
         # frame that fails to download must not consume its drive's gap and
         # suppress a later valid candidate (item 67).
         pseq, pseed, out_ = Counter(seq_count), Counter(per_seed), []
-        last_t = dict(seq_last_t)
+        # A copy: these are candidates, and only the ones that download
+        # successfully are committed to `gaps` below.
+        provisional = gaps.copy()
         for i, d in cand:
             if len(out_) >= budget:
                 break
@@ -291,10 +329,9 @@ def main():
             # temporal gap as well as a cap.
             t = shot_seconds(d.get("shot_date"))
             if a.per_sequence > 1 and t is not None:
-                prev = last_t.get(sid)
-                if prev is not None and abs(t - prev) < a.min_gap_s:
+                if not provisional.allows(sid, t):
                     continue
-                last_t[sid] = t
+                provisional.record(sid, t)
             pseq[sid] += 1
             pseed[i] += 1
             out_.append((i, d))
@@ -354,9 +391,8 @@ def main():
                     with lock:
                         seq_count[rec["sequence_id"]] += 1
                         per_seed[i] += 1
-                        _t = shot_seconds(rec.get("shot_date"))
-                        if _t is not None:
-                            seq_last_t[str(rec["sequence_id"])] = _t
+                        gaps.record(str(rec["sequence_id"]),
+                                    shot_seconds(rec.get("shot_date")))
                         have[rec["id"]] = rec
                         fh.write(json.dumps(rec) + "\n")
                         kept.append(rec)
