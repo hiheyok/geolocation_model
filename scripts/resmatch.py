@@ -59,8 +59,16 @@ D_ENC = 768
 # (spec, patch, size). Sizes chosen per encoder, not shared -- see the module
 # docstring. DINOv2's default img_size really is 518; the pipeline has been
 # overriding it to 224 since the beginning.
+#
+# The SigLIP entry was `vit_base_patch16_siglip_224.v2_webli` run at
+# img_size=512: a 224 checkpoint with interpolated position embeddings, which
+# is out of distribution rather than native (REVIEW5 #10). That made the
+# resolution arms unreadable -- "more pixels do not help" and "this checkpoint
+# cannot use them" look identical. `timm` ships a real 512 checkpoint and
+# `embed_native` already uses it, so the native arms now get an encoder at
+# home rather than one extrapolating.
 ENCODERS = [("vit_base_patch14_dinov2.lvd142m", 14, 518),
-            ("vit_base_patch16_siglip_224.v2_webli", 16, 512)]
+            ("vit_base_patch16_siglip_512.v2_webli", 16, 512)]
 
 
 def nrm(t):
