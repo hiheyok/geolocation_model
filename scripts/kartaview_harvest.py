@@ -378,9 +378,19 @@ def main():
         print("nothing harvested")
         return
     mp = np.array([r["w"] * r["h"] for r in kept]) / 1e6
-    gb = sum((out / "img" / r["file"]).stat().st_size for r in kept) / 1e9
-    print("\n{:,} images  {:.1f} GB  in {:.0f}s".format(
-        len(kept), gb, time.time() - t0))
+    # `kept` starts from the records already in the manifest, and those may
+    # have been packed since -- `img/0000/123.jpg` is a member path, not a
+    # file, so statting it raised FileNotFoundError on every resumed harvest
+    # after a packing run. Size what is loose and say how much is not, rather
+    # than open every pack for a summary line.
+    loose = [out / "img" / str(r["file"]) for r in kept
+             if "/" not in str(r["file"])]
+    gb = sum(p.stat().st_size for p in loose if p.exists()) / 1e9
+    packed = len(kept) - len(loose)
+    print("\n{:,} images  {:.1f} GB loose{}  in {:.0f}s".format(
+        len(kept), gb,
+        "" if not packed else "  ({:,} already packed)".format(packed),
+        time.time() - t0))
     print("  megapixels  median {:.1f}  min {:.1f}  max {:.1f}   "
           "(OSV-5M is 0.35)".format(np.median(mp), mp.min(), mp.max()))
     print("  sequences   {:,}   empty seeds {}   rejected as small {}".format(
