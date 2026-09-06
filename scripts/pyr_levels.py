@@ -140,7 +140,17 @@ def main():
     h = np.array([zlib.crc32(s.encode()) % 100 for s in uq])
     qseq = set(uq[h < 12].tolist())
     is_q = np.array([s in qseq for s in seq])
-    te = np.flatnonzero(is_q)[:a.queries]
+    # A seeded RANDOM sample, not the first n. `dataset.parquet` is written in
+    # shard order, so the leading test rows are a different continent mix and a
+    # denser one: the first 3,000 are BR/AR/ZA with a median nearest legal bank
+    # row of 0.212 km, against US/DE/RU and 0.337 km for a random 3,000. Rank-1
+    # retrieval scores 56.4% on that head and 49.4% on a random draw -- a 7 pp
+    # gap that was published as a fact about the system. Pairing does not
+    # repair it: a paired interval on a biased cohort estimates the effect on
+    # that cohort. Seeded so arms stay comparable across runs.
+    _te = np.flatnonzero(is_q)
+    te = _te[np.sort(np.random.default_rng(config.SPLIT_SEED).choice(
+        len(_te), min(a.queries, len(_te)), replace=False))]
     tr = np.flatnonzero(~is_q)
     sid = {s: i for i, s in enumerate(uq)}
     seq_i = np.array([sid[s] for s in seq], np.int64)
