@@ -22,6 +22,7 @@ cannot see.
 """
 
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -32,6 +33,19 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import multiquery as mq  # noqa: E402
+
+
+def stamp(data, pick):
+    """`query_stamp` now takes the manifest records, so that a packed image is
+    stamped on the pack that holds it rather than on a loose path that stops
+    existing. These fixtures predate the `file` field; `file_of` resolves that.
+    """
+    import multiquery as mq
+    recs = {r["id"]: r for r in
+            (json.loads(l) for l in
+             (Path(data) / "manifest.jsonl").read_text(
+                 encoding="utf-8").splitlines() if l.strip())}
+    return mq.query_stamp(data, pick, recs)
 
 
 @pytest.fixture
@@ -69,14 +83,14 @@ def bump(p, body):
 
 
 def test_the_same_inputs_give_the_same_stamp(data):
-    assert mq.query_stamp(data, ["a", "b"]) == mq.query_stamp(data, ["a", "b"])
+    assert stamp(data, ["a", "b"]) == stamp(data, ["a", "b"])
 
 
 def test_replacing_a_selected_image_invalidates(data):
     """The bug: same manifest, same ids, different pixels."""
-    before = mq.query_stamp(data, ["a", "b"])
+    before = stamp(data, ["a", "b"])
     bump(Path(data) / "img" / "a.jpg", b"jpeg-a-corrected")
-    assert mq.query_stamp(data, ["a", "b"]) != before
+    assert stamp(data, ["a", "b"]) != before
 
 
 def test_replacing_an_unselected_image_does_not_invalidate(data):
@@ -84,9 +98,9 @@ def test_replacing_an_unselected_image_does_not_invalidate(data):
 
     Otherwise every harvest touching any file re-embeds the whole selection.
     """
-    before = mq.query_stamp(data, ["a", "b"])
+    before = stamp(data, ["a", "b"])
     bump(Path(data) / "img" / "c.jpg", b"jpeg-c-corrected")
-    assert mq.query_stamp(data, ["a", "b"]) == before
+    assert stamp(data, ["a", "b"]) == before
 
 
 def test_a_touched_file_invalidates(data):
@@ -95,18 +109,18 @@ def test_a_touched_file_invalidates(data):
     A re-download that produced identical bytes will re-embed needlessly. That
     costs time; the reverse would cost correctness.
     """
-    before = mq.query_stamp(data, ["a", "b"])
+    before = stamp(data, ["a", "b"])
     bump(Path(data) / "img" / "a.jpg", b"jpeg-a")     # same bytes, new mtime
-    assert mq.query_stamp(data, ["a", "b"]) != before
+    assert stamp(data, ["a", "b"]) != before
 
 
 def test_order_matters(data):
     """The vectors are written in `pick` order, so the stamp is ordered too."""
-    assert mq.query_stamp(data, ["a", "b"]) != mq.query_stamp(data, ["b", "a"])
+    assert stamp(data, ["a", "b"]) != stamp(data, ["b", "a"])
 
 
 def test_a_different_selection_gives_a_different_stamp(data):
-    assert mq.query_stamp(data, ["a", "b"]) != mq.query_stamp(data, ["a", "c"])
+    assert stamp(data, ["a", "b"]) != stamp(data, ["a", "c"])
 
 
 def test_equal_size_and_mtime_is_a_known_blind_spot(tmp_path, monkeypatch):
@@ -128,23 +142,23 @@ def test_equal_size_and_mtime_is_a_known_blind_spot(tmp_path, monkeypatch):
         f = tmp_path / "img" / (i + ".jpg")
         f.write_bytes(b"same-size!")
         os.utime(f, ns=(1_000_000_000, 1_000_000_000))
-    assert (mq.query_stamp(str(tmp_path), ["p"])
-            == mq.query_stamp(str(tmp_path), ["q"]))
+    assert (stamp(str(tmp_path), ["p"])
+            == stamp(str(tmp_path), ["q"]))
 
 
 def test_a_missing_image_does_not_raise_but_does_differ(data):
     """`file_stamp` reports absence rather than throwing, and absence is a
     different build -- the cache must not be reused across it."""
-    before = mq.query_stamp(data, ["a", "b"])
+    before = stamp(data, ["a", "b"])
     (Path(data) / "img" / "a.jpg").unlink()
-    assert mq.query_stamp(data, ["a", "b"]) != before
+    assert stamp(data, ["a", "b"]) != before
 
 
 def test_the_manifest_and_basis_still_count(data):
     """The checks that already worked must not have been lost in the change."""
-    before = mq.query_stamp(data, ["a", "b"])
+    before = stamp(data, ["a", "b"])
     bump(Path(data) / "manifest.jsonl", b'{"id": "a"}\n{"id": "b"}\n')
-    mid = mq.query_stamp(data, ["a", "b"])
+    mid = stamp(data, ["a", "b"])
     assert mid != before
     bump(Path(data) / "basis.npz", b"basis-rebuilt")
-    assert mq.query_stamp(data, ["a", "b"]) != mid
+    assert stamp(data, ["a", "b"]) != mid

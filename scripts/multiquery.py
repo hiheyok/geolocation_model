@@ -47,6 +47,7 @@ measure the wrong thing; a person photographing their surroundings turns around.
 
 import argparse
 import json
+import io
 import os
 import hashlib
 import sys
@@ -70,6 +71,7 @@ if not os.environ.get("OSV_RELEASE"):
           "s10-only)", flush=True)
 
 import config
+import shards
 import knnmeta
 import names
 import safeio
@@ -206,7 +208,14 @@ def build_groups(lat, lon, seq, radius, need, want, seed, how):
     return groups
 
 
-def query_stamp(data, pick):
+def file_of(recs, i):
+    """A record's current image name: a pack member once packed, a loose file
+    before that, and `"<id>.jpg"` for a record written before the field
+    existed."""
+    return str(recs.get(i, {}).get("file") or "{}.jpg".format(i))
+
+
+def query_stamp(data, pick, recs):
     """Fingerprint everything that decides what the cached query vectors mean.
 
     Not just which images they came from: a different image root, PCA basis,
@@ -228,7 +237,8 @@ def query_stamp(data, pick):
     """
     h = hashlib.sha256()
     for i in pick:
-        h.update(safeio.file_stamp(Path(data) / "img" / (i + ".jpg")).encode())
+        h.update(safeio.file_stamp(shards.source_of(
+            Path(data) / "img", file_of(recs, i))).encode())
         h.update(b"|")
     return "{}|{}|{}|{}|{}|{}|{}".format(
         data, safeio.file_stamp(Path(data) / "manifest.jsonl"),
@@ -252,7 +262,7 @@ def cached_queries(data, pick, dev, stem):
     # mean, not its filename. Rebuilding the PCA basis or replacing the images
     # under the same path used to leave the cache valid, so the run silently
     # mixed vectors from two different bases.
-    stamp = query_stamp(data, pick)
+    stamp = query_stamp(data, pick, recs)
     if p.exists() and q.exists():
         m = np.load(q, allow_pickle=True)
         same_build = str(m["stamp"]) == stamp if "stamp" in m.files else False
@@ -268,8 +278,9 @@ def cached_queries(data, pick, dev, stem):
                   flush=True)
             return (np.load(p), m["lat"], m["lon"],
                     m["sequence"].astype("U40"))
-    paths = [str(Path(data) / "img" / (i + ".jpg")) for i in pick]
-    E = embed(paths, dev)
+    with shards.Reader(Path(data) / "img") as rd:
+        blobs = [io.BytesIO(rd.read(file_of(recs, i))) for i in pick]
+    E = embed(blobs, dev)
     tok = np.concatenate([E["dinov2"], SIGLIP_SCALE * E["siglip"]], axis=2)
     pooled = tok.mean(1).astype(np.float32)
     z = np.load(config.STREET_CACHE / BASIS)

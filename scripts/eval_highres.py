@@ -26,6 +26,7 @@ shim rather than pretending the harvest is a release.
 
 import argparse
 import json
+import io
 import os
 import sys
 import time
@@ -51,6 +52,7 @@ import config
 import knnmeta
 import provenance as prov
 import safeio
+import shards
 import names
 import tile_math as tm
 from dataset import street_table
@@ -249,7 +251,13 @@ def main():
     cohort_digest = prov.rows_digest(np.asarray(pick))
     print("cohort     {:,} ids, digest {}  ({}; manifest holds {:,})"
           .format(len(pick), cohort_digest, how, len(ids)), flush=True)
-    paths = [str(Path(a.data) / "img" / (i + ".jpg")) for i in pick]
+    # The manifest's own `file`, not a reconstructed "<id>.jpg": once
+    # pack_kartaview has run, the image is a member of a pack and the loose
+    # path does not exist. `embed` opens whatever it is handed, and PIL takes
+    # a file object, so the bytes go straight in.
+    with shards.Reader(Path(a.data) / "img") as _rd:
+        paths = [io.BytesIO(_rd.read(recs[i].get("file") or (i + ".jpg")))
+                 for i in pick]
     lat = np.array([recs[i]["lat"] for i in pick], np.float64)
     lon = np.array([recs[i]["lon"] for i in pick], np.float64)
     print("{:,} high-resolution images, evaluated as {} on the {} pipeline\n"

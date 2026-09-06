@@ -24,6 +24,7 @@ leaking anything, and counting it would inflate the rate.
 
 import argparse
 import json
+import io
 import re
 import sys
 import time
@@ -35,6 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import safeio
+import shards
 from tile_math import great_circle_km as great_circle
 
 # OCR confuses 0/o, 1/l/I, 5/S and 8/B in the small fixed-width fonts overlays use
@@ -91,11 +93,12 @@ def main():
         len(recs), root, a.ocr_side), flush=True)
 
     reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+    RD = shards.Reader(root / "img")
     leaks, parsed, dists, t0 = [], 0, [], time.time()
     examined = 0
     for n, r in enumerate(recs):
         try:
-            im = Image.open(root / "img" / r["file"]).convert("RGB")
+            im = Image.open(io.BytesIO(RD.read(r["file"]))).convert("RGB")
         except Exception:
             continue
         examined += 1
