@@ -62,6 +62,49 @@ geography against +3.30 pp on the sequence split, a factor of 8**. Most of the
 sequence-split gain is same-region matching that a geographic holdout strips
 out. Quote +3.30 for the benchmark and +0.41 for "does it read geography".
 
+## The agent, not the neighbour table
+
+`scripts/bootstrap.py` via `tilebig-boot`, 5,000 test images, 3,000 resamples,
+beam k=2, ranked on s0-s2. Two epoch rungs per arm, trained interleaved so a
+window that closed early would still leave a comparable pair.
+
+| arm | median km | mean km | <25km |
+|---|---|---|---|
+| pyrL0 e4 (crops) | 33.6 | 522.9 | 45.9% |
+| **pyrL0L1 e4 (crops+tiles)** | **25.4** | **436.8** | **49.7%** |
+| pyrL0 e6 | 34.8 | 528.5 | 45.1% |
+| pyrL0L1 e6 | 26.2 | 457.0 | 49.0% |
+
+Paired, at matched epochs:
+
+| contrast | median diff | | <25km diff | |
+|---|---|---|---|---|
+| crops vs crops+tiles, **e4** | [+5.8, +11.1] km | separated | **[+2.76, +4.88] pp** | separated |
+| crops vs crops+tiles, **e6** | [+5.8, +11.3] km | separated | **[+2.74, +5.06] pp** | separated |
+
+**The retrieval gain survives training and grows.** +3.30 pp on the neighbour
+table becomes **+2.76 to +4.88 pp** for the trained agent, and the median falls
+33.6 -> 25.4 km. Both rungs agree, which is the point of training two.
+
+## Six epochs is worse than four, in both arms
+
+| contrast | median diff | | <25km diff | |
+|---|---|---|---|---|
+| pyrL0 e6 vs e4 | [-0.4, +2.9] km | inside noise | [-1.34, -0.14] pp | separated |
+| pyrL0L1 e6 vs e4 | [-0.1, +2.4] km | inside noise | [-1.28, -0.04] pp | separated |
+
+Small, separated, and the same sign in both arms: the extra two epochs cost
+about a point of hit rate. Read **e4** as the result. This is the third time
+this ladder has peaked before its last rung, so the next run should stop at 4
+rather than spend 51 minutes proving it again.
+
+## Provenance
+
+Two tilebig invocations. The first (04:21) completed the 233.7-min tile pass
+and then failed 24 downstream stages on the three defects below; the second
+(08:36) reused every mark and completed. The `tilebig-knngap` stage was run by
+hand after its fix, and its output appended to the stage log.
+
 ## Three defects this run cost, all now fixed
 
 1. **`ext_stem_for` strips suffixes from the RIGHT.** tilebig named its
