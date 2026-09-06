@@ -384,7 +384,6 @@ def main():
                 if len(chunk) == a.batch:
                     flush(chunk)
                     chunk = []
-        del src                       # the next shard wants the 2.5 GB back
     flush(chunk)
     pool.shutdown()
 

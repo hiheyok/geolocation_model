@@ -110,8 +110,15 @@ def archive(shard, root=None, preload=True, quiet=False):
             "shard {} is not on disk at {}. Reading members by name from a "
             "missing archive is the one case where a partial result would "
             "look complete.".format(shard, zp))
-    with zipfile.ZipFile(slurp(zp, quiet=quiet) if preload else zp) as zf:
-        yield zf
+    src = slurp(zp, quiet=quiet) if preload else zp
+    try:
+        with zipfile.ZipFile(src) as zf:
+            yield zf
+    finally:
+        # The next shard wants the 2.5 GB back. Each caller used to `del` its
+        # own handle for this; the deletion belongs with the thing that
+        # allocates, not repeated in four loops that no longer own it.
+        del src
 
 
 def shard_of(member):

@@ -226,7 +226,6 @@ def main():
                     print("  {:>7,}/{:,}  {:5.0f} img/s  eta {:4.1f} min"
                           .format(seen, n, rate, (n - seen) / max(rate, 1e-6) / 60),
                           flush=True)
-        del source
     emb.flush()
     el = time.time() - t0
     print("\nembedded {:,} in {:.1f} min ({:.0f} img/s)".format(n, el / 60, n / el))
