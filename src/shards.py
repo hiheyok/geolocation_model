@@ -119,6 +119,30 @@ def shard_of(member):
     return str(member).split("/")[0]
 
 
+def _archive_order(zf, idxs, members):
+    """`idxs` sorted by position in the archive, so an in-RAM read walks
+    forward. Free once the file is resident, and it is what the caller's own
+    order would otherwise scramble."""
+    pos = {n: k for k, n in enumerate(zf.namelist())}
+    return sorted(idxs, key=lambda i: pos.get(members[i], 1 << 30))
+
+
+def _read(zf, member, shard):
+    """One member, or an error that names it.
+
+    A bare `zf.read` raises `KeyError: "There is no item named ..."` from three
+    frames down, which does not say which shard was open or that everything
+    else read fine.
+    """
+    try:
+        return zf.read(member)
+    except KeyError:
+        raise SystemExit(
+            "{} is not in shard {}. The archive opened and its other members "
+            "read, so nothing else would have reported this."
+            .format(member, shard)) from None
+
+
 def blobs(members, root=None, min_slurp=MIN_SLURP, quiet=False):
     """JPEG bytes for `members`, in the caller's order.
 
@@ -133,29 +157,18 @@ def blobs(members, root=None, min_slurp=MIN_SLURP, quiet=False):
     project's most expensive failure shape.
     """
     members = [str(m) for m in members]
-    root = Path(root) if root else config.TRAIN_ZIPS
     want = defaultdict(list)
     for i, m in enumerate(members):
         want[shard_of(m)].append(i)
 
     out = [None] * len(members)
     for shard, idxs in sorted(want.items()):
-        zp = root / (shard + ".zip")
-        if not zp.exists():
-            raise SystemExit(
-                "shard {} is not on disk at {}. Reading images by member name "
-                "from a missing archive is the one case where a partial result "
-                "would look complete.".format(shard, zp))
         big = len(idxs) >= min_slurp
-        src = slurp(zp, quiet=quiet) if big else zp
-        with zipfile.ZipFile(src) as zf:
+        with archive(shard, root=root, preload=big, quiet=quiet) as zf:
             if big:
-                # Archive order, so the in-RAM reads walk forward. Free here,
-                # and it is what the caller's order would otherwise scramble.
-                info = {n: k for k, n in enumerate(zf.namelist())}
-                idxs = sorted(idxs, key=lambda i: info.get(members[i], 1 << 30))
+                idxs = _archive_order(zf, idxs, members)
             for i in idxs:
-                out[i] = zf.read(members[i])
+                out[i] = _read(zf, members[i], shard)
     missing = [members[i] for i, b in enumerate(out) if b is None]
     if missing:
         raise SystemExit("{:,} members were never read, e.g. {}".format(
@@ -163,13 +176,41 @@ def blobs(members, root=None, min_slurp=MIN_SLURP, quiet=False):
     return out
 
 
-def iter_blobs(members, batch=256, **kw):
+def iter_blobs(members, batch=256, root=None, min_slurp=MIN_SLURP, quiet=False):
     """`blobs` in batches, for callers that cannot hold every image at once.
 
-    Batching is by *shard-major* order so a shard is still read once, which a
-    naive `for chunk in chunks(members)` would defeat by reopening it.
+    Yields `(indices, blobs)`, where `indices` are positions in `members` and
+    pair positionally with `blobs`, so the caller indexes its own arrays with
+    them. Batches do not span shards and are not in caller order.
+
+    **One shard, one open** -- which the previous version claimed and did not
+    do. It sorted the members shard-major, then sliced that global list into
+    fixed `batch` windows and called `blobs` on each, so a shard contributing
+    more than `batch` members was reopened once per window: 196 opens of the
+    same 2.5 GB archive for a 50,000-member shard at the default batch.
+
+    Worse, `blobs` decides the sequential read from the member count it is
+    handed, and each window handed it `batch`. With any batch below
+    `min_slurp` -- 2048, and the default here is 256 -- the preload could
+    never fire at all, so every `iter_blobs` caller was doing precisely the
+    scattered per-member reads this module exists to stop.
+
+    So the grouping happens first and the batching happens inside it: the
+    slurp decision sees the shard's whole contribution, and the archive stays
+    open across the batches yielded from it.
     """
-    order = sorted(range(len(members)), key=lambda i: shard_of(members[i]))
-    for s in range(0, len(order), batch):
-        sel = order[s:s + batch]
-        yield sel, blobs([members[i] for i in sel], **kw)
+    members = [str(m) for m in members]
+    want = defaultdict(list)
+    for i, m in enumerate(members):
+        want[shard_of(m)].append(i)
+
+    for shard, idxs in sorted(want.items()):
+        big = len(idxs) >= min_slurp
+        with archive(shard, root=root, preload=big, quiet=quiet) as zf:
+            if big:
+                idxs = _archive_order(zf, idxs, members)
+            for s in range(0, len(idxs), batch):
+                sel = idxs[s:s + batch]
+                yield sel, [_read(zf, members[i], shard) for i in sel]
+
+
