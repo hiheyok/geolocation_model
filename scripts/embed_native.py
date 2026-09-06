@@ -41,6 +41,18 @@ pass, is never compared to another cache by cosine, and is consumed only by a
 head that trains on whatever it is given -- so the seam argument does not apply
 and the 1.218x is free. Needs `triton-windows` and MSVC on PATH.
 
+The feeding path is tuned but NOT yet verified under load. The first full pass
+measured the card oscillating on a ~20 s cycle -- gradual drain to under 50%,
+floor, gradual refill -- at 85% mean utilisation, while total CPU sat at 26% of
+16 cores and *rose* during the dips. That shape is a producer/consumer
+oscillation against the bounded queue with capacity to spare, not a stall. The
+response is more decode threads and a reused pinned staging buffer in place of
+a 154 MB per-batch concatenate on the thread that feeds the GPU. Aggregate
+throughput was 31 img/s against a fed-card estimate of ~36, so the ceiling is
+about 15%. None of it has been A/B'd -- it was written while the GPU was busy
+with the very run that motivated it, and it should be measured before it is
+believed.
+
 Resumable per encoder and per shard. The done-mask carries one column per
 encoder, because the two passes are sequential and a single column cannot say
 that DINOv2 finished a row while SigLIP has not. It is flushed at every shard
@@ -139,7 +151,12 @@ def main():
     ap.add_argument("--n", type=int, default=0, help="0 = every row")
     ap.add_argument("--crops", type=int, default=3)
     ap.add_argument("--batch", type=int, default=16)
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=12,
+                    help="decode threads. The first full pass measured the GPU "
+                         "oscillating on a ~20 s cycle at 85% mean while total "
+                         "CPU sat at 26% of 16 cores and ROSE during the dips "
+                         "-- a producer/consumer oscillation against the "
+                         "bounded queue, with capacity to spare.")
     ap.add_argument("--no-preload", dest="preload", action="store_false",
                     help="read members straight off disk. dataset.parquet "
                          "interleaves shards, so a SMALL --n touches nearly "
@@ -249,6 +266,7 @@ def main():
         for i in mine:
             by_zip[zn[i].split("/")[0]].append((int(i), zn[i]))
         t0, seen = time.time(), 0
+        host = None                       # reused pinned staging buffer
         pool = ThreadPoolExecutor(a.workers)
 
         def prep(blob):
@@ -281,8 +299,21 @@ def main():
                             rows.append(r)
                             arrs.append(fut.result())
                             fill()
-                        x = torch.from_numpy(np.concatenate(arrs)).to(
-                            dev, torch.bfloat16, non_blocking=True)
+                        # Into a preallocated pinned buffer, not a fresh
+                        # concatenate. At 3 crops of 518 a batch of 16 is a
+                        # 154 MB host allocation and copy on the very thread
+                        # that feeds the card, and an unpinned source makes the
+                        # transfer synchronous however non_blocking is set.
+                        need = sum(len(v) for v in arrs)
+                        if host is None or host.shape[0] < need:
+                            host = torch.empty((need,) + arrs[0].shape[1:],
+                                               dtype=torch.float16).pin_memory()
+                        off = 0
+                        for v in arrs:
+                            host[off:off + len(v)] = torch.from_numpy(v)
+                            off += len(v)
+                        x = host[:need].to(dev, torch.bfloat16,
+                                           non_blocking=True)
                         f = net(x).float().reshape(len(rows), a.crops, D_ENC)
                         v = nrm(f.mean(1)).cpu().numpy().astype(np.float16)
                         for k, r in enumerate(rows):
