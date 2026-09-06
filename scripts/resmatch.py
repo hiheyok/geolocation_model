@@ -32,7 +32,6 @@ import argparse
 import os
 import sys
 import time
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -48,6 +47,7 @@ if not os.environ.get("OSV_RELEASE"):
     os.environ["OSV_RELEASE"] = "s10"
 
 import config                                    # noqa: E402
+import shards                                    # noqa: E402
 import splits as sp                              # noqa: E402
 from tile_pool import paired                     # noqa: E402
 from osv_pyramid import complete_rows            # noqa: E402
@@ -203,12 +203,13 @@ def main():
     L0, L1 = cached_levels(rel, pos, dev)
     print("224 caches read in {:.0f}s".format(time.time() - t0), flush=True)
 
-    blobs, zips = [], {}
-    for member in zname:
-        sh = member.split("/")[0]
-        z = zips.get(sh) or zips.setdefault(
-            sh, zipfile.ZipFile(config.TRAIN_ZIPS / (sh + ".zip")))
-        blobs.append(z.read(member))
+    # `shards.blobs`, not a per-member `ZipFile.read`. The loop that was here
+    # walked the members in parquet order, which is a random seek per image
+    # across ~98 archives on a 5900 RPM disk. It is invisible on a warm run --
+    # the same read took 7s with the pages cached -- and it cost 999s cold,
+    # 143x, on the run that produced the numbers in runs/RESMATCH.md. The
+    # reader groups by shard and reads each one sequentially into RAM.
+    blobs = shards.blobs(zname)
     print("{:,} JPEGs read in {:.0f}s; encoding at native size"
           .format(len(blobs), time.time() - t0), flush=True)
     NAT = encode_native(blobs, dev)
