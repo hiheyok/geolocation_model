@@ -85,7 +85,7 @@ def tiles_up():
     """
     try:
         import tiles as T
-        T.TileClient(config.TILE_SERVER, timeout=8.0, retries=1).health()
+        T.connect(config.TILE_SERVERS, timeout=8.0, retries=1)
         return True
     except Exception as e:
         log("tile server not answering: {}".format(e))

@@ -153,8 +153,8 @@ def main():
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--workers", type=int, default=12,
                     help="decode threads. The first full pass measured the GPU "
-                         "oscillating on a ~20 s cycle at 85% mean while total "
-                         "CPU sat at 26% of 16 cores and ROSE during the dips "
+                         "oscillating on a ~20 s cycle at 85%% mean while total "
+                         "CPU sat at 26%% of 16 cores and ROSE during the dips "
                          "-- a producer/consumer oscillation against the "
                          "bounded queue, with capacity to spare.")
     ap.add_argument("--no-preload", dest="preload", action="store_false",

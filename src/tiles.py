@@ -12,6 +12,7 @@ only aggregated -- so the illegal-id failure mode cannot occur downstream.
 
 import io
 import threading
+
 import time
 
 import numpy as np
@@ -31,6 +32,46 @@ LEGAL_IDS = frozenset(range(0, CLASS_STEP * N_CLASSES, CLASS_STEP))
 
 class TileError(RuntimeError):
     pass
+
+
+def connect(bases, timeout=8.0, retries=1, quiet=False):
+    """A client for the first candidate that answers /health.
+
+    The fallback is deliberately **loud**. The map token cache is built from
+    whatever this returns, and nothing in that cache records which server
+    produced it -- so a run that silently drops to the backup can extend a
+    cache with tiles from a different renderer, and every shape, count and
+    completion mask still agrees. That is the same failure as a bank with two
+    halves in different embedding spaces, and it is the reason this prints the
+    choice rather than just making it.
+
+    Raises with every candidate's error if none answer, because "the tile
+    server is down" and "the tile server is at a new address" want different
+    responses from whoever is reading the log.
+
+    `bases` is required, like `TileClient.base` and for the same reason: this
+    module is a client for an external service and imports no config, so it can
+    be pointed at a stub without touching anything else. Callers pass
+    `config.TILE_SERVERS`.
+    """
+    errs = []
+    for i, base in enumerate(bases):
+        c = TileClient(base, timeout=timeout, retries=retries)
+        try:
+            c.health()
+        except Exception as exc:                          # noqa: BLE001
+            errs.append("{}: {}".format(base, str(exc).strip()[:80]))
+            continue
+        if i and not quiet:
+            print("tile server: {} did not answer; USING BACKUP {}. Nothing "
+                  "in the map cache records which server produced it, so do "
+                  "not extend an existing cache across this boundary without "
+                  "checking they agree (TileClient.agrees_with)."
+                  .format(", ".join(bases[:i]), base), flush=True)
+        return c
+    raise SystemExit(
+        "no tile server answered /health:" + "".join(
+            chr(10) + "  " + e for e in errs))
 
 
 class TileClient:
@@ -79,6 +120,55 @@ class TileClient:
     def health(self):
         import json
         return json.loads(self._get("/health"))
+
+    # A byte comparison of two masks is the wrong test, and measuring it showed
+    # why. The primary and the backup here return masks differing on 0.03% to
+    # 0.28% of pixels at every zoom -- but the class tables are identical, the
+    # value sets are identical, and every difference sits on a feature boundary
+    # (23<->138, 0<->230). It is rasterisation, not different data.
+    #
+    # What the model reads is not pixels but a 12-d class fraction per 32x32
+    # patch, and there the same disagreement is max 7.8e-3, mean 3.3e-4, on a
+    # quantity in [0, 1]. A byte check would have condemned a backup that is in
+    # fact interchangeable, and a bare "they differ" would have said nothing
+    # about whether it mattered.
+    TOKEN_TOL = 0.05
+
+    def compare_with(self, other, probes=((0, 0, 0), (4, 8, 5), (8, 137, 91),
+                                          (12, 2047, 1362))):
+        """Quantify how two servers disagree, at the level the model reads.
+
+        Returns (fatal, detail). `fatal` lists differences that would corrupt a
+        shared cache; `detail` carries (z, x, y, pixel_frac, token_max) so a
+        caller can judge rather than accept a verdict.
+        """
+        fatal, detail = [], []
+        try:
+            if self.classes() != other.classes():
+                # Masks are class ids, so a different table remaps every token
+                # while every shape and value range stays plausible.
+                fatal.append("class tables differ")
+        except Exception as exc:                          # noqa: BLE001
+            fatal.append("classes unavailable: {}".format(str(exc)[:60]))
+        for z, x, y in probes:
+            try:
+                ma, mb = self.mask(z, x, y), other.mask(z, x, y)
+                ta = to_tokens(ma).astype("float64")
+                tb = to_tokens(mb).astype("float64")
+                dp = float((ma != mb).mean())
+                dt = float(abs(ta - tb).max())
+                detail.append((z, x, y, dp, dt))
+                if dt > self.TOKEN_TOL:
+                    fatal.append(
+                        "tile {}/{}/{} tokens differ by {:.3f}, above the "
+                        "{:.2f} tolerance".format(z, x, y, dt, self.TOKEN_TOL))
+            except Exception as exc:                      # noqa: BLE001
+                fatal.append("tile {}/{}/{}: {}".format(z, x, y, str(exc)[:50]))
+        return fatal, detail
+
+    def agrees_with(self, other, **kw):
+        """True when nothing that would corrupt a shared cache differs."""
+        return not self.compare_with(other, **kw)[0]
 
     def classes(self):
         import json

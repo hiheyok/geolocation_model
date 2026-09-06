@@ -103,7 +103,20 @@ def knn_name(street_file, mode, k=KNN_K, bank_limit=0, ext=None):
     return "knn_{}_{}_k{}{}.npz".format(stem, mode, k, tail)
 
 
-TILE_SERVER = os.environ.get("TILE_SERVER", "http://192.168.50.1:3000")
+# Candidates, in preference order. `TILE_SERVER` may name one or several,
+# comma separated, and overrides this list entirely.
+#
+# Deliberately just strings: resolving which of these is actually up is I/O,
+# and this module is deployment wiring that must stay importable without a
+# network. `tiles.connect()` does the probing.
+TILE_SERVERS = [s.strip() for s in os.environ.get(
+    "TILE_SERVER", "http://192.168.50.1:3000,http://10.0.0.84:3000").split(",")
+    if s.strip()]
+
+# The name several modules already import. It is the *preferred* server, not
+# necessarily the reachable one -- callers that can fall back should use
+# tiles.connect() instead.
+TILE_SERVER = TILE_SERVERS[0]
 
 
 # ---------------------------------------------------------------- boundary --
