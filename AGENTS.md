@@ -162,6 +162,13 @@ a substring, a size that gets sliced off.
 * **Never edit code a running chain has not yet imported.** A `train.py` edit
   mid-ladder voided a whole experiment. If a later stage imports the file, it
   will run different code than the earlier stages.
+  * **A `git switch` is an edit.** Changing branches rewrites the working tree
+    under every stage that has not started yet. A four-stage probe chain ran
+    its first two with a cohort fix and its last two without, because branches
+    were switched at 01:00 to open unrelated PRs; the two late stages
+    reproduced the pre-fix numbers to three significant figures and had to be
+    re-run. Work on a separate clone or worktree while a chain is live, or
+    stay on the branch it launched from.
   * The exception, and it must be *demonstrated* not asserted: a provably
     equivalent change, with a test showing bit-identical output. And check
     whether it is worth it first — the expensive stage may already have run.
