@@ -1,0 +1,97 @@
+{
+  "generatedFrom": "http://localhost:3000",
+  "classes": {
+    "background": 0,
+    "water": 23,
+    "ice": 46,
+    "wood": 69,
+    "grass": 92,
+    "farmland": 115,
+    "landuse": 138,
+    "building": 161,
+    "railway": 184,
+    "road_minor": 207,
+    "road_major": 230,
+    "aeroway": 253
+  },
+  "ambiguous": 255,
+  "samples": [
+    {
+      "name": "00-world-z0",
+      "tile": {
+        "z": 0,
+        "x": 0,
+        "y": 0
+      },
+      "labels": 46,
+      "ambiguousPercent": 0,
+      "about": "The entire world in one tile. Web Mercator covers latitudes -85.05 to 85.05, so the poles are cut off. Coastlines and country-level landuse only; at this zoom the source data is heavily generalised and buildings and minor roads do not exist."
+    },
+    {
+      "name": "01-urban-dense",
+      "tile": {
+        "z": 14,
+        "x": 8187,
+        "y": 5448
+      },
+      "labels": 1122,
+      "ambiguousPercent": 2.65,
+      "about": "Southwark, London. Dense buildings, full road hierarchy, a corner of the Thames."
+    },
+    {
+      "name": "02-water-coast",
+      "tile": {
+        "z": 13,
+        "x": 4103,
+        "y": 2725
+      },
+      "labels": 9,
+      "ambiguousPercent": 1.09,
+      "about": "Thames estuary. Water dominates; useful for checking the water class and coastline edges."
+    },
+    {
+      "name": "03-park-green",
+      "tile": {
+        "z": 14,
+        "x": 8184,
+        "y": 5448
+      },
+      "labels": 788,
+      "ambiguousPercent": 1.91,
+      "about": "Hyde Park, London. Large grass polygons against surrounding built-up landuse."
+    },
+    {
+      "name": "04-rural",
+      "tile": {
+        "z": 13,
+        "x": 4061,
+        "y": 2698
+      },
+      "labels": 8,
+      "ambiguousPercent": 0.37,
+      "about": "Warwickshire countryside. Mostly farmland and minor roads; sparse buildings."
+    },
+    {
+      "name": "05-low-zoom",
+      "tile": {
+        "z": 10,
+        "x": 511,
+        "y": 340
+      },
+      "labels": 93,
+      "ambiguousPercent": 3.11,
+      "about": "Greater London at z10. Whole-city context; note how little building detail survives."
+    },
+    {
+      "name": "06-overzoom-z16",
+      "tile": {
+        "z": 16,
+        "x": 32750,
+        "y": 21793
+      },
+      "labels": 92,
+      "ambiguousPercent": 0.68,
+      "about": "Same place as 01 but above the source maxzoom of 14, so the renderer overzooms a z14 parent. Label coordinates are scaled and offset to match."
+    }
+  ]
+}

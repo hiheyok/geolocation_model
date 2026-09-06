@@ -1,0 +1,23 @@
+# The planet .mbtiles is ~70 GiB -- far past anything git should carry, and it
+# is an upstream artefact we did not produce. Its identity is recorded in
+# DATA.md (filename, byte size, sha256) so a substituted or truncated extract
+# is detectable without the file being in the tree.
+*.mbtiles
+*.mbtiles-journal
+*.mbtiles-wal
+
+# Rendered output. OUTPUT_DIR defaults to ./tiles and is a pure cache: every
+# byte is reproducible from the .mbtiles by the renderer, it reaches tens of
+# GB, and it is where the per-configuration namespace directories
+# (image-*, mask-*, mask_ambiguous-*, mask_raw-*) are created.
+/tiles/
+cache/
+
+node_modules/
+
+# Written by start.sh.
+server.log
+
+.DS_Store
+# Machine-local Claude Code permission state, full of absolute paths.
+.claude/

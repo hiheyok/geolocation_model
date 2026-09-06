@@ -1,0 +1,1235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tile Server — Documentation</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+
+  :root {
+    --ink:      #16191d;
+    --muted:    #5b636e;
+    --faint:    #8a929c;
+    --rule:     #d8dde3;
+    --rule-lt:  #eceff3;
+    --accent:   #1a4f8a;
+    --code-bg:  #f5f7f9;
+    --warn-bg:  #fdf6ec;
+    --warn-ln:  #d99b3c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { font-size: 10.2pt; }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: "Charter", "Georgia", "Times New Roman", serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Typography ─────────────────────────────────────────────── */
+
+  h1, h2, h3, h4 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 600;
+    line-height: 1.2;
+    margin: 0;
+    break-after: avoid;
+  }
+
+  h1 { font-size: 25pt; letter-spacing: -0.4pt; }
+
+  h2 {
+    font-size: 15pt;
+    letter-spacing: -0.2pt;
+    margin: 26pt 0 9pt;
+    padding-bottom: 5pt;
+    border-bottom: 1.5px solid var(--ink);
+    break-before: page;
+  }
+  h2.cont { break-before: auto; }
+
+  h3 {
+    font-size: 11.5pt;
+    margin: 17pt 0 5pt;
+  }
+
+  h4 {
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.6pt;
+    color: var(--muted);
+    margin: 13pt 0 4pt;
+  }
+
+  p { margin: 0 0 8pt; }
+  p.lead { font-size: 11.5pt; color: var(--muted); line-height: 1.45; }
+
+  a { color: var(--accent); text-decoration: none; }
+
+  strong { font-weight: 600; }
+
+  ul, ol { margin: 0 0 8pt; padding-left: 16pt; }
+  li { margin-bottom: 3pt; }
+
+  /* ── Code ───────────────────────────────────────────────────── */
+
+  code, pre, .mono {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  }
+
+  code {
+    font-size: 0.86em;
+    background: var(--code-bg);
+    padding: 1px 3.5px;
+    border-radius: 2.5px;
+  }
+
+  pre {
+    font-size: 8.2pt;
+    line-height: 1.45;
+    background: var(--code-bg);
+    border: 1px solid var(--rule-lt);
+    border-left: 2.5px solid var(--rule);
+    border-radius: 3px;
+    padding: 8pt 10pt;
+    margin: 0 0 9pt;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+    break-inside: avoid;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .c-com { color: #6f7b87; }
+  .c-str { color: #1f6f43; }
+  .c-key { color: #8a3b8a; }
+  .c-num { color: #a4562a; }
+
+  /* ── Tables ─────────────────────────────────────────────────── */
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 10pt;
+    font-size: 8.8pt;
+    break-inside: avoid;
+  }
+
+  th {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 7.6pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5pt;
+    color: var(--muted);
+    text-align: left;
+    padding: 0 7pt 4pt 0;
+    border-bottom: 1.2px solid var(--ink);
+  }
+
+  td {
+    padding: 4.5pt 7pt 4.5pt 0;
+    border-bottom: 1px solid var(--rule-lt);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  td.mono, th.mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 8.2pt; }
+  td.num { text-align: right; padding-right: 12pt; }
+  th.num { text-align: right; padding-right: 12pt; }
+  .nowrap { white-space: nowrap; }
+
+  /* ── Callout ────────────────────────────────────────────────── */
+
+  .note {
+    background: var(--warn-bg);
+    border-left: 2.5px solid var(--warn-ln);
+    border-radius: 0 3px 3px 0;
+    padding: 8pt 11pt;
+    margin: 0 0 10pt;
+    font-size: 9.4pt;
+    break-inside: avoid;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .hd {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 7.6pt; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.6pt;
+    color: #8a5d13;
+    display: block; margin-bottom: 3pt;
+  }
+
+  /* ── Cover ──────────────────────────────────────────────────── */
+
+  .cover { padding-top: 34mm; break-after: page; }
+  .cover .kicker {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 8pt; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 1.6pt;
+    color: var(--faint);
+    margin-bottom: 10pt;
+  }
+  .cover h1 { margin-bottom: 8pt; }
+  .cover .sub {
+    font-size: 13pt; color: var(--muted); line-height: 1.4;
+    max-width: 118mm; margin-bottom: 22pt;
+  }
+  .cover .meta {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 8.2pt; color: var(--faint);
+    border-top: 1px solid var(--rule); padding-top: 8pt;
+    max-width: 118mm;
+  }
+  .cover .meta span { display: inline-block; margin-right: 16pt; }
+
+  /* ── Contents ───────────────────────────────────────────────── */
+
+  .toc { font-size: 9.4pt; }
+  .toc ol { list-style: none; padding: 0; margin: 0; counter-reset: sec; }
+  .toc li {
+    counter-increment: sec;
+    padding: 4.5pt 0;
+    border-bottom: 1px solid var(--rule-lt);
+  }
+  .toc li::before {
+    content: counter(sec) ".";
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    color: var(--faint); margin-right: 8pt;
+  }
+  .toc .d { color: var(--muted); font-size: 8.6pt; display: block; margin-left: 20pt; }
+
+  /* ── Figures ────────────────────────────────────────────────── */
+
+  .figs { display: flex; gap: 9pt; margin: 0 0 10pt; break-inside: avoid; }
+  .fig { flex: 1; }
+  .fig img {
+    width: 100%; display: block;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    image-rendering: -webkit-optimize-contrast;
+  }
+  .fig .cap {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 7.4pt; color: var(--muted);
+    margin-top: 3.5pt; line-height: 1.35;
+  }
+  .fig .cap b { color: var(--ink); font-weight: 600; }
+
+  /* ── Swatches ───────────────────────────────────────────────── */
+
+  .sw {
+    display: inline-block; width: 9pt; height: 9pt;
+    border: 0.5px solid var(--rule); border-radius: 1.5px;
+    vertical-align: -1pt; margin-right: 5pt;
+  }
+
+  .cols { display: flex; gap: 14pt; break-inside: avoid; }
+  .cols > * { flex: 1; min-width: 0; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ COVER ════════════════════ -->
+<section class="cover">
+  <div class="kicker">Service Documentation</div>
+  <h1>Tile Server</h1>
+  <div class="sub">
+    On-demand single-channel raster tiles and vector labels for ML pipelines,
+    rendered offline from a local OpenMapTiles planet file.
+  </div>
+  <div class="meta">
+    <span>v1.0.0</span>
+    <span>@@DATE@@</span>
+    <span>Node.js 18+</span>
+  </div>
+</section>
+
+<!-- ════════════════════ 1. OVERVIEW ════════════════════ -->
+<h2 class="cont">Overview</h2>
+
+<p class="lead">
+  The service turns a 75 GB OpenMapTiles <code>.mbtiles</code> vector planet
+  file into three per-tile artefacts an ML pipeline can consume directly: a
+  greyscale map image, a class-indexed segmentation mask, and a JSON list of
+  named features in tile-pixel coordinates.
+</p>
+
+<p>
+  Every tile address <code>z/x/y</code> resolves to the same geography across all
+  three, so an image, its mask, and its labels share one coordinate frame with no
+  transform in between. Rendering issues <strong>zero network requests</strong> —
+  the bundled styles reference no glyphs and no sprites — so output is
+  deterministic and reproducible, which matters when tiles fetched months apart
+  end up in the same training corpus.
+</p>
+
+<h3>The three endpoints</h3>
+
+<table>
+  <thead>
+    <tr><th style="width:38%">Endpoint</th><th>Returns</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">/tile/:z/:x/:y.png</td>
+      <td>512×512 single-channel PNG. Photometric greyscale — looks like a map.
+          The typical model input.</td>
+    </tr>
+    <tr>
+      <td class="mono">/tile/:z/:x/:y/mask.png</td>
+      <td>512×512 single-channel PNG where every pixel value <em>is</em> a
+          semantic class id. The segmentation target.
+          <code>?mode=class|ambiguous|raw</code></td>
+    </tr>
+    <tr>
+      <td class="mono">/tile/:z/:x/:y/labels.json</td>
+      <td>Named features — place names, roads, water bodies — with x/y pixel
+          coordinates in the tile's frame.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>What a tile looks like</h3>
+
+<div class="figs">
+  <div class="fig">
+    <img src="@@IMG:samples/01-urban-dense/image.png@@" alt="Greyscale map image of Southwark, London">
+    <div class="cap"><b>image.png</b> — z14/8187/5448, Southwark, London. Roads,
+      buildings and water at distinct luma levels.</div>
+  </div>
+  <div class="fig">
+    <img src="@@IMG:samples/01-urban-dense/mask.png@@" alt="Class-index segmentation mask of the same tile">
+    <div class="cap"><b>mask.png</b> — the same tile. Visually similar, but each
+      pixel value is a class id, not a brightness.</div>
+  </div>
+</div>
+
+<div class="figs">
+  <div class="fig">
+    <img src="@@IMG:samples/00-world-z0/image.png@@" alt="Greyscale map image of the whole world">
+    <div class="cap"><b>z0/0/0</b> — the entire world in one tile. Web Mercator
+      clips above ±85.05°, so the poles are cut.</div>
+  </div>
+  <div class="fig">
+    <img src="@@IMG:samples/04-rural/image.png@@" alt="Greyscale map image of rural Warwickshire">
+    <div class="cap"><b>z13/4061/2698</b> — rural Warwickshire. 69% farmland,
+      sparse buildings, only 8 labels.</div>
+  </div>
+</div>
+
+<!-- ════════════════════ 2. GETTING STARTED ════════════════════ -->
+<h2>Getting started</h2>
+
+<h3>Requirements</h3>
+<ul>
+  <li>Node.js 18 or later</li>
+  <li>An OpenMapTiles-schema <code>.mbtiles</code> file (vector, <code>format=pbf</code>)</li>
+  <li>Roughly one core per concurrent render, plus two spare</li>
+</ul>
+
+<h3>Install and run</h3>
+
+<pre><code>npm install
+
+MBTILES_PATH=./maptiler-osm-2020-02-10-v3.11-planet.mbtiles node server.js</code></pre>
+
+<pre><code><span class="c-com"># Verify it came up</span>
+curl -s localhost:3000/health
+
+<span class="c-com"># Fetch one tile of each kind</span>
+curl -o image.png   localhost:3000/tile/14/8187/5448.png
+curl -o mask.png    localhost:3000/tile/14/8187/5448/mask.png
+curl -s             localhost:3000/tile/14/8187/5448/labels.json | head</code></pre>
+
+<h3>Configuration</h3>
+
+<p>All configuration is by environment variable; there is no config file.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:27%">Variable</th>
+      <th style="width:17%">Default</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">MBTILES_PATH</td><td class="mono">./planet.mbtiles</td><td>Path to the source vector tile file</td></tr>
+    <tr><td class="mono">OUTPUT_DIR</td><td class="mono">./tiles</td><td>Disk cache root</td></tr>
+    <tr><td class="mono">PORT</td><td class="mono">3000</td><td>HTTP port</td></tr>
+    <tr><td class="mono">WORKERS</td><td class="mono">cpus − 2</td><td>Render worker processes. Each holds its own map instance</td></tr>
+    <tr><td class="mono">TILE_SIZE</td><td class="mono">512</td><td>Output edge length in pixels</td></tr>
+    <tr><td class="mono">PNG_LEVEL</td><td class="mono">1</td><td>PNG compression level, 0–9. Higher is smaller and slower</td></tr>
+    <tr><td class="mono">MASK_SUPERSAMPLE</td><td class="mono">2</td><td>Masks render at this multiple of the pixel ratio, then downsample by majority vote. <code>1</code> disables it</td></tr>
+    <tr><td class="mono">MASK_AMBIGUOUS_THRESHOLD</td><td class="mono">0.5</td><td>In <code>mode=ambiguous</code>, flag a pixel when its winning class holds no more than this share of the samples</td></tr>
+    <tr><td class="mono">MAX_ZOOM</td><td class="mono">20</td><td>Highest z accepted. Above the source maxzoom the renderer overzooms</td></tr>
+    <tr><td class="mono">CACHE_TTL_MS</td><td class="mono">0</td><td>Re-render after this many ms. <code>0</code> caches forever</td></tr>
+    <tr><td class="mono">CACHE_MAX_SIZE</td><td class="mono">unset</td><td>Disk cache cap, e.g. <code>20GB</code>. Unset means unbounded growth</td></tr>
+    <tr><td class="mono">CACHE_SWEEP_MS</td><td class="mono">30000</td><td>How often the primary checks the cap and evicts</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="hd">Sizing the worker pool</span>
+  <p>
+    MapLibre GL Native is not thread-safe and each map owns a run loop, so
+    renders are serialised <em>within</em> a process. All parallelism comes from
+    the worker pool — <code>WORKERS=1</code> will serve one render at a time no
+    matter how many requests arrive. The default leaves two cores for the OS,
+    sharp's thread pool, and SQLite reads.
+  </p>
+</div>
+
+<!-- ════════════════════ 3. API ════════════════════ -->
+<h2>API reference</h2>
+
+<h3>GET /tile/:z/:x/:y.png</h3>
+
+<p>
+  Single-channel greyscale PNG. The style paints every class as a pure grey
+  (<code>r == g == b</code>), so channel 0 <em>is</em> the value — it is extracted
+  with no luma conversion and no rounding.
+</p>
+
+<pre><code>curl -o tile.png http://localhost:3000/tile/14/8187/5448.png</code></pre>
+
+<table>
+  <thead><tr><th style="width:34%">Response header</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">Content-Type: image/png</td><td>PNG colour type 0 — true greyscale</td></tr>
+    <tr><td class="mono">X-Tile-Cached: 0|1</td><td><code>1</code> if served from the disk cache without rendering</td></tr>
+    <tr><td class="mono">X-Tile-Channels: 1</td><td>Always 1. Decodes to <code>(H, W)</code>, not <code>(H, W, 3)</code></td></tr>
+    <tr><td class="mono">Cache-Control</td><td><code>public, max-age=31536000, immutable</code></td></tr>
+  </tbody>
+</table>
+
+<h3>GET /tile/:z/:x/:y/mask.png</h3>
+
+<p>
+  Single-channel PNG where each pixel value is a semantic class id. Guaranteed to
+  contain only legal class values. See <em>Output formats</em> for the mapping and
+  <em>Mask accuracy</em> for why supersampling matters.
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:20%"><span class="mono">?mode=</span></th>
+      <th style="width:23%">Every pixel labelled?</th>
+      <th class="num" style="width:12%">Render</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">class</td><td>yes</td><td class="num mono">10.9 ms</td>
+      <td>Default. Inference, evaluation, anything needing a complete labelling</td>
+    </tr>
+    <tr>
+      <td class="mono">ambiguous</td><td>no — split votes become <span class="mono">255</span></td>
+      <td class="num mono">10.5 ms</td>
+      <td>Training with <code>ignore_index=255</code></td>
+    </tr>
+    <tr>
+      <td class="mono">raw</td><td>no — blends as rendered</td><td class="num mono">2.4 ms</td>
+      <td>Doing your own edge handling</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>curl -o mask.png <span class="c-str">"localhost:3000/tile/14/8187/5448/mask.png"</span>
+curl -o mask.png <span class="c-str">"localhost:3000/tile/14/8187/5448/mask.png?mode=ambiguous"</span></code></pre>
+
+<p>
+  The mode is echoed back in an <code>X-Mask-Mode</code> response header, and
+  each mode is cached separately. <code>?snap=0</code> is the original spelling
+  of <code>mode=raw</code> and still works.
+</p>
+
+<h3>GET /tile/:z/:x/:y/labels.json</h3>
+
+<p>
+  Named features read from the same vector tile the image was rendered from, in
+  pixel coordinates relative to the tile's top-left corner.
+</p>
+
+<pre><code>curl <span class="c-str">"localhost:3000/tile/14/8187/5448/labels.json?layers=place&amp;limit=3"</span></code></pre>
+
+<pre><code>{
+  <span class="c-key">"z"</span>: <span class="c-num">14</span>, <span class="c-key">"x"</span>: <span class="c-num">8187</span>, <span class="c-key">"y"</span>: <span class="c-num">5448</span>, <span class="c-key">"size"</span>: <span class="c-num">512</span>, <span class="c-key">"count"</span>: <span class="c-num">3</span>,
+  <span class="c-key">"labels"</span>: [
+    {
+      <span class="c-key">"layer"</span>:    <span class="c-str">"place"</span>,
+      <span class="c-key">"text"</span>:     <span class="c-str">"Borough"</span>,
+      <span class="c-key">"class"</span>:    <span class="c-str">"suburb"</span>,
+      <span class="c-key">"rank"</span>:     <span class="c-num">11</span>,
+      <span class="c-key">"geometry"</span>: <span class="c-str">"point"</span>,
+      <span class="c-key">"x"</span>:        <span class="c-num">374.3</span>,
+      <span class="c-key">"y"</span>:        <span class="c-num">242.3</span>
+    }
+  ]
+}</code></pre>
+
+<table>
+  <thead><tr><th style="width:16%">Query param</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="mono">layers</td>
+      <td>Comma-separated subset of <code>place</code>, <code>water_name</code>,
+          <code>transportation_name</code>, <code>poi</code>,
+          <code>mountain_peak</code>, <code>park</code>,
+          <code>aerodrome_label</code>. Unknown names are ignored</td>
+    </tr>
+    <tr>
+      <td class="mono">lang</td>
+      <td>Language for <code>name:&lt;lang&gt;</code>, falling back to
+          <code>name</code>. Default <code>latin</code></td>
+    </tr>
+    <tr>
+      <td class="mono">limit</td>
+      <td>Keep only the N most prominent features. Results are sorted by
+          <code>rank</code> ascending, so this takes the top N</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>GET /classes &nbsp;·&nbsp; GET /health</h3>
+
+<p>
+  <code>/classes</code> returns the mask's value-to-name mapping as JSON — fetch it
+  at pipeline start rather than hard-coding the table.
+  <code>/classes?mode=ambiguous</code> adds <code>"ambiguous": 255</code>, so a
+  pipeline can pull exactly the vocabulary of the masks it is about to request. <code>/health</code> reports
+  worker pid, source zoom range, tile size, and resolved paths.
+</p>
+
+<pre><code>$ curl -s localhost:3000/health
+{<span class="c-key">"ok"</span>:true,<span class="c-key">"pid"</span>:<span class="c-num">48213</span>,<span class="c-key">"sourceZoom"</span>:{<span class="c-key">"min"</span>:<span class="c-num">0</span>,<span class="c-key">"max"</span>:<span class="c-num">14</span>},
+ <span class="c-key">"tileSize"</span>:<span class="c-num">512</span>,<span class="c-key">"channels"</span>:<span class="c-num">1</span>,<span class="c-key">"workers"</span>:<span class="c-num">8</span>}</code></pre>
+
+<h3>Errors</h3>
+
+<table>
+  <thead><tr><th style="width:14%">Status</th><th>Condition</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">400</td><td>Invalid tile address — non-integer, <code>z</code> outside 0…<code>MAX_ZOOM</code>, or <code>x</code>/<code>y</code> outside 0…2<sup>z</sup>−1. Body is <code>{"error": "invalid tile address", …}</code></td></tr>
+    <tr><td class="mono">500</td><td>Render or decode failure. Body is <code>{"error": "&lt;message&gt;"}</code></td></tr>
+  </tbody>
+</table>
+
+<p>
+  A tile address that is valid but has no data — open ocean, or outside the
+  file's coverage — is <strong>not</strong> an error. It renders as empty
+  background and returns 200.
+</p>
+
+<!-- ════════════════════ 4. OUTPUT FORMATS ════════════════════ -->
+<h2>Output formats</h2>
+
+<h3>image.png — the model input</h3>
+
+<p>
+  Single channel, 8-bit. Pixel values are cartographic brightness, spread evenly
+  across 0–255 so that no two classes collapse into each other when reduced to
+  one channel — the failure mode of using a conventional colour map style.
+</p>
+
+<table>
+  <thead><tr><th>Feature</th><th class="num">Value</th><th>Feature</th><th class="num">Value</th><th>Feature</th><th class="num">Value</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="sw" style="background:#ffffff"></span>background</td><td class="num mono">255</td>
+      <td><span class="sw" style="background:#a3a3a3"></span>grass</td><td class="num mono">163</td>
+      <td><span class="sw" style="background:#474747"></span>road_major</td><td class="num mono">71</td>
+    </tr>
+    <tr>
+      <td><span class="sw" style="background:#e8e8e8"></span>ice</td><td class="num mono">232</td>
+      <td><span class="sw" style="background:#8c8c8c"></span>wood</td><td class="num mono">140</td>
+      <td><span class="sw" style="background:#303030"></span>railway</td><td class="num mono">48</td>
+    </tr>
+    <tr>
+      <td><span class="sw" style="background:#d1d1d1"></span>farmland</td><td class="num mono">209</td>
+      <td><span class="sw" style="background:#757575"></span>road_minor</td><td class="num mono">117</td>
+      <td><span class="sw" style="background:#191919"></span>waterway</td><td class="num mono">25</td>
+    </tr>
+    <tr>
+      <td><span class="sw" style="background:#bababa"></span>landuse</td><td class="num mono">186</td>
+      <td><span class="sw" style="background:#5e5e5e"></span>building</td><td class="num mono">94</td>
+      <td><span class="sw" style="background:#000000"></span>water</td><td class="num mono">0</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="hd">These are paint values, not class ids</span>
+  <p>
+    Overlapping geometry means a pixel's value is whatever was drawn last — a
+    road over farmland reads as road. Antialiasing produces intermediate values
+    freely. Use <code>image.png</code> as an input feature; use
+    <code>mask.png</code> whenever you need to know the class.
+  </p>
+</div>
+
+<h3>mask.png — the label map</h3>
+
+<p>
+  Single channel, 8-bit, where every pixel value <em>is</em> a class id. Values
+  are spaced 23 apart so that antialiased edge pixels can be resolved back to a
+  legal class. Under <code>?mode=ambiguous</code> the reserved value
+  <strong>255</strong> also appears, marking a boundary pixel the renderer
+  declined to attribute to any one class.
+</p>
+
+<table>
+  <thead><tr><th>Class</th><th class="num">Id</th><th>Class</th><th class="num">Id</th><th>Class</th><th class="num">Id</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="mono">background</td><td class="num mono">0</td>
+      <td class="mono">grass</td><td class="num mono">92</td>
+      <td class="mono">railway</td><td class="num mono">184</td>
+    </tr>
+    <tr>
+      <td class="mono">water</td><td class="num mono">23</td>
+      <td class="mono">farmland</td><td class="num mono">115</td>
+      <td class="mono">road_minor</td><td class="num mono">207</td>
+    </tr>
+    <tr>
+      <td class="mono">ice</td><td class="num mono">46</td>
+      <td class="mono">landuse</td><td class="num mono">138</td>
+      <td class="mono">road_major</td><td class="num mono">230</td>
+    </tr>
+    <tr>
+      <td class="mono">wood</td><td class="num mono">69</td>
+      <td class="mono">building</td><td class="num mono">161</td>
+      <td class="mono">aeroway</td><td class="num mono">253</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="hd">waterway is in the image palette but not the mask</span>
+  <p>
+    Linear waterways are painted in <code>image.png</code> at value 25, but
+    <code>waterway</code> is not a mask class. In the mask those pixels take
+    whatever polygon lies beneath them, usually <code>background</code> or
+    <code>landuse</code>. Water <em>polygons</em> are class <code>water</code> in
+    both.
+  </p>
+</div>
+
+<p>
+  Twelve classes, ids <code>0, 23, 46, … 253</code>. To convert to contiguous
+  indices for training, divide by 23. Fetch <code>/classes</code> at startup
+  rather than duplicating this table in pipeline code.
+</p>
+
+<h3>labels.json — vector annotations</h3>
+
+<table>
+  <thead><tr><th style="width:18%">Field</th><th style="width:14%">Type</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td class="mono">layer</td><td class="mono">string</td><td>Source layer the feature came from</td></tr>
+    <tr><td class="mono">text</td><td class="mono">string</td><td>Feature name in the requested language</td></tr>
+    <tr><td class="mono">class</td><td class="mono">string</td><td>OpenMapTiles subclass, e.g. <code>suburb</code>, <code>motorway</code></td></tr>
+    <tr><td class="mono">rank</td><td class="mono">number</td><td>Prominence. Lower is more prominent; results sort ascending</td></tr>
+    <tr><td class="mono">geometry</td><td class="mono">string</td><td><code>point</code>, <code>line</code>, or <code>polygon</code></td></tr>
+    <tr><td class="mono">x</td><td class="mono">number</td><td>Pixels from the tile's <strong>left</strong> edge, 0…<code>size</code></td></tr>
+    <tr><td class="mono">y</td><td class="mono">number</td><td>Pixels from the tile's <strong>top</strong> edge, 0…<code>size</code></td></tr>
+  </tbody>
+</table>
+
+<p>
+  <code>x</code> and <code>y</code> are in the same frame as the two PNGs, so
+  <code>mask[int(y), int(x)]</code> gives the class under a label with no transform
+  in between. Features whose anchor falls outside the tile are dropped.
+</p>
+
+<p>
+  Point features report their own anchor. Lines and polygons report the
+  <em>midpoint</em> of their geometry, which is approximate — a cartographic
+  renderer repeats a road name along the line rather than placing it once.
+</p>
+
+<div class="note">
+  <span class="hd">These are all named features, not the drawn ones</span>
+  <p>
+    The endpoint returns every named feature present in the vector data, not the
+    subset a cartographic style would find room to draw. The Southwark tile has
+    <strong>1,122</strong> labels; a conventional style renders around 25. Use
+    <code>rank</code> and <code>limit</code> to cut it down if you want
+    display-realistic density.
+  </p>
+</div>
+
+<!-- ════════════════════ 5. MASK ACCURACY ════════════════════ -->
+<h2>Mask accuracy</h2>
+
+<p class="lead">
+  This section describes a real failure mode that silently biases class
+  frequencies. If you train on masks, read it.
+</p>
+
+<p>
+  MapLibre always antialiases line geometry — <code>fill-antialias: false</code>
+  only covers fills — so roughly one pixel in six along a road edge lands
+  <em>between</em> two class values. Those blends are not legal class ids, so
+  something has to resolve them.
+</p>
+
+<h3>Why snapping alone is not enough</h3>
+
+<p>
+  Snapping each pixel to the nearest legal value seems sufficient, and is not.
+  Class ids are evenly spaced, so a blend of two classes on either side of a third
+  lands <em>exactly</em> on that third class. Mixing <code>water</code> (23) with
+  <code>wood</code> (69) gives 46 — which reads as <code>ice</code>. No amount of
+  nearest-value snapping can distinguish that from genuine ice, by construction.
+</p>
+
+<h3>The fix: supersample and vote</h3>
+
+<p>
+  Masks are rendered at <code>MASK_SUPERSAMPLE</code>× the <em>pixel ratio</em> —
+  same ground, more pixels — and reduced by majority vote. Each output pixel is
+  then decided by several samples, most of which sit in a class interior rather
+  than on an edge. Measured on <code>z14/8187/5448</code>, the tile in
+  <code>01-urban-dense</code>, whose vector data carries only <code>grass</code>
+  and <code>sand</code> land cover — no ice whatsoever:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Setting</th>
+      <th class="num">Render time</th>
+      <th class="num">Spurious <span class="mono">ice</span></th>
+      <th class="num"><span class="mono">railway</span></th>
+      <th class="num"><span class="mono">road_minor</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>1 — snap only</td><td class="num mono">4.6 ms</td><td class="num mono">1326 &nbsp;(0.506%)</td><td class="num mono">6.58%</td><td class="num mono">13.81%</td></tr>
+    <tr><td><strong>2 — default</strong></td><td class="num mono">10.7 ms</td><td class="num mono">9 &nbsp;(0.003%)</td><td class="num mono">2.45%</td><td class="num mono">18.23%</td></tr>
+    <tr><td>3</td><td class="num mono">19.2 ms</td><td class="num mono">0 &nbsp;(0.000%)</td><td class="num mono">2.40%</td><td class="num mono">18.40%</td></tr>
+  </tbody>
+</table>
+
+<p>
+  The error is systematic, not cosmetic speckle. At supersample 1 this tile
+  over-reports <code>railway</code> by a factor of nearly three and under-reports
+  <code>road_minor</code> by 4.4 points — train on that and you are fitting a
+  class-frequency bias, not the map. Supersample 3 moves both figures by under
+  0.2 points against the default, so 2 is close to converged. Output contains
+  only legal class ids at every setting; the difference is whether they are the
+  <em>right</em> ids.
+</p>
+
+<h3>Flagging boundaries instead of guessing them</h3>
+
+<p>
+  Voting still assigns a class to every pixel, including ones that are a genuine
+  50/50 mixture. <code>?mode=ambiguous</code> instead emits <strong>255</strong>
+  there — the conventional <code>ignore_index</code>, used by Cityscapes and
+  PASCAL VOC, and clear of the class ids, which stop at 253.
+</p>
+
+<p>
+  It costs nothing extra: the vote already computes the sample counts, so
+  emitting 255 on a split rather than the winner is a branch, not a second
+  render. It is a strict refinement of <code>class</code> — every pixel it does
+  <em>not</em> flag carries exactly the value <code>class</code> would have
+  assigned.
+</p>
+
+<p>
+  The tempting shortcut — flag any pixel whose value is not a legal class id —
+  is both incomplete and far too broad. It misses blends that land
+  <em>exactly</em> on a legal id, which is the <code>ice</code> case above. And
+  on a dense urban tile it discards 17.3% of pixels when supersampling shows
+  only 2.4% of those are genuinely undecidable; the rest are ≥75% dominated by
+  one class. Voting first cuts the flagged share to 2.65% and spreads it evenly
+  instead of gutting the thinnest classes:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Flagged share of each class</th>
+      <th class="num">by "illegal value"</th>
+      <th class="num">by split vote</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">railway</td><td class="num mono">41.0%</td><td class="num mono">5.0%</td></tr>
+    <tr><td class="mono">road_minor</td><td class="num mono">40.2%</td><td class="num mono">5.0%</td></tr>
+    <tr><td class="mono">building</td><td class="num mono">4.5%</td><td class="num mono">1.0%</td></tr>
+    <tr><td class="mono">water</td><td class="num mono">3.5%</td><td class="num mono">0.8%</td></tr>
+  </tbody>
+</table>
+
+<p>
+  <code>road_minor</code> is only 2.3 px wide at z14 and <code>railway</code>
+  1.8 px, so for linear classes the antialiased edge <em>is</em> most of the
+  feature. Discarding it removes precisely the boundary supervision a
+  segmentation model most needs.
+</p>
+
+<h3>Residual error and the exact alternative</h3>
+
+<p>
+  At the default setting, remaining error is roughly half a pixel along class
+  boundaries. If you need exact boundaries, rasterise the polygons yourself
+  directly from the vector tile, where there is no antialiasing at all — the
+  <code>labels.json</code> path shows how the geometry is decoded.
+</p>
+
+<!-- ════════════════════ 6. USING IT ════════════════════ -->
+<h2>Using it from a pipeline</h2>
+
+<h3>Loading a tile in Python</h3>
+
+<pre><code><span class="c-key">import</span> io, requests, numpy <span class="c-key">as</span> np
+<span class="c-key">from</span> PIL <span class="c-key">import</span> Image
+
+BASE = <span class="c-str">"http://localhost:3000"</span>
+CLASSES = requests.get(<span class="c-str">f"{BASE}/classes"</span>).json()   <span class="c-com"># name -> id</span>
+
+<span class="c-key">def</span> fetch(z, x, y):
+    <span class="c-key">def</span> png(url):
+        <span class="c-com"># Both PNGs are colour type 0, so these load as (H, W) uint8 --</span>
+        <span class="c-com"># no colour conversion and no alpha channel to discard.</span>
+        <span class="c-key">return</span> np.array(Image.open(io.BytesIO(requests.get(url).content)))
+
+    image  = png(<span class="c-str">f"{BASE}/tile/{z}/{x}/{y}.png"</span>)        <span class="c-com"># (512, 512)</span>
+    mask   = png(<span class="c-str">f"{BASE}/tile/{z}/{x}/{y}/mask.png"</span>)   <span class="c-com"># (512, 512)</span>
+    labels = requests.get(<span class="c-str">f"{BASE}/tile/{z}/{x}/{y}/labels.json"</span>).json()
+    <span class="c-key">return</span> image, mask, labels
+
+image, mask, labels = fetch(<span class="c-num">14</span>, <span class="c-num">8187</span>, <span class="c-num">5448</span>)
+
+<span class="c-com"># Ids are spaced 23 apart -- divide for contiguous training indices.</span>
+target = mask // <span class="c-num">23</span>                                  <span class="c-com"># 0..11</span>
+
+<span class="c-com"># The label frame and the raster frame are identical, so sampling</span>
+<span class="c-com"># the class under a label needs no transform.</span>
+<span class="c-key">for</span> item <span class="c-key">in</span> labels[<span class="c-str">"labels"</span>][:<span class="c-num">5</span>]:
+    cls = mask[<span class="c-key">int</span>(item[<span class="c-str">"y"</span>]), <span class="c-key">int</span>(item[<span class="c-str">"x"</span>])]
+    <span class="c-key">print</span>(item[<span class="c-str">"text"</span>], <span class="c-str">"over"</span>, cls)</code></pre>
+
+<h3>Choosing tiles</h3>
+
+<p>
+  Convert a latitude and longitude to a tile address with the standard Web
+  Mercator formulas:
+</p>
+
+<pre><code><span class="c-key">import</span> math
+
+<span class="c-key">def</span> tile_for(lat, lng, z):
+    n = <span class="c-num">2</span> ** z
+    x = <span class="c-key">int</span>((lng + <span class="c-num">180</span>) / <span class="c-num">360</span> * n)
+    lat_r = math.radians(lat)
+    y = <span class="c-key">int</span>((<span class="c-num">1</span> - math.log(math.tan(lat_r) + <span class="c-num">1</span> / math.cos(lat_r)) / math.pi) / <span class="c-num">2</span> * n)
+    <span class="c-key">return</span> z, x, y
+
+tile_for(<span class="c-num">51.5024</span>, -<span class="c-num">0.0908</span>, <span class="c-num">14</span>)   <span class="c-com"># -> (14, 8187, 5448)</span></code></pre>
+
+<p>
+  Zoom 14 is the source maximum and the natural working level: one tile covers
+  roughly 1.5 km at London's latitude. Above 14 the renderer overzooms — it
+  scales a z14 parent, so tiles remain valid but carry no extra detail. Below
+  about z10 the data is heavily generalised and buildings and minor roads simply
+  do not exist.
+</p>
+
+<h3>Concurrency and caching</h3>
+
+<ul>
+  <li>
+    <strong>Just fire requests in parallel.</strong> Concurrent requests for the
+    same cold tile are coalesced <em>within a worker</em>, so N simultaneous
+    callers for one address cost at most one render per worker rather than N.
+  </li>
+  <li>
+    <strong>Cache writes are atomic</strong> — a temp file plus rename — so a
+    reader never sees a partial tile, and several workers writing the same tile is
+    harmless.
+  </li>
+  <li>
+    <strong>Cache hits serve at over 12,000 tiles/s.</strong> A second epoch over
+    the same tile set is effectively free. A style or render-setting change
+    starts a fresh cache namespace on its own, so it will never serve you output
+    from a configuration you have since changed.
+  </li>
+</ul>
+
+<!-- ════════════════════ 7. SAMPLES ════════════════════ -->
+<h2>Sample data</h2>
+
+<p>
+  The <code>samples/</code> folder holds seven tiles chosen to cover different
+  terrain, zoom levels, and edge cases. Each folder contains exactly what the API
+  returns — <code>image.png</code>, <code>mask.png</code>,
+  <code>mask_ambiguous.png</code>, <code>labels.json</code> — plus a
+  <code>meta.json</code> with the tile address, the request URLs that produced
+  it, and a class breakdown.
+</p>
+
+<p>
+  <code>mask_ambiguous.png</code> is a strict refinement of
+  <code>mask.png</code> — verified across all seven samples, zero unflagged
+  pixels differ. How much it withholds depends on how much geometry the tile
+  carries, from 0.00% at z0 to 3.11% on the z10 city view.
+</p>
+
+<p>
+  The flagged share of a class tracks how present that class is. Classes holding
+  a real share of the tile lose very little; classes surviving only as scattered
+  slivers are withheld almost entirely — the same mechanism that suppresses the
+  spurious <code>ice</code>:
+</p>
+
+<table>
+  <thead>
+    <tr><th style="width:34%"><span class="mono">01-urban-dense</span></th>
+        <th class="num">Share of tile</th><th class="num">Flagged</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">building</td><td class="num mono">30.51%</td><td class="num mono">1.0%</td></tr>
+    <tr><td class="mono">road_minor</td><td class="num mono">18.23%</td><td class="num mono">5.0%</td></tr>
+    <tr><td class="mono">railway</td><td class="num mono">2.45%</td><td class="num mono">5.0%</td></tr>
+    <tr><td class="mono">farmland</td><td class="num mono">0.01%</td><td class="num mono">94.6%</td></tr>
+    <tr><td class="mono">ice</td><td class="num mono">0.00%</td><td class="num mono">88.9%</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <span class="hd">Low zoom is the exception worth knowing</span>
+  <p>
+    At z10 buildings and minor roads survive only as slivers, so
+    <code>05-low-zoom</code> flags 94.8% of <code>building</code> and 91% of
+    <code>road_minor</code>. If you train on low-zoom tiles, use
+    <code>mask.png</code> or expect almost no supervision for those classes.
+  </p>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:22%">Folder</th>
+      <th style="width:19%" class="nowrap">Tile</th>
+      <th class="num" style="width:11%">Labels</th>
+      <th>What it exercises</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">00-world-z0</td><td class="mono nowrap">z0/0/0</td><td class="num mono">46</td><td>Entire world. 62% water, 20% ice</td></tr>
+    <tr><td class="mono">01-urban-dense</td><td class="mono nowrap">z14/8187/5448</td><td class="num mono">1122</td><td>Southwark. Dense buildings, full road hierarchy</td></tr>
+    <tr><td class="mono">02-water-coast</td><td class="mono nowrap">z13/4103/2725</td><td class="num mono">9</td><td>Thames estuary. Coastline edges, 33% water</td></tr>
+    <tr><td class="mono">03-park-green</td><td class="mono nowrap">z14/8184/5448</td><td class="num mono">788</td><td>Hyde Park. Large green polygons against landuse</td></tr>
+    <tr><td class="mono">04-rural</td><td class="mono nowrap">z13/4061/2698</td><td class="num mono">8</td><td>Warwickshire. 69% farmland, very few labels</td></tr>
+    <tr><td class="mono">05-low-zoom</td><td class="mono nowrap">z10/511/340</td><td class="num mono">93</td><td>Greater London. Whole-city context, no building detail</td></tr>
+    <tr><td class="mono">06-overzoom-z16</td><td class="mono nowrap">z16/32750/21793</td><td class="num mono">92</td><td>Above source maxzoom — overzoomed from a z14 parent</td></tr>
+  </tbody>
+</table>
+
+<h3>Inspecting a sample</h3>
+
+<pre><code>python3 samples/load_sample.py samples/00-world-z0</code></pre>
+
+<p>
+  It reports shapes, the class distribution, the flagged share per class, and
+  the class under each label anchor. It also asserts that the ambiguous variant
+  never disagrees with <code>mask.png</code> outside the flagged pixels.
+</p>
+
+<pre><code>00-world-z0  z0/0/0
+  The entire world in one tile. Web Mercator covers latitudes ...
+
+image  shape=(512, 512) dtype=uint8 range=[0, 255]
+mask   shape=(512, 512) dtype=uint8 unique=3 values
+
+class distribution:
+  water         23  61.75%
+  ice           46  19.59%
+  background     0  18.66%
+  unknown values: none
+
+one-hot stack: (3, 512, 512)  (3 classes present)
+
+labels: 46 total
+  place                  37
+  water_name             9
+
+mask_ambiguous.png: 0.00% flagged 255 (ignore_index)
+  unflagged pixels identical to mask.png: yes
+    water          0.0% flagged
+    ice            0.0% flagged
+    background     0.0% flagged
+
+first 5 labels (x, y are pixels from top-left):
+  Antarctica       ( 256.5,  449.8)  place    over ice
+  Africa           ( 281.3,  239.5)  place    over background
+  North America    ( 101.0,  171.4)  place    over background
+  South America    ( 169.3,  286.5)  place    over background
+  Oceania          ( 453.0,  282.5)  place    over background</code></pre>
+
+<p>
+  Nothing is flagged at z0 because the style draws only fills there — no roads
+  or railways exist in the data at that zoom, and fills are rendered with
+  antialiasing off, so no pixel is ever a blend.
+</p>
+
+<h3>Regenerating</h3>
+
+<pre><code>node server.js &amp;
+node samples/generate.js http://localhost:3000</code></pre>
+
+<p>
+  Edit the <code>SAMPLES</code> array in <code>generate.js</code> to add
+  locations — it takes latitude, longitude, and zoom, and works out the tile
+  address itself.
+</p>
+
+<!-- ════════════════════ 8. PERFORMANCE ════════════════════ -->
+<h2>Performance and design</h2>
+
+<h3>Measured throughput</h3>
+
+<p>Ten-core machine, eight workers, dense z14 tiles over London.</p>
+
+<table>
+  <thead><tr><th style="width:48%">Measurement</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>Image render, per worker</td><td class="mono">~7 ms/tile median (4–17 ms, by feature density)</td></tr>
+    <tr><td>Mask render, per worker</td><td class="mono">~14 ms/tile median at supersample 2</td></tr>
+    <tr><td>Image throughput, 8 workers</td><td class="mono">~1,350 tiles/s cold</td></tr>
+    <tr><td>Mask throughput, 8 workers</td><td class="mono">~610 tiles/s cold</td></tr>
+    <tr><td>Cache hits</td><td class="mono">12,000–18,000 tiles/s</td></tr>
+    <tr><td>Label extraction</td><td class="mono">~5 ms/tile</td></tr>
+    <tr><td>Payload sizes</td><td class="mono">image 15–131 KB · mask 16–81 KB · labels 1–127 KB</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Masks cost roughly twice what images do. If you request both at volume, the
+  mask is your bottleneck — <code>MASK_SUPERSAMPLE=1</code> trades the
+  accuracy described above back for speed.
+</p>
+
+<h3>Where the speed comes from</h3>
+
+<ul>
+  <li>
+    <strong>No symbol layers.</strong> Text layout and collision detection
+    dominate a styled render; dropping labels from the style is worth about 65%
+    of render time. Labels come from the vector data instead, where they are
+    both cheaper and more complete.
+  </li>
+  <li>
+    <strong>Channel extraction, not greyscale conversion.</strong> Every paint
+    colour is a pure grey, so channel 0 is already the value. Extracting it is
+    faster than a luma conversion and lossless.
+  </li>
+  <li>
+    <strong>PNG level 1.</strong> About 1.3 ms per tile against 2.7 ms at level 6,
+    for roughly 50% more bytes — worth it when the consumer is on a fast link.
+  </li>
+  <li>
+    <strong>No network at render time.</strong> Styles reference no glyphs and no
+    sprites. Beyond determinism, this removes a class of failure where a font CDN
+    returns an HTML error page with HTTP 200 and the renderer fails on the
+    unexpected payload.
+  </li>
+</ul>
+
+<h3>Why single-channel PNG</h3>
+
+<p>
+  Output is PNG colour type 0 — true greyscale — so it decodes to
+  <code>(H, W)</code> rather than <code>(H, W, 3)</code>. This requires an explicit
+  colourspace conversion at encode time; without it, sharp promotes a single band
+  to sRGB and writes RGB with <code>r == g == b</code>, which carries the same
+  values in triple the channels and about 40% more bytes.
+</p>
+
+<h3>Cache size cap and eviction</h3>
+
+<p>
+  Rendered tiles land under <code>OUTPUT_DIR</code> in slippy-map layout, one
+  namespace per artefact so the mask modes never collide. Labels are not cached
+  to disk — they are re-decoded from the vector tile each request, at ~5 ms.
+</p>
+
+<pre><code>tiles/
+  image/14/8187/5448.png
+  mask/14/8187/5448.png
+  mask_ambiguous/14/8187/5448.png
+  mask_raw/14/8187/5448.png</code></pre>
+
+<p>
+  Writes are atomic — a temp file in the same directory, then a rename — so a
+  reader never sees a partial PNG, and two workers racing on the same address
+  simply both write identical bytes.
+</p>
+
+<p>
+  Set <code>CACHE_MAX_SIZE</code> to bound the disk cache. Without it the cache
+  grows forever — at ~62 KB per artefact that is roughly 100 GB per million
+  tiles, and a full z14 planet would be ~17 TB.
+</p>
+
+<p>
+  Eviction is <strong>LRU on reads, not writes</strong>. A tile written long ago
+  but requested constantly is kept; one written recently and never re-read is
+  evicted first. When the cap is exceeded the reaper sweeps down to 90% of it,
+  so a cache sitting at the limit does not evict on every single write.
+</p>
+
+<p>
+  All eviction happens in the cluster primary. The workers share one directory,
+  so if each evicted independently they would double-count the total and delete
+  entries the others had just written. Workers instead report writes and hits to
+  the primary, batched once a second — cache hits run at over 12,000/s, so one
+  IPC message per hit would cost more than the read it describes.
+</p>
+
+<div class="note">
+  <span class="hd">Why not atime</span>
+  <p>
+    Filesystem access time looks like the obvious recency source and is not
+    dependable: <code>relatime</code>, the Linux default, advances it only once
+    a day, and <code>noatime</code> never does. Either would silently degrade
+    LRU into "least recently written" and evict exactly the tiles being read
+    most. It is used only to seed entries already on disk at startup, where it
+    is the sole evidence available.
+  </p>
+</div>
+
+<h4>Configuration is part of the cache key</h4>
+
+<p>
+  A tile address alone does not identify an artefact: the same
+  <code>z/x/y</code> renders differently under a different style, tile size, PNG
+  level, or supersample setting. Each namespace therefore carries a short hash
+  of exactly the inputs that affect it:
+</p>
+
+<pre><code>tiles/image-a54b3a89/14/8187/5448.png
+tiles/mask-87addb24/14/8187/5448.png</code></pre>
+
+<p>
+  The hash covers the built style object, so editing a colour or adding a layer
+  in <code>styles.js</code> rotates it with no bookkeeping. Inputs are tracked
+  per artefact rather than globally, so a change only invalidates what it
+  actually affects:
+</p>
+
+<table>
+  <thead>
+    <tr><th style="width:34%">Change</th><th class="num">image</th><th class="num">mask</th>
+        <th class="num">mask_ambiguous</th><th class="num">mask_raw</th></tr>
+  </thead>
+  <tbody>
+    <tr><td class="mono">TILE_SIZE</td><td class="num">new</td><td class="num">new</td><td class="num">new</td><td class="num">new</td></tr>
+    <tr><td class="mono">PNG_LEVEL</td><td class="num">new</td><td class="num">new</td><td class="num">new</td><td class="num">new</td></tr>
+    <tr><td class="mono">MASK_SUPERSAMPLE</td><td class="num">kept</td><td class="num">new</td><td class="num">new</td><td class="num">kept</td></tr>
+    <tr><td class="mono">MASK_AMBIGUOUS_THRESHOLD</td><td class="num">kept</td><td class="num">kept</td><td class="num">new</td><td class="num">kept</td></tr>
+    <tr><td class="mono">source .mbtiles</td><td class="num">new</td><td class="num">new</td><td class="num">new</td><td class="num">new</td></tr>
+    <tr><td>mask palette in <code>styles.js</code></td><td class="num">kept</td><td class="num">new</td><td class="num">new</td><td class="num">new</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Superseded namespaces are reported at startup, not deleted — the output in
+  them is still valid, and flipping a setting back should find its cache intact.
+  With a size cap set they age out on their own, since nothing reads them and
+  eviction is LRU.
+</p>
+
+<p>
+  <code>GET /health</code> reports the live state — file count, bytes, percent
+  of cap, and total evictions, plus the namespaces in use. In cluster mode that is the primary's last
+  broadcast, so it lags by up to one sweep interval. With no cap configured, no
+  tracking is installed at all and the cache behaves exactly as before.
+</p>
+
+<h3>Process model</h3>
+
+<p>
+  The primary process forks <code>WORKERS</code> children and restarts any that
+  exit unexpectedly. Each worker holds its own MBTiles handle, disk cache, and
+  renderer, and serialises renders internally because MapLibre GL Native is not
+  thread-safe. There is no shared state between workers beyond the filesystem
+  cache, so scaling out to more machines needs only a shared or duplicated
+  <code>OUTPUT_DIR</code>.
+</p>
+
+<!-- ════════════════════ 9. TROUBLESHOOTING ════════════════════ -->
+<h2>Operational notes</h2>
+
+<table>
+  <thead><tr><th style="width:36%">Symptom</th><th>Cause and fix</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Tiles come back entirely blank</td>
+      <td>Valid address with no data — ocean or outside coverage — which is
+          normal and returns 200. Confirm the address with
+          <code>tile_for()</code> and check <code>/health</code> for the source
+          zoom range.</td>
+    </tr>
+    <tr>
+      <td>PNGs load as <code>(H, W, 3)</code></td>
+      <td>Something in the pipeline is converting on read. The server always
+          sends colour type 0 — check for a <code>.convert("RGB")</code> in your
+          loader.</td>
+    </tr>
+    <tr>
+      <td>Mask has values not in <code>/classes</code></td>
+      <td>You are requesting <code>?snap=0</code>, which returns raw blends by
+          design. Drop the parameter.</td>
+    </tr>
+    <tr>
+      <td>Cache directory keeps growing after config changes</td>
+          <td>Each configuration gets its own namespace, and old ones are kept
+          rather than deleted so that reverting a setting finds its cache
+          intact. The startup log names them; delete them, or set
+          <code>CACHE_MAX_SIZE</code> and let LRU age them out.</td>
+    </tr>
+    <tr>
+      <td>Low-zoom tiles are slow</td>
+      <td>z0–z6 cover enormous areas and carry correspondingly more geometry.
+          They cache like any other tile, so the cost is paid once.</td>
+    </tr>
+    <tr>
+      <td>Throughput is flat regardless of client concurrency</td>
+      <td>Renders serialise within a process. Raise <code>WORKERS</code>; check
+          <code>/health</code> to confirm the count that actually started.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Data provenance</h3>
+
+<p>
+  Tiles are rendered from a fixed OpenMapTiles v3.11 planet extract dated
+  2020-02-10. Output is a function of that file and the bundled styles only, so
+  the same request returns identical bytes indefinitely. Replacing the source file
+  changes the output — delete the cache when you do, and record which extract a
+  corpus was built from.
+</p>
+
+<h3>Coordinate conventions</h3>
+
+<ul>
+  <li>Tile addresses are <strong>XYZ</strong> — y increases southward. The MBTiles file stores TMS internally; the conversion is handled on lookup.</li>
+  <li>Label coordinates are pixels from the tile's top-left, matching image and mask array indexing as <code>[y, x]</code>.</li>
+  <li>Web Mercator covers latitudes −85.05° to 85.05° only. The poles are not representable at any zoom.</li>
+</ul>
+
+</body>
+</html>

@@ -1,0 +1,837 @@
+{
+  "z": 16,
+  "x": 32750,
+  "y": 21793,
+  "size": 512,
+  "count": 92,
+  "labels": [
+    {
+      "layer": "poi",
+      "text": "Marshalsea Road",
+      "class": "bus",
+      "rank": 2,
+      "geometry": "point",
+      "x": 224.5,
+      "y": 382
+    },
+    {
+      "layer": "poi",
+      "text": "Southwark Street / Southwark Bridge Road",
+      "class": "bus",
+      "rank": 3,
+      "geometry": "point",
+      "x": 389,
+      "y": 65.5
+    },
+    {
+      "layer": "poi",
+      "text": "Southwark Bridge Road",
+      "class": "bus",
+      "rank": 5,
+      "geometry": "point",
+      "x": 366,
+      "y": 79
+    },
+    {
+      "layer": "poi",
+      "text": "Southwark Street",
+      "class": "bus",
+      "rank": 6,
+      "geometry": "point",
+      "x": 304,
+      "y": 123.5
+    },
+    {
+      "layer": "poi",
+      "text": "Great Guildford Street",
+      "class": "bus",
+      "rank": 7,
+      "geometry": "point",
+      "x": 226.5,
+      "y": 54.5
+    },
+    {
+      "layer": "poi",
+      "text": "Marshalsea Road",
+      "class": "bus",
+      "rank": 8,
+      "geometry": "point",
+      "x": 135.5,
+      "y": 420.5
+    },
+    {
+      "layer": "poi",
+      "text": "The Art Academy",
+      "class": "college",
+      "rank": 10,
+      "geometry": "point",
+      "x": 353.5,
+      "y": 98.5
+    },
+    {
+      "layer": "place",
+      "text": "Borough",
+      "class": "suburb",
+      "rank": 11,
+      "geometry": "point",
+      "x": 473,
+      "y": 457
+    },
+    {
+      "layer": "poi",
+      "text": "The Bridge",
+      "class": "town_hall",
+      "rank": 14,
+      "geometry": "point",
+      "x": 321.5,
+      "y": 124.5
+    },
+    {
+      "layer": "poi",
+      "text": "Mint Street Park",
+      "class": "park",
+      "rank": 15,
+      "geometry": "point",
+      "x": 202,
+      "y": 462
+    },
+    {
+      "layer": "poi",
+      "text": "Red Cross Garden",
+      "class": "park",
+      "rank": 16,
+      "geometry": "point",
+      "x": 400,
+      "y": 333.5
+    },
+    {
+      "layer": "poi",
+      "text": "Shell Select",
+      "class": "shop",
+      "rank": 19,
+      "geometry": "point",
+      "x": 326.5,
+      "y": 292
+    },
+    {
+      "layer": "poi",
+      "text": "Payless",
+      "class": "shop",
+      "rank": 20,
+      "geometry": "point",
+      "x": 350,
+      "y": 222
+    },
+    {
+      "layer": "poi",
+      "text": "Londis",
+      "class": "shop",
+      "rank": 23,
+      "geometry": "point",
+      "x": 316,
+      "y": 224.5
+    },
+    {
+      "layer": "poi",
+      "text": "Cathedral School of St. Saviour & St. Mary Overie",
+      "class": "school",
+      "rank": 28,
+      "geometry": "point",
+      "x": 460,
+      "y": 353.5
+    },
+    {
+      "layer": "poi",
+      "text": "EDū",
+      "class": "fast_food",
+      "rank": 29,
+      "geometry": "point",
+      "x": 347.5,
+      "y": 158
+    },
+    {
+      "layer": "poi",
+      "text": "Itsu",
+      "class": "fast_food",
+      "rank": 31,
+      "geometry": "point",
+      "x": 148,
+      "y": 45
+    },
+    {
+      "layer": "poi",
+      "text": "Tap and Bottle Wine Bar",
+      "class": "bar",
+      "rank": 33,
+      "geometry": "point",
+      "x": 373,
+      "y": 185
+    },
+    {
+      "layer": "poi",
+      "text": "Bar Douro",
+      "class": "bar",
+      "rank": 34,
+      "geometry": "point",
+      "x": 330,
+      "y": 144
+    },
+    {
+      "layer": "poi",
+      "text": "Omeara Jonathan Wilson",
+      "class": "bar",
+      "rank": 35,
+      "geometry": "point",
+      "x": 404,
+      "y": 180
+    },
+    {
+      "layer": "poi",
+      "text": "Little Dorrit Park",
+      "class": "park",
+      "rank": 35,
+      "geometry": "point",
+      "x": 477,
+      "y": 480.5
+    },
+    {
+      "layer": "poi",
+      "text": "Miraflores Bar & Lounge",
+      "class": "bar",
+      "rank": 36,
+      "geometry": "point",
+      "x": 328,
+      "y": 46
+    },
+    {
+      "layer": "poi",
+      "text": "The Bunker Theatre",
+      "class": "theatre",
+      "rank": 37,
+      "geometry": "point",
+      "x": 396,
+      "y": 104
+    },
+    {
+      "layer": "poi",
+      "text": "Menier Chocolate Factory",
+      "class": "restaurant",
+      "rank": 39,
+      "geometry": "point",
+      "x": 411.5,
+      "y": 102
+    },
+    {
+      "layer": "poi",
+      "text": "Gossip",
+      "class": "hairdresser",
+      "rank": 40,
+      "geometry": "point",
+      "x": 345.5,
+      "y": 487.5
+    },
+    {
+      "layer": "poi",
+      "text": "The Borough Welsh Congregational Chapel",
+      "class": "place_of_worship",
+      "rank": 42,
+      "geometry": "point",
+      "x": 197.5,
+      "y": 358.5
+    },
+    {
+      "layer": "poi",
+      "text": "Copperfield Street Garden",
+      "class": "garden",
+      "rank": 43,
+      "geometry": "point",
+      "x": 102,
+      "y": 330.5
+    },
+    {
+      "layer": "poi",
+      "text": "London Fire Brigade Museum",
+      "class": "museum",
+      "rank": 50,
+      "geometry": "point",
+      "x": 72.5,
+      "y": 482.5
+    },
+    {
+      "layer": "poi",
+      "text": "citizenM hotel London Bankside",
+      "class": "lodging",
+      "rank": 51,
+      "geometry": "point",
+      "x": 53,
+      "y": 33
+    },
+    {
+      "layer": "poi",
+      "text": "The Lord Clyde",
+      "class": "beer",
+      "rank": 58,
+      "geometry": "point",
+      "x": 307,
+      "y": 381.5
+    },
+    {
+      "layer": "poi",
+      "text": "Shell",
+      "class": "fuel",
+      "rank": 59,
+      "geometry": "point",
+      "x": 315.5,
+      "y": 295
+    },
+    {
+      "layer": "poi",
+      "text": "The Rose & Crown",
+      "class": "beer",
+      "rank": 60,
+      "geometry": "point",
+      "x": 379.5,
+      "y": 227
+    },
+    {
+      "layer": "poi",
+      "text": "Lupins",
+      "class": "restaurant",
+      "rank": 61,
+      "geometry": "point",
+      "x": 358,
+      "y": 182.5
+    },
+    {
+      "layer": "poi",
+      "text": "Burnt Lemon Bakery",
+      "class": "bakery",
+      "rank": 62,
+      "geometry": "point",
+      "x": 366.5,
+      "y": 183
+    },
+    {
+      "layer": "poi",
+      "text": "The Island Cafe",
+      "class": "cafe",
+      "rank": 63,
+      "geometry": "point",
+      "x": 320,
+      "y": 195.5
+    },
+    {
+      "layer": "poi",
+      "text": "F45",
+      "class": "sports_centre",
+      "rank": 75,
+      "geometry": "point",
+      "x": 371.5,
+      "y": 38
+    },
+    {
+      "layer": "poi",
+      "text": "Palma's",
+      "class": "cafe",
+      "rank": 76,
+      "geometry": "point",
+      "x": 335.5,
+      "y": 223.5
+    },
+    {
+      "layer": "poi",
+      "text": "kitchen@The Bridge",
+      "class": "cafe",
+      "rank": 77,
+      "geometry": "point",
+      "x": 315,
+      "y": 124
+    },
+    {
+      "layer": "poi",
+      "text": "Pemshield Motors",
+      "class": "car",
+      "rank": 78,
+      "geometry": "point",
+      "x": 250,
+      "y": 153
+    },
+    {
+      "layer": "poi",
+      "text": "The Boot And Flogger Wine Bar",
+      "class": "bar",
+      "rank": 78,
+      "geometry": "point",
+      "x": 496.5,
+      "y": 168.5
+    },
+    {
+      "layer": "poi",
+      "text": "The Rose & Crown",
+      "class": "lodging",
+      "rank": 79,
+      "geometry": "point",
+      "x": 379.5,
+      "y": 224.5
+    },
+    {
+      "layer": "poi",
+      "text": "Caravan",
+      "class": "restaurant",
+      "rank": 80,
+      "geometry": "point",
+      "x": 158.5,
+      "y": 115
+    },
+    {
+      "layer": "poi",
+      "text": "Southwark Barbers",
+      "class": "hairdresser",
+      "rank": 81,
+      "geometry": "point",
+      "x": 283,
+      "y": 163.5
+    },
+    {
+      "layer": "poi",
+      "text": "Est. India",
+      "class": "restaurant",
+      "rank": 82,
+      "geometry": "point",
+      "x": 361,
+      "y": 222
+    },
+    {
+      "layer": "poi",
+      "text": "Union Viet Cafe and Restaurant",
+      "class": "cafe",
+      "rank": 83,
+      "geometry": "point",
+      "x": 42,
+      "y": 219
+    },
+    {
+      "layer": "poi",
+      "text": "Ethical Caffeine",
+      "class": "cafe",
+      "rank": 84,
+      "geometry": "point",
+      "x": 298,
+      "y": 162
+    },
+    {
+      "layer": "poi",
+      "text": "Hixter",
+      "class": "restaurant",
+      "rank": 88,
+      "geometry": "point",
+      "x": 140.5,
+      "y": 81
+    },
+    {
+      "layer": "poi",
+      "text": "Lavington Street",
+      "class": "bicycle_rental",
+      "rank": 89,
+      "geometry": "point",
+      "x": 77,
+      "y": 18
+    },
+    {
+      "layer": "poi",
+      "text": "Union Street",
+      "class": "bicycle_rental",
+      "rank": 91,
+      "geometry": "point",
+      "x": 36.5,
+      "y": 247.5
+    },
+    {
+      "layer": "poi",
+      "text": "Lantana Cafe",
+      "class": "cafe",
+      "rank": 93,
+      "geometry": "point",
+      "x": 428.5,
+      "y": 63.5
+    },
+    {
+      "layer": "poi",
+      "text": "munchies",
+      "class": "cafe",
+      "rank": 94,
+      "geometry": "point",
+      "x": 328,
+      "y": 464
+    },
+    {
+      "layer": "poi",
+      "text": "The Coffee House",
+      "class": "cafe",
+      "rank": 102,
+      "geometry": "point",
+      "x": 390,
+      "y": 227
+    },
+    {
+      "layer": "poi",
+      "text": "Menier Chocolate Factory",
+      "class": "theatre",
+      "rank": 106,
+      "geometry": "point",
+      "x": 424,
+      "y": 114.5
+    },
+    {
+      "layer": "poi",
+      "text": "O Ver",
+      "class": "restaurant",
+      "rank": 117,
+      "geometry": "point",
+      "x": 446.5,
+      "y": 67
+    },
+    {
+      "layer": "poi",
+      "text": "Little Dorrit's Playground",
+      "class": "playground",
+      "rank": 133,
+      "geometry": "point",
+      "x": 493,
+      "y": 472
+    },
+    {
+      "layer": "poi",
+      "text": "ibis Styles London Southwark",
+      "class": "lodging",
+      "rank": 150,
+      "geometry": "point",
+      "x": 431.5,
+      "y": 14.5
+    },
+    {
+      "layer": "poi",
+      "text": "Most Precious Blood",
+      "class": "place_of_worship",
+      "rank": 177,
+      "geometry": "point",
+      "x": 452.5,
+      "y": 186.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ewer Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 16,
+      "y": 196
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Pepper Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 67.5,
+      "y": 303.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Keppel Row",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 296.5,
+      "y": 107.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Mint Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 264,
+      "y": 495
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Union Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 294,
+      "y": 212.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Union Street",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 325.5,
+      "y": 210
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Union Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 372.5,
+      "y": 206
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Playhouse Court",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 276,
+      "y": 267
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Quilp Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 231.5,
+      "y": 409.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Clennam Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 311.5,
+      "y": 395.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Disney Street",
+      "class": "path",
+      "rank": null,
+      "geometry": "line",
+      "x": 401,
+      "y": 477.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Flat Iron Yard",
+      "class": "service",
+      "rank": null,
+      "geometry": "line",
+      "x": 328,
+      "y": 249
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Ayres Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 321,
+      "y": 374.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Copperfield St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 62.5,
+      "y": 340.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Disney Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 419.5,
+      "y": 486
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Dorrit Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 339,
+      "y": 461.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Doyce Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 230,
+      "y": 359.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Great Guildford St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 218.5,
+      "y": 259.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Little Dorrit Court",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 453.5,
+      "y": 428
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Mint Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 251.5,
+      "y": 491
+    },
+    {
+      "layer": "transportation_name",
+      "text": "O'Meara Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 445.5,
+      "y": 119.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Quilp Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 316,
+      "y": 450.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Redcross Way",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 460,
+      "y": 281
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Trundle Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 151,
+      "y": 512
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Great Guildford St.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 153.5,
+      "y": 14.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Thrale Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 471,
+      "y": 61
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wardens Grove",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 186,
+      "y": 136.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Caleb Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 264.5,
+      "y": 492.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Clennam Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 297,
+      "y": 389.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "America Street",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 296.5,
+      "y": 136
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Flat Iron Sq.",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 377.5,
+      "y": 203
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Union Street",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 21.5,
+      "y": 239.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Southwark Bridge Rd.",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 191,
+      "y": 384
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Southwark St.",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 152.5,
+      "y": 30.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Marshalsea Road",
+      "class": "primary",
+      "rank": null,
+      "geometry": "line",
+      "x": 321.5,
+      "y": 480
+    }
+  ]
+}

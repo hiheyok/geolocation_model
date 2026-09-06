@@ -1,0 +1,167 @@
+{
+  "about": "Thames estuary. Water dominates; useful for checking the water class and coastline edges.",
+  "tile": {
+    "z": 13,
+    "x": 4103,
+    "y": 2725
+  },
+  "center": {
+    "lat": 51.46,
+    "lng": 0.32
+  },
+  "requests": {
+    "image": "/tile/13/4103/2725.png",
+    "mask": "/tile/13/4103/2725/mask.png",
+    "maskAmbiguous": "/tile/13/4103/2725/mask.png?mode=ambiguous",
+    "labels": "/tile/13/4103/2725/labels.json"
+  },
+  "files": {
+    "image.png": {
+      "bytes": 70875,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Photometric greyscale. Pixel values are cartographic brightness, not class ids."
+    },
+    "mask.png": {
+      "bytes": 40370,
+      "channels": 1,
+      "size": "512x512",
+      "description": "Class-index mask. Every pixel is one of the values in /classes."
+    },
+    "mask_ambiguous.png": {
+      "bytes": 42400,
+      "channels": 1,
+      "size": "512x512",
+      "description": "As mask.png, but boundary pixels whose vote was split carry 255 (ignore_index) instead of a guessed class. Unflagged pixels are identical."
+    },
+    "labels.json": {
+      "bytes": 1110,
+      "count": 9,
+      "description": "Named features with x/y in pixels from the tile top-left."
+    }
+  },
+  "maskClassBreakdown": [
+    {
+      "class": "water",
+      "value": 23,
+      "percent": 32.7
+    },
+    {
+      "class": "landuse",
+      "value": 138,
+      "percent": 31.9
+    },
+    {
+      "class": "background",
+      "value": 0,
+      "percent": 17.22
+    },
+    {
+      "class": "road_minor",
+      "value": 207,
+      "percent": 7.31
+    },
+    {
+      "class": "building",
+      "value": 161,
+      "percent": 5.69
+    },
+    {
+      "class": "road_major",
+      "value": 230,
+      "percent": 2.67
+    },
+    {
+      "class": "farmland",
+      "value": 115,
+      "percent": 1.25
+    },
+    {
+      "class": "wood",
+      "value": 69,
+      "percent": 0.65
+    },
+    {
+      "class": "railway",
+      "value": 184,
+      "percent": 0.6
+    },
+    {
+      "class": "grass",
+      "value": 92,
+      "percent": 0.01
+    },
+    {
+      "class": "ice",
+      "value": 46,
+      "percent": 0
+    }
+  ],
+  "ambiguous": {
+    "value": 255,
+    "flaggedPercent": 1.09,
+    "byClass": [
+      {
+        "class": "water",
+        "value": 23,
+        "flaggedPercent": 0
+      },
+      {
+        "class": "landuse",
+        "value": 138,
+        "flaggedPercent": 1.1
+      },
+      {
+        "class": "background",
+        "value": 0,
+        "flaggedPercent": 0.8
+      },
+      {
+        "class": "road_minor",
+        "value": 207,
+        "flaggedPercent": 5.4
+      },
+      {
+        "class": "building",
+        "value": 161,
+        "flaggedPercent": 0.7
+      },
+      {
+        "class": "road_major",
+        "value": 230,
+        "flaggedPercent": 2.3
+      },
+      {
+        "class": "farmland",
+        "value": 115,
+        "flaggedPercent": 0.6
+      },
+      {
+        "class": "wood",
+        "value": 69,
+        "flaggedPercent": 0.9
+      },
+      {
+        "class": "railway",
+        "value": 184,
+        "flaggedPercent": 10.9
+      },
+      {
+        "class": "grass",
+        "value": 92,
+        "flaggedPercent": 100
+      },
+      {
+        "class": "ice",
+        "value": 46,
+        "flaggedPercent": 100
+      }
+    ]
+  },
+  "labelsByLayer": {
+    "poi": 1,
+    "place": 1,
+    "transportation_name": 6,
+    "park": 1
+  }
+}

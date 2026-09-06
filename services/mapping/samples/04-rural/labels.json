@@ -1,0 +1,81 @@
+{
+  "z": 13,
+  "x": 4061,
+  "y": 2698,
+  "size": 512,
+  "count": 8,
+  "labels": [
+    {
+      "layer": "place",
+      "text": "Lighthorne",
+      "class": "village",
+      "rank": 11,
+      "geometry": "point",
+      "x": 375.1,
+      "y": 275.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Brook Lane",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 43.1,
+      "y": 254.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "The Old Gated Rd.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 489.8,
+      "y": 14.3
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Moreton Morrell Ln.",
+      "class": "minor",
+      "rank": null,
+      "geometry": "line",
+      "x": 178.1,
+      "y": 285.5
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Chesterton Road",
+      "class": "tertiary",
+      "rank": null,
+      "geometry": "line",
+      "x": 414.5,
+      "y": 196
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Wellesbourne Rd.",
+      "class": "tertiary",
+      "rank": null,
+      "geometry": "line",
+      "x": 278.8,
+      "y": 408.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Fosse Way",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 58.8,
+      "y": 269.6
+    },
+    {
+      "layer": "transportation_name",
+      "text": "Banbury Road",
+      "class": "secondary",
+      "rank": null,
+      "geometry": "line",
+      "x": 486.8,
+      "y": 122.1
+    }
+  ]
+}
