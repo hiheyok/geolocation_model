@@ -224,3 +224,37 @@ def test_every_manifest_consumer_that_opens_images_uses_the_reader():
     assert not bad, (
         "reads the KartaView manifest and opens images without going through "
         "shards, so it breaks once the corpus is packed: " + ", ".join(bad))
+
+
+def test_no_manifest_consumer_treats_a_record_file_as_a_path():
+    """`rec["file"]` is a location, not necessarily a file.
+
+    Once packed it reads `"0000/123.jpg"`, a member inside an archive. Dividing
+    a directory by it produces a path that does not exist, and the failure is
+    whatever the caller does next -- `Image.open` for five consumers, and
+    `.stat()` in the harvester's own summary line, which is why keying this
+    check on `Image.open` alone was not enough.
+    """
+    import re
+
+    # Both of these are correct: each is reached only for records that are
+    # still loose -- the harvester guards on `"/" not in`, and the packer's
+    # `pack_them` is handed exactly the loose records. Exempted by their text
+    # rather than their line, so they survive edits above them while a
+    # DIFFERENT construction in the same file is still caught.
+    guarded = ('out / "img" / str(r["file"])', 'img / str(r["file"])')
+
+    pat = re.compile(r'[^\n]*?/\s*(?:str\()?\s*\w+(?:\[[^\]]+\])?\["file"\]\)?')
+    bad = []
+    for path in sorted((ROOT / "scripts").glob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        if "manifest.jsonl" not in src:
+            continue
+        for m in pat.finditer(src):
+            if any(g in m.group(0) for g in guarded):
+                continue
+            line = src[:m.start()].count("\n") + 1
+            bad.append("{}:{}".format(path.name, line))
+    assert not bad, (
+        "builds a filesystem path out of a manifest record's `file`, which is "
+        "a pack member once the corpus is packed: " + ", ".join(bad))
