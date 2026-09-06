@@ -214,6 +214,12 @@ a substring, a size that gets sliced off.
   deployments are **different renderers**, and a map cache is bound to one.
 * RTX 3070, 8 GB. A training rung is ~26 min; a k-NN rebuild 5–7 min; a full
   bank embedding pass ~19 h.
+* **Keep tool output small.** Context is the scarcest resource in a long
+  session, and a single `cat` of a log or a bare `ls` of `cache/` can cost
+  more of it than the finding is worth. Pipe through `head`, `tail` or
+  `grep`; read files with `offset`/`limit`; print the four numbers a decision
+  turns on rather than the table they came from. A command whose output you
+  will skim is a command you should have filtered.
 * **Never type a backslash inside a Bash heredoc** — it arrives as a real
   newline and produces an unterminated string literal. Use the Write/Edit
   tools, or `chr(10)`.
@@ -224,8 +230,8 @@ a substring, a size that gets sliced off.
 
 * Report outcomes faithfully. If tests fail, say so with the output. If a step
   was skipped, say that.
-* **Get the test count right.** It has been wrong in commit messages five
-  times. Run the suite, read the number, paste the number.
+* **Get the test count right.** It has been wrong in commit messages six
+  times, once in the commit immediately after this rule was written. Run the suite, read the number, paste the number.
 * Retract clearly and in place. When a published claim turns out to be wrong,
   correct the document that carries it — do not leave the disproved number in
   a report template above a table that contradicts it.
