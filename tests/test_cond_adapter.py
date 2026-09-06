@@ -389,3 +389,76 @@ def test_retrieval_only_tolerates_no_embeddings():
     from model import NeighborBatch
     nb = NeighborBatch(torch.zeros(2, 3), torch.zeros(2, 3), torch.zeros(2, 3))
     assert nb.retrieval_only(8).emb is None
+
+
+# --- REVIEW6 #3: a rebuilt join does not launder a stale k-NN ----------------
+
+class Cache:
+    """An .npz stand-in: `files` plus item access, all `check_bytes` reads."""
+
+    def __init__(self, **kw):
+        self._d = kw
+        self.files = list(kw)
+
+    def __getitem__(self, k):
+        return self._d[k]
+
+
+def test_a_rebuilt_join_is_consistent_and_the_knn_is_still_stale(tmp_path,
+                                                                 monkeypatch):
+    """The step that makes REVIEW6 #3 invisible to every other check.
+
+    Rebuild the retrieval cache under its own name, then rebuild the joined
+    cache from it. The prefix check now *passes* -- it is comparing the new
+    join against the new retrieval file, and they agree byte for byte. The
+    k-NN built before the rebuild still describes neighbours chosen in the old
+    vectors, and the only thing that can say so is the stamp it carries.
+    """
+    import knnmeta
+    import safeio
+    rng = np.random.default_rng(0)
+    r_old = rng.standard_normal((200, 8)).astype(np.float16)
+    c = rng.standard_normal((200, 4)).astype(np.float16)
+    joined(tmp_path, monkeypatch, r_old, c)
+    knn = Cache(street_digest=np.array(
+                   safeio.content_digest(tmp_path / "r.f16.npy")))
+
+    r_new = rng.standard_normal((200, 8)).astype(np.float16)
+    s_new = joined(tmp_path, monkeypatch, r_new, c)
+
+    # both halves of the join agree -- the prefix guard has nothing to say
+    _check_retrieval_prefix(tmp_path / "j.f16.npy", s_new, "r.f16.npy", 8,
+                            want_digest=safeio.content_digest(
+                                tmp_path / "r.f16.npy"))
+    # the cache is still addressing the space that is gone
+    with pytest.raises(SystemExit, match="rebuilt under the same name"):
+        knnmeta.check_bytes(knn, tmp_path / "r.f16.npy", "knn.npz")
+
+
+def test_size_and_mtime_cannot_carry_this_contract(tmp_path, monkeypatch):
+    """Why the stamp is a content digest and not the cheap stamp.
+
+    `file_stamp` is the right identity for cache invalidation, where the
+    failure guarded is an accidental rebuild. Here the artifact is an
+    authority, and a same-shaped rebuild preserves size exactly while mtime is
+    restorable -- as `os.utime`, a copy tool, or an archive restore will do.
+    """
+    import os
+
+    import knnmeta
+    import safeio
+    rng = np.random.default_rng(0)
+    p = tmp_path / "r.f16.npy"
+    np.save(p, rng.standard_normal((200, 8)).astype(np.float16))
+    stamp, digest = safeio.file_stamp(p), safeio.content_digest(p)
+
+    st = p.stat()
+    np.save(p, rng.standard_normal((200, 8)).astype(np.float16))
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+    assert p.stat().st_size == st.st_size
+    assert safeio.file_stamp(p) == stamp, "the cheap stamp sees nothing"
+    assert safeio.content_digest(p) != digest
+    with pytest.raises(SystemExit, match="rebuilt under the same name"):
+        knnmeta.check_bytes(Cache(street_digest=np.array(digest)),
+                            p, "k.npz")

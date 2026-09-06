@@ -18,6 +18,7 @@ from torch.utils.data import Dataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import knnmeta
 import provenance as prov
 import safeio
 import splits as sp
@@ -446,6 +447,14 @@ class GeoStepDataset(Dataset):
                     "in {!r}. Neighbours found in one embedding space do not "
                     "transfer to another.".format(str(z["street_file"]),
                                                   want_sf))
+            # The name is not the space. That file can be rebuilt under its own
+            # name -- a repooled bank, a retuned blend weight, a re-run of the
+            # script -- and the cache's idx and sim would still describe the
+            # old vectors while every check above passes. For a conditioned
+            # run the joined-prefix check catches it on the retrieval block;
+            # an unconditioned one has no prefix to check, so compare against
+            # the bytes build_knn recorded (REVIEW6 #3).
+            knnmeta.check_bytes(z, config.STREET_CACHE / want_sf, knn_file)
             # One query row per *release* image.  Not per row of the street
             # file: a bank file has its extension rows appended after the
             # release's, so that length is larger and comparing against it

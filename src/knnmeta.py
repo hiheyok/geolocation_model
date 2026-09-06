@@ -28,6 +28,16 @@ records four extension stems while its k-NN cache names the single combined
 `bank_ext70`; those strings differ and the corpora are identical, so comparing
 names would reject the shipping path. Comparing the ordered id digest accepts
 it and still catches a swap.
+
+**The embedding space is not bound to the cache either** (REVIEW6 #3). The ids
+say *which photographs* the bank holds; nothing said which *vectors* were
+searched. Rebuild a street cache under its own name -- a different pooling, a
+retuned blend weight, a re-run of the same script -- and the k-NN's `idx` and
+`sim` still describe neighbours chosen in the old space, while every name,
+length, row digest and split hash agrees. The joined-prefix check added for
+REVIEW6 #2 catches this for the *conditioned* file's retrieval block, but a
+plain unconditioned rebuild has no prefix to check, so the cache is compared
+against the bytes it was built from instead.
 """
 
 import sys
@@ -39,6 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import config                      # noqa: E402
 import provenance as prov          # noqa: E402
+import safeio                      # noqa: E402
 import splits as sp                # noqa: E402
 
 
@@ -84,6 +95,64 @@ def check_ext(z, street_path, what):
             .format(what, ext, a, " ++ ".join(street_stems), b))
 
 
+def check_bytes(z, street_path, what, digest=None):
+    """The neighbours in this cache were selected in *these* vectors.
+
+    `check_ext` establishes that both sides address the same photographs.
+    Nothing established that they address the same *embedding* of them, and
+    the two are independent: rebuilding a street cache under its own name
+    leaves the ids, the lengths, the row digest, the split hash and the
+    filename all correct while `idx` and `sim` still describe a search through
+    the vectors that file used to hold.
+
+    Absence is a warning rather than a failure. All 19 k-NN caches on disk were
+    built before the stamp existed, and refusing them would take the shipping
+    path down to make a point about caches that are, as far as anything can
+    tell, fine. The warning names what is unverified so a stale cache is at
+    least visible in the log.
+
+    They are deliberately not backfilled. Stamping an existing cache with the
+    digest its street file has *today* would assert exactly the thing that
+    cannot be checked -- that the file has not changed since the search -- and
+    turn an honest "unverified" into a false "verified". The stamp is only
+    worth anything when it is written by the process that did the search.
+
+    `digest` lets a caller that has already digested the file pass it in.
+    Re-reading is not free -- the street caches are 5-11 GB, and the first read
+    of one comes off disk at 85-300 MB/s -- but it is not memoised, because the
+    only key cheap enough to memoise on is the size-and-mtime stamp this
+    function exists to distrust. Repeat reads land in the page cache at
+    ~1,463 MB/s, which is the affordable half of that trade.
+    """
+    if "street_digest" not in z.files:
+        print("warning: {} predates the street content stamp, so its "
+              "neighbours are bound to a filename only -- a rebuild of that "
+              "file under the same name would not be visible here."
+              .format(what), flush=True)
+        return
+    want = str(z["street_digest"])
+    got = digest if digest is not None else safeio.content_digest(street_path)
+    # "absent" is the sentinel content_digest returns for a path that is not
+    # there. It is a legal string, so a cache that somehow recorded it would
+    # match a *missing* file and the check would pass on nothing at all.
+    # Say what actually happened instead.
+    if "absent" in (want, got):
+        raise SystemExit(
+            "{}: cannot compare the cache against {}, which is not on disk "
+            "(recorded digest {!r}, found {!r}). The neighbours were selected "
+            "in some embedding space; without the file there is no way to say "
+            "it is the one this run reads."
+            .format(what, Path(street_path).name, want, got))
+    if got != want:
+        raise SystemExit(
+            "{}: the cache's neighbours were chosen in a {} whose bytes "
+            "digest {}; that file now digests {}. It was rebuilt under the "
+            "same name, so every recorded index and similarity describes a "
+            "search through vectors this file no longer holds -- the ids, "
+            "lengths and split hash all still agree. Rebuild the k-NN cache."
+            .format(what, Path(street_path).name, want, got))
+
+
 def bank_rows(z, n_bank, what):
     """Validated bank row ids from a cache, or exit.
 
@@ -120,7 +189,7 @@ def bank_rows(z, n_bank, what):
 
 def check(z, what, street_file=None, split_mode=None, split_hash=None,
           n_release=None, need_k=None, n_bank=None, street_path=None,
-          splits=None):
+          splits=None, street_digest=None):
     """Every contract a k-NN cache carries. Returns validated bank rows.
 
     Each argument that is `None` is simply not checked, so a consumer that
@@ -168,4 +237,5 @@ def check(z, what, street_file=None, split_mode=None, split_hash=None,
             .format(what, z["idx"].shape[1], need_k))
     if street_path is not None:
         check_ext(z, street_path, what)
+        check_bytes(z, street_path, what, street_digest)
     return bank_rows(z, n_bank, what) if n_bank is not None else None

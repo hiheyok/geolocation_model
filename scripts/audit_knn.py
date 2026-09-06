@@ -51,6 +51,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sample", type=int, default=20000,
                     help="rows to check for bank membership")
+    ap.add_argument("--digest", action="store_true",
+                    help="verify each cache against the bytes of its street "
+                         "file. Off by default because the street caches are "
+                         "5-11 GB and this reads every one of them.")
     a = ap.parse_args()
 
     ds = pq.read_table(config.DATASET_PARQUET)
@@ -60,8 +64,8 @@ def main():
     print("{:,} k-NN caches under {}\n".format(len(caches),
                                                config.STREET_CACHE))
 
-    hdr = "%-46s %-24s %7s %6s %6s %6s" % (
-        "knn cache", "street file", "newer?", "rows", "ext", "nbrs")
+    hdr = "%-46s %-24s %7s %6s %6s %6s %6s" % (
+        "knn cache", "street file", "newer?", "rows", "ext", "nbrs", "bytes")
     print(hdr); print("-" * len(hdr))
     flags = []
     for p in caches:
@@ -72,7 +76,8 @@ def main():
         spath = config.STREET_CACHE / sf
         # One-sided: a street file newer than the table built from it is
         # suspect. Older proves nothing -- a same-mtime rewrite is invisible,
-        # which is exactly why REVIEW6 #3 asks for a content digest.
+        # which is exactly why REVIEW6 #3 asks for a content digest. The
+        # `bytes` column is the two-sided answer, for caches built since.
         newer = (spath.exists()
                  and spath.stat().st_mtime > p.stat().st_mtime)
         note = []
@@ -113,9 +118,28 @@ def main():
                 note.append("{:,} neighbour ids are not in bank_rows"
                             .format(miss))
 
-        print("%-46s %-24s %7s %6s %6s %6s" % (
+        # The stamp REVIEW6 #3 asked for. Every cache written before
+        # 2026-09-05 lacks it and reads "none": that is not a failure, it is
+        # the honest statement that those tables are bound to a filename only.
+        by_ok = "-"
+        if "street_digest" not in z.files:
+            by_ok = "none"
+        elif not a.digest:
+            by_ok = "skip"
+        elif not spath.exists():
+            by_ok = "gone"
+            note.append("street file {} is not on disk".format(sf))
+        else:
+            try:
+                knnmeta.check_bytes(z, spath, p.name)
+                by_ok = "ok"
+            except SystemExit as e:
+                by_ok = "STALE"
+                note.append(str(e).split(":", 1)[-1].strip()[:60])
+
+        print("%-46s %-24s %7s %6s %6s %6s %6s" % (
             p.name[:46], sf[:24], "YES" if newer else "no", rows_ok, ext_ok,
-            nb_ok))
+            nb_ok, by_ok))
         for m in note:
             print("      ! {}".format(m))
             flags.append((p.name, m))

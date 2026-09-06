@@ -198,3 +198,65 @@ def test_extensions_in_the_wrong_order_are_refused(monkeypatch):
 def test_no_extension_on_either_side_is_fine(monkeypatch):
     monkeypatch.setattr(knnmeta.prov, "exts_of", lambda p: [])
     knnmeta.check_ext(cache(), "s", "t")
+
+
+# --- REVIEW6 #3: the cache must be bound to the bytes it searched -----------
+
+def _street(tmp_path, name, fill, n=8, d=4):
+    """A real street cache on disk, because the check reads bytes."""
+    p = tmp_path / name
+    np.save(p, np.full((n, d), fill, np.float16))
+    return p.with_suffix(".npy") if p.suffix != ".npy" else p
+
+
+def test_a_street_file_rebuilt_under_the_same_name_is_refused(tmp_path,
+                                                              monkeypatch):
+    """The failure REVIEW6 #3 describes, and nothing else could see it.
+
+    Same filename, same shape, same ids, same split hash -- only the vectors
+    changed, and `idx`/`sim` still describe a search through the old ones.
+    """
+    monkeypatch.setattr(knnmeta.prov, "exts_of", lambda p: [])
+    p = _street(tmp_path, "bank.f16.npy", 1.0)
+    z = cache(street_digest=np.array(knnmeta.safeio.content_digest(p)))
+    knnmeta.check(z, "t", street_path=p)          # unchanged: accepted
+
+    np.save(p, np.full((8, 4), 2.0, np.float16))  # rebuilt in place
+    with pytest.raises(SystemExit, match="rebuilt under the same name"):
+        knnmeta.check(z, "t", street_path=p)
+
+
+def test_a_cache_predating_the_stamp_warns_rather_than_failing(tmp_path,
+                                                               capsys):
+    """Every cache on disk was built before the stamp existed."""
+    p = _street(tmp_path, "bank.f16.npy", 1.0)
+    knnmeta.check_bytes(cache(), p, "old.npz")
+    out = capsys.readouterr().out
+    assert "predates the street content stamp" in out and "old.npz" in out
+
+
+def test_the_caller_may_supply_a_digest_it_already_computed(tmp_path):
+    """Consumers digest the same 11 GB bank more than once per run."""
+    p = _street(tmp_path, "bank.f16.npy", 1.0)
+    d = knnmeta.safeio.content_digest(p)
+    z = cache(street_digest=np.array(d))
+    knnmeta.check_bytes(z, p, "t", digest=d)
+    with pytest.raises(SystemExit, match="rebuilt under the same name"):
+        knnmeta.check_bytes(z, p, "t", digest="0" * 16)
+
+
+def test_a_missing_street_file_is_not_silently_a_match(tmp_path):
+    """`content_digest` returns the string "absent" for a path that is gone.
+
+    That sentinel is a legal digest value, so a cache recording it would
+    "match" a file that is not there and the check would pass on nothing. It
+    also makes the ordinary missing-file case report a rebuild, which is not
+    what happened. Both want the same explicit branch.
+    """
+    z = cache(street_digest=np.array("absent"))
+    with pytest.raises(SystemExit, match="not on disk"):
+        knnmeta.check_bytes(z, tmp_path / "gone.f16.npy", "t")
+    real = _street(tmp_path, "bank.f16.npy", 1.0)
+    z2 = cache(street_digest=np.array(knnmeta.safeio.content_digest(real)))
+    with pytest.raises(SystemExit, match="not on disk"):
+        knnmeta.check_bytes(z2, tmp_path / "gone.f16.npy", "t")
