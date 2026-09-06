@@ -12,6 +12,7 @@ only aggregated -- so the illegal-id failure mode cannot occur downstream.
 
 import io
 import threading
+from pathlib import Path
 
 import time
 
@@ -32,6 +33,55 @@ LEGAL_IDS = frozenset(range(0, CLASS_STEP * N_CLASSES, CLASS_STEP))
 
 class TileError(RuntimeError):
     pass
+
+
+RENDERER_SIDECAR = "renderer.json"
+
+
+def renderer_id(client):
+    """The serving renderer's identity, or None if it does not report one."""
+    return ((client.health().get("renderer") or {}).get("id")) or None
+
+
+def check_renderer(client, cache_dir, record=True):
+    """Bind a map cache to the renderer that filled it.
+
+    The map token cache is 626,284 tiles of 12-d class fractions and every
+    published number depends on them, but nothing in it recorded which server
+    produced it. Two deployments of this service report identical
+    cacheNamespaces, identical source digests and an identical mbtiles sha256,
+    and still disagree on 0.03%-0.28% of mask pixels -- their native rasteriser
+    binaries differ. So the difference was real, small, and unattributable.
+
+    A mismatch is a refusal, not a warning: extending an existing cache from a
+    second renderer mixes two rasterisations under one index, and every shape,
+    count and completion mask still agrees. An *absent* record is allowed, once
+    -- the cache predates this field -- and is filled in on first use.
+    """
+    import json
+
+    rid = renderer_id(client)
+    p = Path(cache_dir) / RENDERER_SIDECAR
+    if rid is None:
+        print("warning: {} reports no renderer id, so tiles it serves cannot "
+              "be bound to a rasteriser".format(client.base), flush=True)
+        return None
+    if p.exists():
+        rec = json.loads(p.read_text(encoding="utf-8"))
+        if rec.get("id") != rid:
+            raise SystemExit(
+                "this map cache was filled by renderer {} and {} is serving "
+                "{}. Adding to it would mix two rasterisations under one "
+                "index, with every shape and completion mask still agreeing. "
+                "Point at the original renderer, or start a new cache."
+                .format(rec.get("id"), client.base, rid))
+        return rid
+    if record:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"id": rid, "base": client.base}, indent=1),
+                     encoding="utf-8")
+        print("recorded renderer {} for {}".format(rid, p.parent), flush=True)
+    return rid
 
 
 def connect(bases, timeout=8.0, retries=1, quiet=False):

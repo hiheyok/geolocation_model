@@ -29,6 +29,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import config
 import provenance as prov
+import safeio
 import splits as sp
 import tile_math as tm
 
@@ -68,11 +69,10 @@ def held_cells(ds, labels, zc):
     return cell_ids(x16, y16, zc)[labels != "train"]
 
 
-def cell_ids(x16, y16, zc):
-    """z16 addresses -> cell ids at zoom zc. One definition, used both sides."""
-    sh = 4 * tm.STEPS - zc
-    return ((x16.astype(np.int64) >> sh) * (1 << zc)
-            + (y16.astype(np.int64) >> sh))
+# One definition, and now genuinely on both sides: this lived here, where
+# `src` could not reach it, so the builder decided which extension rows a cell
+# split may bank and nothing downstream could restate the question (REVIEW8 #1).
+cell_ids = sp.cell_ids
 
 
 def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
@@ -282,15 +282,24 @@ def main():
 
     out = cache_path(a.street_file, a.split_mode, a.k, a.bank_limit,
                      a.bank_ext)
+    # The filename says which file was searched; the digest says which
+    # *vectors* it held. Re-pooling a bank, retuning a blend weight, or simply
+    # re-running the script that wrote it leaves the name, the length, the ids
+    # and the split hash intact while `idx` and `sim` go stale -- and nothing
+    # downstream could see it. Stamped at construction so every consumer can
+    # compare (REVIEW6 #3). Read from disk rather than carried from the mmap
+    # above so what is recorded is the bytes on disk at the moment of writing.
+    street_digest = safeio.content_digest(config.STREET_CACHE / a.street_file)
     np.savez(out, idx=idx_out, sim=sim_out.astype(np.float16),
              split_mode=a.split_mode, split_hash=shash,
-             street_file=a.street_file,
+             street_file=a.street_file, street_digest=street_digest,
              bank_ext=(a.bank_ext or ""), bank_n=len(bank_rows),
              bank_rows=bank_rows)
     print("excluded   {:,} same-sequence pairs ({:.1f} per query)".format(
         dropped, dropped / n_rel))
     print("top-1 sim  mean {:.4f}   top-{} sim mean {:.4f}".format(
         sim_out[:, 0].mean(), a.k, sim_out[:, -1].mean()))
+    print("street     {} digests {}".format(a.street_file, street_digest))
     print("wrote      {}  ({:.1f} MB)".format(out.name, out.stat().st_size / 1e6))
 
 

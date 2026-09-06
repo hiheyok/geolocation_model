@@ -215,7 +215,13 @@ def main():
         print("nothing to do")
         return
 
-    client = T.TileClient(config.TILE_SERVER)
+    client = T.connect(config.TILE_SERVERS)
+    # Which renderer served these tiles, recorded beside them. Two deployments
+    # of this service with identical cacheNamespaces, identical source digests
+    # and an identical 75 GB mbtiles still disagree on 0.03%-0.28% of mask
+    # pixels, because their native rasteriser binaries differ. Without this the
+    # difference is real, small, and unattributable.
+    T.check_renderer(client, config.MAP_CACHE)
     lock = threading.Lock()
     state = {"ok": 0, "err": 0, "t0": time.time()}
     errors = []
