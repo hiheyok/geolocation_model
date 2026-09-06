@@ -153,6 +153,12 @@ def embed(paths, dev, batch=16, match_bank=False):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="d768-b265-e6")
+    ap.add_argument("--full-corpus", action="store_true",
+                    help="search every embedding row instead of the "
+                         "checkpoint's training bank. Changes the "
+                         "protocol, so it has to be asked for -- it "
+                         "used to happen by itself whenever the named "
+                         "k-NN cache was missing.")
     ap.add_argument("--bank", default=None,
                     help="defaults to the checkpoint's own street file")
     ap.add_argument("--export", default="",
@@ -322,19 +328,12 @@ def main():
                      .format(bank_file, kf, ck.get("knn_file")))
         print("bank override: rows from {} (not the checkpoint's {})"
               .format(kf, ck.get("knn_file")), flush=True)
-    if kf and (config.STREET_CACHE / kf).exists():
-        meta = np.load(config.STREET_CACHE / kf, allow_pickle=True)
-        # Validated, not read. A raw fancy-index assignment into the mask
-        # accepts a negative row and wraps it to the end of the bank, marking
-        # images nobody selected -- silently, at the right shape. REVIEW4 #14.
-        keep = knnmeta.check(meta, kf, n_bank=bank.shape[0],
-                             street_path=config.STREET_CACHE / bank_file)
-    if keep is None:
-        keep = np.arange(bank.shape[0], dtype=np.int64)
-        print("bank rows  {:,} (checkpoint records none)".format(len(keep)))
-    else:
-        print("bank rows  {:,} of {:,} in the file, from {}"
-              .format(len(keep), bank.shape[0], kf))
+    # One resolver for every consumer. Resolving this per entry point is how
+    # both evaluators came to treat a named-but-missing cache as "search
+    # everything" and to call the shared validator with the arguments that
+    # activate its checks left at None (REVIEW8 #6, #7).
+    keep = knnmeta.bank_for_checkpoint(ck, kf, bank.shape[0], bank_file,
+                                       a.tag, full_corpus=a.full_corpus)
     keep_set = np.zeros(bank.shape[0], bool)
     keep_set[keep] = True
 

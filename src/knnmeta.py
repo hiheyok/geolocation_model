@@ -239,3 +239,76 @@ def check(z, what, street_file=None, split_mode=None, split_hash=None,
         check_ext(z, street_path, what)
         check_bytes(z, street_path, what, street_digest)
     return bank_rows(z, n_bank, what) if n_bank is not None else None
+
+
+def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
+                        full_corpus=False):
+    """The rows a checkpoint's evaluation is allowed to search, or exit.
+
+    `eval_highres` and `multiquery` each resolved this themselves, and each
+    got it wrong in the same two ways.
+
+    **A named file that is missing became the whole corpus** (REVIEW8 #6).
+    Both validated the cache only `if the file exists`, so moving or deleting
+    it left `keep = None` and the fallback selected `np.arange(n_bank)` --
+    every release and extension row, including the ones the training bank
+    excluded. The printed message said "checkpoint records none", which is the
+    message for a *legacy* checkpoint that never recorded a bank, so the two
+    cases were indistinguishable in the log. A restricted-bank or
+    spatial-holdout experiment silently acquires a different searchable corpus.
+
+    **The validator's checks did not fire** (REVIEW8 #7). Both passed only
+    `n_bank` and `street_path`, so `split_mode`, `split_hash` and
+    `street_file` kept their `None` defaults and were never compared. A cache
+    built over the same embeddings and the same extension but a *different
+    split* has a correct content digest and in-range rows, and was accepted.
+    Calling the shared function is not the same as activating it.
+
+    So the resolution lives here, once, and every consumer gets the same
+    contract. Deliberate whole-corpus evaluation stays possible but must be
+    asked for, and says so in the log rather than arriving as a fallback.
+    """
+    import pyarrow.parquet as pq
+
+    if full_corpus:
+        print("bank rows  {:,} -- the WHOLE corpus, by explicit request. This "
+              "is not the checkpoint's training bank and the protocol differs "
+              "from every restricted-bank number on record.".format(n_bank),
+              flush=True)
+        return np.arange(n_bank, dtype=np.int64)
+    if not knn_file:
+        print("warning: {} records no k-NN file, so nothing establishes which "
+              "rows it trained against; searching all {:,}. This is a legacy "
+              "checkpoint, not a missing artifact.".format(what, n_bank),
+              flush=True)
+        return np.arange(n_bank, dtype=np.int64)
+
+    p = config.STREET_CACHE / knn_file
+    if not p.exists():
+        raise SystemExit(
+            "{} names the k-NN cache {} and it is not on disk. Falling back to "
+            "the whole corpus would add every row its training bank excluded "
+            "and report the result as if the bank were unchanged, so this is "
+            "refused. Rebuild it, or ask for whole-corpus evaluation "
+            "explicitly.".format(what, knn_file))
+
+    z = np.load(p, allow_pickle=True)
+    mode = ck.get("split_mode") or str(z["split_mode"])
+    ds = pq.read_table(config.DATASET_PARQUET)
+    labels, shash = sp.read(ds, mode)
+    # For a conditioned bank the k-NN was built on the retrieval *prefix*, not
+    # on the joined file, so compare against what the sidecar declares -- the
+    # same rule `GeoStepDataset` uses.
+    rec = prov.read(config.STREET_CACHE / bank_file) or {}
+    want_sf = rec.get("retrieval_file") or bank_file
+    rows = check(z, what, split_mode=mode, split_hash=shash, splits=labels,
+                 street_file=want_sf, n_release=len(labels), n_bank=n_bank,
+                 street_path=config.STREET_CACHE / bank_file)
+    if rows is None:
+        raise SystemExit(
+            "{} records no bank rows, so which of the {:,} embedding rows it "
+            "searched is unknown. That is not the same as searching all of "
+            "them.".format(knn_file, n_bank))
+    print("bank rows  {:,} of {:,} in the file, from {}"
+          .format(len(rows), n_bank, knn_file), flush=True)
+    return rows
