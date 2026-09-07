@@ -23,7 +23,7 @@ import splits as sp
 import tile_math as tm
 import safeio
 from dataset import (GeoStepDataset, gather_nbr, street_table,
-                     to_device)
+                     to_device, base_dataset)
 from model import GeoAgent, NeighborBatch, param_report
 
 
@@ -584,11 +584,10 @@ def main():
         # the selection rollout must see the same map representation the
         # model is being trained on, or it picks checkpoints on a mismatch
         src = TokenSource(tm.G, cache=a.map_cache,
-                          sub=int(round(((tr.dataset if hasattr(tr, "dataset")
-                                          else tr).tokens.shape[-1] / 12)
+                          sub=int(round((base_dataset(tr).tokens.shape[-1] / 12)
                                         ** 0.5)))
 
-    _ds = tr.dataset if hasattr(tr, "dataset") else tr
+    _ds = base_dataset(tr)
     model = GeoAgent(d_street=_ds.dim_street,
                      # The conditioning width comes from the cache's own
                      # sidecar, never a flag: a flag that disagreed with the
@@ -599,8 +598,7 @@ def main():
                      # width comes from the cache, never assumed: a sub>1 cache
                      # carries 12*sub*sub per patch and a hardcoded 12 would
                      # build a projection that silently ignores most of it
-                     n_classes=int((tr.dataset if hasattr(tr, "dataset")
-                                    else tr).tokens.shape[-1]),
+                     n_classes=int(base_dataset(tr).tokens.shape[-1]),
                      map_layers=a.map_layers, pool=a.pool,
                      n_pool_q=a.pool_q, pos=a.pos, sink=(a.neg > 0),
                      map_loop=a.map_loop,
@@ -690,8 +688,7 @@ def main():
                   "retr_mode": a.retr_mode, "d_key": a.d_key,
                   "retr_drop": a.retr_drop, "sink_k": a.sink_k,
                   "map_cache": a.map_cache,
-                  "map_sub": _map_sub((tr.dataset if hasattr(tr, "dataset")
-                                       else tr).tokens.shape[-1]),
+                  "map_sub": _map_sub(base_dataset(tr).tokens.shape[-1]),
                   "retr_tau": a.retr_tau, "knn_file": knn_file,
                   "enc_gate": a.enc_gate,
                   "geo": a.geo, "d_geo": a.d_geo,

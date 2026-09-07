@@ -95,6 +95,23 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
 HOST_ONLY = ("nbr_row",)
 
 
+def base_dataset(ds):
+    """The `GeoStepDataset` under any number of `Subset` wrappers.
+
+    `--limit` wraps the training set once and a valid `--overfit` wraps that
+    result again, so `Subset(Subset(...))` unwrapped one level is still a
+    `Subset` and the next attribute access raises `AttributeError` -- after
+    the dataset has been built and before the first epoch (REVIEW8 #5).
+
+    The one-level form was written out at four sites in `train.py`, which is
+    why one flag combination broke all four at once. `GeoStepDataset` itself
+    has no `dataset` attribute, so this terminates on it.
+    """
+    while hasattr(ds, "dataset"):
+        ds = ds.dataset
+    return ds
+
+
 def to_device(batch, dev):
     """Move a batch to `dev`, leaving the host-only entries where they are.
 
