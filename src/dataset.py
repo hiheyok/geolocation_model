@@ -114,8 +114,16 @@ def gather_nbr(table, rows, dev):
     upload. With a GPU table it is one small index upload, as before -- the
     indices are (B, K) int64 against a (B, K, D) result, so moving them is the
     cheap half either way.
+
+    That upload stays `non_blocking`. `nbr_row` used to reach the card through
+    the batch transfer, which sets it; keeping the row on the host moved the
+    upload here, and dropping the flag turned an async copy out of pinned
+    memory into a synchronising one on every step of a GPU-table run. The
+    loader pins when the device is CUDA (`train.py`), so the flag is doing
+    something rather than decorating.
     """
-    idx = rows if rows.device == table.device else rows.to(table.device)
+    idx = (rows if rows.device == table.device
+           else rows.to(table.device, non_blocking=True))
     return table[idx].to(dev, non_blocking=True).float()
 
 

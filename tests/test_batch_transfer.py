@@ -59,3 +59,81 @@ def test_gather_still_works_when_the_table_is_where_the_rows_are_not():
     rows = torch.arange(8).view(4, 2)
     out = gather_nbr(table, rows, "cpu")
     assert out.shape == (4, 2, 5) and out.dtype == torch.float32
+
+
+class _Rows:
+    """A stand-in for the index tensor that records how it was uploaded.
+
+    The property under test is a keyword argument on a CUDA copy, which no
+    CPU-only run reaches. Recording the call is what makes it checkable here
+    rather than only on a machine with a card.
+    """
+
+    def __init__(self, device="cpu"):
+        self.device = device
+        self.calls = []
+
+    def to(self, device, **kw):
+        self.calls.append((device, kw))
+        return _Rows(device)
+
+
+class _Table:
+    def __init__(self, device):
+        self.device = device
+
+    def __getitem__(self, idx):
+        return _Moved()
+
+
+class _Moved:
+    def to(self, dev, **kw):
+        return self
+
+    def float(self):
+        return self
+
+
+def test_the_index_upload_to_a_gpu_table_stays_non_blocking():
+    """`nbr_row` used to reach the card through the batch transfer, which sets
+    `non_blocking`. Keeping the row on the host moved that upload into
+    `gather_nbr`, and without the flag an async copy out of pinned memory
+    becomes a synchronising one on every step of a GPU-table run."""
+    from dataset import gather_nbr
+
+    rows = _Rows("cpu")
+    gather_nbr(_Table("cuda"), rows, "cuda")
+    assert rows.calls, "the index was never uploaded"
+    device, kw = rows.calls[0]
+    assert device == "cuda"
+    assert kw.get("non_blocking") is True, (
+        "the index upload is blocking; it was asynchronous before this change")
+
+
+def test_a_host_table_does_not_move_the_index_at_all():
+    """The point of the change: no round trip when the table is on the host."""
+    from dataset import gather_nbr
+
+    rows = _Rows("cpu")
+    gather_nbr(_Table("cpu"), rows, "cuda")
+    assert rows.calls == []
+
+
+def test_every_batch_transfer_goes_through_to_device():
+    """`to_device`'s docstring names three call sites -- `train.run_epoch`,
+    `cond_probe` and `diag_beam` -- as the reason it exists. `cond_probe` was
+    not migrated, so it kept the exact round trip this change removes, and the
+    docstring was describing an intention rather than the code."""
+    import re
+
+    pat = re.compile(r"\.to\(dev[^)]*\)\s*if\s+torch\.is_tensor")
+    bad = []
+    for path in (sorted((ROOT / "scripts").glob("*.py"))
+                 + sorted((ROOT / "src").glob("*.py"))):
+        if path.name == "dataset.py":
+            continue                      # where to_device itself lives
+        for m in pat.finditer(path.read_text(encoding="utf-8")):
+            bad.append(path.name)
+    assert not bad, (
+        "moves a batch to the device by hand instead of calling to_device, so "
+        "nbr_row makes the round trip: " + ", ".join(sorted(set(bad))))
