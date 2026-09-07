@@ -40,7 +40,7 @@ READER = "shards.py"
 # rejected rather than accepted with a note.
 LEGACY = {
     "build_bank_ext.py", "build_dataset.py", "ocr_probe.py",
-    "query_only.py", "resmatch.py", "tile_probe.py",
+    "query_only.py", "tile_probe.py",
 }
 
 
