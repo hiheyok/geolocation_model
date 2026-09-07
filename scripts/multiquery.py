@@ -120,11 +120,16 @@ def merge_candidates(take, idx32, sim32, K, how, calib="top1"):
     off = np.zeros(len(sim32), dtype=np.float64)
     if calib == "top1":
         off = sim32.max(axis=1).astype(np.float64)
+    # The quality gate reads the best RAW cosine, and calibration would hand it
+    # zero (REVIEW8 #8). Aggregated across photographs as the max of their own
+    # top-1s -- "how good is the best single match" -- which for one photograph
+    # is exactly the value the checkpoints were trained on.
+    q_raw = float(sim32[take].max()) if len(take) else 0.0
     if how == "global":
         ci = idx32[take].reshape(-1)
         cs = (sim32[take] - off[take, None]).reshape(-1)
         o = np.argsort(-cs)[:K]
-        return ci[o], cs[o]
+        return ci[o], cs[o], q_raw
     seen, oi, os_ = set(), [], []
     for r in range(idx32.shape[1]):
         for t in take:
@@ -158,7 +163,7 @@ def merge_candidates(take, idx32, sim32, K, how, calib="top1"):
         # score no softmax gives weight to.
         oi.append(oi[-1])
         os_.append(-1e4)
-    return np.array(oi), np.array(os_)
+    return np.array(oi), np.array(os_), q_raw
 
 
 def order_members(anchor, nb, seq, P, how):
@@ -476,21 +481,22 @@ def main():
     base = None
     errs = {}
     for N in sizes:
-        anchors, nidx, nsim = [], [], []
+        anchors, nidx, nsim, nq = [], [], [], []
         for members in groups:
             # members[0] is the anchor and always leads, so every arm scores
             # the *same* photograph against the same ground truth and the only
             # thing that changes is how many others voted with it.
             take = members[:N]
-            ci, cs = merge_candidates(take, idx32, sim32, K_use, a.merge,
-                                      a.calib)
+            ci, cs, cq = merge_candidates(take, idx32, sim32, K_use, a.merge,
+                                          a.calib)
             anchors.append(members[0])
             nidx.append(ci)
             nsim.append(cs)
+            nq.append(np.full(len(cs), cq, np.float32))
         anchors = np.array(anchors)
         ext = ExternalSet(V[anchors], lat[anchors], lon[anchors],
                           np.stack(nidx), np.stack(nsim).astype(np.float32),
-                          bx, by)
+                          bx, by, knn_q=np.stack(nq))
         m = evaluate(model, ext, src, dev, None, beam_k=a.beam,
                      top_m=max(4, a.beam), greedy=(a.beam == 1),
                      score_steps=a.score_steps, street_gpu=tbl)
