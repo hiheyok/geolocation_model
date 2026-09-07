@@ -204,8 +204,16 @@ class RetrievalPrior(nn.Module):
         return a_pos, a_neg
 
     def forward(self, nbr_x16, nbr_y16, sim, x0, y0, step, n_logits,
-                a_pos=None, a_neg=None):
-        """Additive bias on the policy logits.  All gates start at zero."""
+                a_pos=None, a_neg=None, sim_q=None):
+        """Additive bias on the policy logits.  All gates start at zero.
+
+        `sim` weights the neighbours and `sim_q` feeds the quality gate. They
+        are the same array everywhere except multi-photo merging, where `sim`
+        has had each photograph's best cosine subtracted so candidates from
+        different photographs are comparable. That subtraction is invisible to
+        the softmax below and NOT invisible to `quality`, which reads the top
+        similarity as a learned confidence feature (REVIEW8 #8).
+        """
         if a_pos is None:
             a_pos, a_neg = self.weights(sim)
         eps = self.log_eps.exp()
@@ -218,7 +226,9 @@ class RetrievalPrior(nn.Module):
 
         st = step.clamp(max=self.n_steps - 1)
         oh = torch.nn.functional.one_hot(st, self.n_steps).to(lp.dtype)
-        delta = self.cond(torch.cat([quality(p, a_pos, sim), oh], dim=1))
+        delta = self.cond(torch.cat(
+            [quality(p, a_pos, sim if sim_q is None else sim_q), oh],
+            dim=1))
         g_cell = (self.g_cell[st] + delta[:, 0]).unsqueeze(1)
         g_sink = (self.g_sink[st] + delta[:, 1]).unsqueeze(1)
 

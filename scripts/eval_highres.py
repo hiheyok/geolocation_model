@@ -65,11 +65,18 @@ SIGLIP = "vit_base_patch16_siglip_224.v2_webli"
 class ExternalSet:
     """The slice of GeoStepDataset that `evaluate` actually touches."""
 
-    def __init__(self, street, lat, lon, knn_idx, knn_sim, all_x16, all_y16):
+    def __init__(self, street, lat, lon, knn_idx, knn_sim, all_x16, all_y16,
+                 knn_q=None):
         self.street = street
         self.rows = np.arange(len(street))
         self.lat, self.lon = lat, lon
         self.knn_idx, self.knn_sim = knn_idx, knn_sim
+        # Raw similarity for the learned quality gate. `knn_sim` may have been
+        # calibrated to compare candidates across photographs; that shift is
+        # invisible to the neighbour softmax and not to the gate, so the
+        # uncalibrated value travels beside it (REVIEW8 #8). None means the
+        # two are the same, which is every caller but `multiquery`.
+        self.knn_q = knn_q
         self.knn_k = knn_idx.shape[1]
         self.all_x16, self.all_y16 = all_x16, all_y16
         # per-step target actions, read off the true z16 address exactly as

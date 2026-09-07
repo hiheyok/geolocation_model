@@ -47,12 +47,25 @@ class NeighborBatch(NamedTuple):
         sim    (B, K) float    its cosine similarity to the query
         emb    (B, K, D) float its embedding, RETRIEVAL width -- or None for
                               the modes that do not use keys
+        q      (B, K) float   similarity for the learned QUALITY gate, when
+                              that differs from `sim`; None means they are the
+                              same, which is every path except multi-photo
+
+    `q` exists because `sim` serves two purposes that respond differently to a
+    constant shift. Neighbour weighting is a softmax over `sim/tau`, which is
+    shift-invariant; the conditional gate reads `sim[:, 0]` directly, which is
+    not. `multiquery --calib top1` subtracts each photograph's best cosine to
+    make candidates from different photographs comparable, and that turns the
+    gate's input from the raw best cosine into exactly zero -- including for a
+    ONE-photograph query, whose result is the baseline every multi-photo number
+    is measured against (REVIEW8 #8).
     """
 
     x: "torch.Tensor"
     y: "torch.Tensor"
     sim: "torch.Tensor"
     emb: "torch.Tensor" = None
+    q: "torch.Tensor" = None
 
     @classmethod
     def of(cls, nbrs):
@@ -317,7 +330,8 @@ class GeoAgent(nn.Module):
         return self.retr(rep(nb.x), rep(nb.y), rep(nb.sim),
                          x0, y0, step, n_logits,
                          a_pos=rep(a_pos),
-                         a_neg=None if a_neg is None else rep(a_neg))
+                         a_neg=None if a_neg is None else rep(a_neg),
+                         sim_q=None if nb.q is None else rep(nb.q))
 
     def score_flat(self, fused, keys, street, x0, y0, step, nbrs, per_image):
         """The one place a policy logit is assembled. Everything flat.

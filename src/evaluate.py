@@ -278,7 +278,12 @@ def evaluate(model, ds, source, dev, n=None, beam_k=16, top_m=16,
                 torch.from_numpy(ds.knn_sim[r]).to(dev),
                 None if street_gpu is None else gather_nbr(
                     street_gpu,
-                    torch.from_numpy(ds.knn_idx[r].astype(np.int64)), dev))
+                    torch.from_numpy(ds.knn_idx[r].astype(np.int64)), dev),
+                # Only the multi-photo path has a quality similarity that
+                # differs from the weighting one; everything else leaves this
+                # None and the prior falls back to `sim`, unchanged.
+                None if getattr(ds, "knn_q", None) is None else
+                torch.from_numpy(ds.knn_q[r]).to(dev))
         res = search(model, street, source, dev, beam_k, top_m, greedy=greedy,
                      sink_prune=sink_prune, score_steps=score_steps, nbrs=nbrs)
         for i, r in zip(sel, res):
