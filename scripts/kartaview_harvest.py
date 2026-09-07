@@ -50,7 +50,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import threading
 from pathlib import Path
@@ -106,6 +106,59 @@ def fetch(url, tries=2):
     return None
 
 
+class DriveGaps:
+    """Every shot time kept per drive, so a candidate is compared with all.
+
+    Only the most recent was retained, and a candidate was compared with that
+    one alone. At `--per-sequence 3 --min-gap-s 30`, frames at 0 s, 60 s and
+    1 s were all accepted: the third was measured against 60 s and never
+    against 0 s, so the run kept two frames one second apart -- exactly the
+    near-duplicate the gap exists to reject. Resuming had the same shape,
+    because seeding took `max()` over the records already on disk.
+
+    A drive holds at most `--per-sequence` frames in a fresh run, so the
+    linear scan is over a handful of values.
+    """
+
+    def __init__(self, min_gap_s, times=None):
+        self.min_gap_s = min_gap_s
+        self.times = defaultdict(list)
+        for sid, ts in (times or {}).items():
+            self.times[sid] = list(ts)
+
+    def seed(self, records):
+        for r in records:
+            if r:
+                self.record(str(r.get("sequence_id")),
+                            shot_seconds(r.get("shot_date")))
+
+    def allows(self, sid, t):
+        """True if `t` is at least the gap away from every frame kept."""
+        if t is None:
+            return True                 # unknown time cannot satisfy a gap
+        return all(abs(t - p) >= self.min_gap_s for p in self.times.get(sid, ()))
+
+    def record(self, sid, t):
+        if t is not None:
+            self.times[sid].append(t)
+
+    def copy(self):
+        return DriveGaps(self.min_gap_s, self.times)
+
+
+def shot_seconds(v):
+    """`"2017-10-31 15:53:01.000"` -> epoch seconds, or None if unparseable.
+
+    Missing timestamps must not silently satisfy a gap requirement, so the
+    caller treats None as "cannot tell" and lets the cap decide alone.
+    """
+    from datetime import datetime
+    try:
+        return datetime.strptime(str(v)[:19], "%Y-%m-%d %H:%M:%S").timestamp()
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
 def proc_url(name):
     """'storage13/files/x.jpg' -> 'https://storage13.openstreetcam.org/files/x.jpg'"""
     host, _, tail = name.partition("/")
@@ -123,8 +176,16 @@ def main():
                          "coordinates instead of re-walking the first run's")
     ap.add_argument("--radius", type=int, default=400, help="metres")
     ap.add_argument("--per-seed", type=int, default=12)
-    ap.add_argument("--per-sequence", type=int, default=3,
-                    help="cap per drive; consecutive frames are near-duplicates")
+    ap.add_argument("--per-sequence", type=int, default=1,
+                    help="cap per drive. Was 3, which bought near-duplicates: "
+                         "the three frames land a median 2.0 s and 67 m apart, "
+                         "and 69.8%% of 100 m groups then contain a single "
+                         "drive. 1 gives 2.7x more distinct drives per "
+                         "download.")
+    ap.add_argument("--min-gap-s", type=float, default=30.0,
+                    help="minimum seconds between two frames of the SAME "
+                         "drive. Only bites when --per-sequence > 1; a cap "
+                         "alone does not say the frames are different views.")
     ap.add_argument("--max-gps-err", type=float, default=10.0)
     ap.add_argument("--min-side", type=int, default=1280,
                     help="reject anything not actually high resolution")
@@ -218,6 +279,10 @@ def main():
     # frames that would be dropped afterwards.
     seq_count = Counter(r["sequence_id"] for r in have.values())
     per_seed = Counter()
+    # EVERY committed shot time per drive, seeded from what is already on
+    # disk so a resumed harvest honours the gap across runs.
+    gaps = DriveGaps(a.min_gap_s)
+    gaps.seed(have.values())
 
     def eligible(d):
         """Everything decidable before any bytes move."""
@@ -240,7 +305,13 @@ def main():
         valid candidate. The filtering still happens before downloading -- no
         bytes are wasted -- it is the *accounting* that moves.
         """
+        # Provisional, like the counters above and for the same reason: a
+        # frame that fails to download must not consume its drive's gap and
+        # suppress a later valid candidate (item 67).
         pseq, pseed, out_ = Counter(seq_count), Counter(per_seed), []
+        # A copy: these are candidates, and only the ones that download
+        # successfully are committed to `gaps` below.
+        provisional = gaps.copy()
         for i, d in cand:
             if len(out_) >= budget:
                 break
@@ -250,6 +321,17 @@ def main():
             sid = str(d.get("sequence_id"))
             if pseq[sid] >= a.per_sequence or pseed[i] >= a.per_seed:
                 continue
+            # A per-drive CAP does not make the frames distinct views. At the
+            # old default of 3 they arrived a median 2.0 s apart -- the same
+            # photograph three times -- and 69.8% of 100 m spatial groups then
+            # held a single drive, so `multiquery`'s round-robin across
+            # sequences had nothing to round-robin between. Require a real
+            # temporal gap as well as a cap.
+            t = shot_seconds(d.get("shot_date"))
+            if a.per_sequence > 1 and t is not None:
+                if not provisional.allows(sid, t):
+                    continue
+                provisional.record(sid, t)
             pseq[sid] += 1
             pseed[i] += 1
             out_.append((i, d))
@@ -309,6 +391,8 @@ def main():
                     with lock:
                         seq_count[rec["sequence_id"]] += 1
                         per_seed[i] += 1
+                        gaps.record(str(rec["sequence_id"]),
+                                    shot_seconds(rec.get("shot_date")))
                         have[rec["id"]] = rec
                         fh.write(json.dumps(rec) + "\n")
                         kept.append(rec)
@@ -330,9 +414,19 @@ def main():
         print("nothing harvested")
         return
     mp = np.array([r["w"] * r["h"] for r in kept]) / 1e6
-    gb = sum((out / "img" / r["file"]).stat().st_size for r in kept) / 1e9
-    print("\n{:,} images  {:.1f} GB  in {:.0f}s".format(
-        len(kept), gb, time.time() - t0))
+    # `kept` starts from the records already in the manifest, and those may
+    # have been packed since -- `img/0000/123.jpg` is a member path, not a
+    # file, so statting it raised FileNotFoundError on every resumed harvest
+    # after a packing run. Size what is loose and say how much is not, rather
+    # than open every pack for a summary line.
+    loose = [out / "img" / str(r["file"]) for r in kept
+             if "/" not in str(r["file"])]
+    gb = sum(p.stat().st_size for p in loose if p.exists()) / 1e9
+    packed = len(kept) - len(loose)
+    print("\n{:,} images  {:.1f} GB loose{}  in {:.0f}s".format(
+        len(kept), gb,
+        "" if not packed else "  ({:,} already packed)".format(packed),
+        time.time() - t0))
     print("  megapixels  median {:.1f}  min {:.1f}  max {:.1f}   "
           "(OSV-5M is 0.35)".format(np.median(mp), mp.min(), mp.max()))
     print("  sequences   {:,}   empty seeds {}   rejected as small {}".format(
