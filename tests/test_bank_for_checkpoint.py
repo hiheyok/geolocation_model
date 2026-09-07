@@ -26,7 +26,10 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-import knnmeta  # noqa: E402
+import knnmeta
+
+# Captured at import, before any fixture replaces it.
+REAL_CHECK_BYTES = knnmeta.check_bytes  # noqa: E402
 
 
 class Cache(dict):
@@ -61,6 +64,11 @@ def world(tmp_path, monkeypatch):
     np.savez(tmp_path / "k.npz", **cache)
     # check_ext / check_bytes are exercised in their own suites; isolating
     # argument dispatch is the whole point here, exactly as the review did.
+    # These two read real files, and most tests here are about argument
+    # dispatch. Stubbing them is deliberate -- but it also disabled the digest
+    # comparison for every test in the file, which is how a bug in exactly
+    # that comparison shipped with a passing test named after it. The two
+    # tests that are about bytes put the real one back.
     monkeypatch.setattr(knnmeta, "check_ext", lambda *a, **k: None)
     monkeypatch.setattr(knnmeta, "check_bytes", lambda *a, **k: None)
     return tmp_path, {"split_mode": "sequence"}, cache
@@ -137,58 +145,89 @@ def test_a_wrong_query_count_is_refused(world):
         knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
 
 
-def test_a_restricted_bank_with_no_rows_is_refused_not_widened(world):
+def test_a_cache_with_no_bank_rows_is_refused(world):
     """"Which rows it searched is unknown" is not "it searched all of them".
 
-    `--bank-limit` draws a seeded subset that nothing inside the file records,
-    so the only survivor of the derivation rule is a hard refusal: recomputing
-    would hand back the whole train side and report it as the restricted-bank
-    result. The `_bank25k` in the name is the only evidence there is.
-    """
-    tmp, ck, cache = world
-    del cache["bank_rows"]
-    np.savez(tmp / "k_bank25k.npz", **cache)
-    with pytest.raises(SystemExit, match="bank was restricted"):
-        knnmeta.bank_for_checkpoint(ck, "k_bank25k.npz", 4, "bank.f16.npy", "t")
-
-
-def test_an_unrestricted_cache_with_no_rows_is_recomputed(world):
-    """Seven caches on disk predate the stamp, including both cell8 ones.
-
-    The split is already pinned by the checks above, so where the bank is not
-    restricted the rows are determined and recomputing them is exact -- on the
-    real caches it reproduces serve.py's own derivation row for row.
-
-    Runs the real `splits.bank_rows_for` rather than a stub. Stubbing it here
-    passed while the moved function still referred to a module alias it no
-    longer had, so the test was green and every call on real data raised
-    NameError.
+    This was briefly recomputed from the split. It cannot be: every cache on
+    disk lacking `bank_rows` carries only the pre-2026-09-03 digest, which
+    hashes each label's first character -- "train" and "test" are both "t", so
+    a swap leaves the digest AND `bank_n` unchanged while the derived bank
+    gains the held-out rows. A rebuild stamps the rows and takes minutes,
+    which is the correct price.
     """
     tmp, ck, cache = world
     del cache["bank_rows"]
     np.savez(tmp / "k.npz", **cache)
-    rows = knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
-    assert np.array_equal(rows, [0, 1, 3])   # the parquet's train rows
-
-
-def test_a_stamped_bank_n_that_disagrees_with_the_split_is_refused(world):
-    """The check that catches an extension rebuilt since the cache was."""
-    tmp, ck, cache = world
-    del cache["bank_rows"]
-    cache["bank_n"] = np.array(999)
-    np.savez(tmp / "k.npz", **cache)
-    with pytest.raises(SystemExit, match="stamped a bank of"):
+    with pytest.raises(SystemExit, match="records no bank rows"):
         knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
 
 
-def test_a_conditioned_bank_compares_against_its_retrieval_prefix(world):
+def test_the_refusal_says_why_recomputing_is_not_an_option():
+    """The reason belongs in the message: the next reader will otherwise try
+    the same shortcut, since it looks obviously available."""
+    import inspect
+
+    src = inspect.getsource(knnmeta.bank_for_checkpoint)
+    assert "first character" in src and "bank_n" in src
+
+
+def test_the_legacy_digest_cannot_tell_train_from_test():
+    """The property the refusal rests on, asserted directly rather than
+    quoted -- if this ever became false, recomputing would become sound."""
+    import splits as sp
+
+    a = np.asarray(["train", "train", "test", "train"], dtype=object)
+    b = np.asarray(["train", "test", "train", "train"], dtype=object)
+    assert sp.split_hash_legacy("sequence", a) == sp.split_hash_legacy("sequence", b)
+    assert sp.split_hash("sequence", a) != sp.split_hash("sequence", b)
+
+
+def test_a_conditioned_bank_compares_against_its_retrieval_prefix(world, monkeypatch):
     """The k-NN is built on the retrieval prefix, not the joined file, so a
-    joined bank must not be rejected for naming a different file."""
+    joined bank must be validated against the prefix -- by NAME and by BYTES.
+
+    The first version of this stamped no `street_digest`, so `check_bytes`
+    warned and returned without comparing anything: it asserted the name half
+    and was blind to the digest half, which is the half that was wrong. The
+    joined file was digested against a stamp taken on the retrieval file, so
+    every intact conditioned bank was refused at startup.
+    """
     import json
 
+    import safeio
+
+    monkeypatch.setattr(knnmeta, "check_bytes", REAL_CHECK_BYTES)
     tmp, ck, cache = world
+    # a stamp taken on the RETRIEVAL file, which is what build_knn records
+    cache["street_digest"] = np.array(
+        safeio.content_digest(tmp / "bank.f16.npy"))
+    np.savez(tmp / "k.npz", **cache)
+
+    # a joined bank: same rows, wider, so its own bytes differ from the prefix
     np.save(tmp / "joined.f16.npy", np.zeros((4, 12), np.float16))
     (tmp / "joined.f16.npy.prov.json").write_text(json.dumps(
         {"retrieval_file": "bank.f16.npy", "rows": 4}), encoding="utf-8")
+    assert (safeio.content_digest(tmp / "joined.f16.npy")
+            != safeio.content_digest(tmp / "bank.f16.npy")), "not a real test"
+
     rows = knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "joined.f16.npy", "t")
     assert np.array_equal(rows, [0, 1, 3])
+
+
+def test_a_conditioned_bank_whose_prefix_changed_is_still_refused(world, monkeypatch):
+    """The digest check must still fire -- fixing the path must not disable
+    it. A retrieval cache rebuilt under its own name leaves the ids, lengths,
+    row digest, split hash and filename all correct."""
+    import json
+
+    import safeio
+
+    monkeypatch.setattr(knnmeta, "check_bytes", REAL_CHECK_BYTES)
+    tmp, ck, cache = world
+    cache["street_digest"] = np.array("0" * 12)      # not this file
+    np.savez(tmp / "k.npz", **cache)
+    np.save(tmp / "joined.f16.npy", np.zeros((4, 12), np.float16))
+    (tmp / "joined.f16.npy.prov.json").write_text(json.dumps(
+        {"retrieval_file": "bank.f16.npy", "rows": 4}), encoding="utf-8")
+    with pytest.raises(SystemExit, match="digest"):
+        knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "joined.f16.npy", "t")
