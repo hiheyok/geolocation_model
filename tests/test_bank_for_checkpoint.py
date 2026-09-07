@@ -231,3 +231,51 @@ def test_a_conditioned_bank_whose_prefix_changed_is_still_refused(world, monkeyp
         {"retrieval_file": "bank.f16.npy", "rows": 4}), encoding="utf-8")
     with pytest.raises(SystemExit, match="digest"):
         knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "joined.f16.npy", "t")
+
+
+def test_extension_identity_is_checked_against_the_joined_bank(world,
+                                                               monkeypatch):
+    """Two files, two questions, and they are not the same file.
+
+    The joined bank is what records which extensions it was stacked from, so
+    it is what extension identity must be asked of. Redirecting both checks to
+    the retrieval prefix -- to fix the digest -- stopped `check_ext` seeing the
+    joined bank at all, and a bank stacked from `bank_ext2` passed against a
+    cache addressing `bank_ext`. Same row counts, so every index stays in
+    range and each matched embedding simply gets another photograph's
+    coordinates.
+    """
+    import json
+
+    tmp, ck, cache = world
+    np.save(tmp / "joined.f16.npy", np.zeros((4, 12), np.float16))
+    (tmp / "joined.f16.npy.prov.json").write_text(json.dumps(
+        {"retrieval_file": "bank.f16.npy", "rows": 4}), encoding="utf-8")
+
+    seen = {}
+    monkeypatch.setattr(knnmeta, "check_ext",
+                        lambda z, path, what: seen.update(ext=Path(path).name))
+    monkeypatch.setattr(knnmeta, "check_bytes",
+                        lambda z, path, what, d=None: seen.update(
+                            bytes=Path(path).name))
+    knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "joined.f16.npy", "t")
+
+    assert seen["ext"] == "joined.f16.npy", (
+        "extension identity was asked of the retrieval prefix, which does not "
+        "record what the joined bank was stacked from")
+    assert seen["bytes"] == "bank.f16.npy", (
+        "the digest was taken on the retrieval prefix, so that is the file it "
+        "must be compared against")
+
+
+def test_an_unconditioned_bank_asks_both_of_the_same_file(world, monkeypatch):
+    """No sidecar, no split: `bytes_path` falls back to `street_path`."""
+    tmp, ck, cache = world
+    seen = {}
+    monkeypatch.setattr(knnmeta, "check_ext",
+                        lambda z, path, what: seen.update(ext=Path(path).name))
+    monkeypatch.setattr(knnmeta, "check_bytes",
+                        lambda z, path, what, d=None: seen.update(
+                            bytes=Path(path).name))
+    knnmeta.bank_for_checkpoint(ck, "k.npz", 4, "bank.f16.npy", "t")
+    assert seen == {"ext": "bank.f16.npy", "bytes": "bank.f16.npy"}
