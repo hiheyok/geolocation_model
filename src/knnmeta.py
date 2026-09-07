@@ -83,16 +83,12 @@ def check_ext(z, street_path, what):
                     else "names no bank extension",
                     "records {}".format(" ++ ".join(street_stems))
                     if street_stems else "records no bank extension"))
-    a = prov.rows_digest(_ids_of([ext]))
-    b = prov.rows_digest(_ids_of(street_stems))
-    if a != b:
-        raise SystemExit(
-            "{}: the k-NN cache addresses extension {!r} (ids digest {}) but "
-            "its street file was stacked from {} (digest {}). Every extension "
-            "on disk holds 750,000 rows, so the lengths agree and every "
-            "neighbour index stays in range -- each matched embedding would "
-            "simply be given another photograph's address."
-            .format(what, ext, a, " ++ ".join(street_stems), b))
+    prov.require_same_corpus(
+        _ids_of([ext]), _ids_of(street_stems),
+        "{}: the k-NN cache's extension {!r}".format(what, ext),
+        "its street file, stacked from {}".format(" ++ ".join(street_stems)),
+        because="Each matched embedding would be given another photograph's "
+                "address.")
 
 
 def check_bytes(z, street_path, what, digest=None):

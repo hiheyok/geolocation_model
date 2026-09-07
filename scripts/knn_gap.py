@@ -131,14 +131,11 @@ def main():
     # difference would be reported as a result. A length check cannot see it:
     # all four extensions on disk hold exactly 750,000 rows, which is the same
     # reason `knnmeta.check_ext` compares digests rather than counts.
-    da, db = prov.rows_digest(ids_a), prov.rows_digest(ids_b)
-    if da != db:
-        raise SystemExit(
-            "--a searched {:,} bank rows digesting {} and --b searched {:,} "
-            "digesting {}. These are different corpora, and both arms are "
-            "scored against --a's coordinates, so the comparison would be "
-            "between one arm's neighbours and another arm's geography."
-            .format(len(ids_a), da, len(ids_b), db))
+    prov.require_same_corpus(
+        ids_a, ids_b, "--a's bank", "--b's bank",
+        because="Both arms are scored against --a's coordinates, so this "
+                "would compare one arm's neighbours with another arm's "
+                "geography.")
     te = np.flatnonzero(sp.read(ds, a.split_mode)[0] == "test")
     print("{:,} test queries, split {}\n".format(len(te), a.split_mode))
 
