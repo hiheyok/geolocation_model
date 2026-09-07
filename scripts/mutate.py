@@ -33,8 +33,10 @@ be more careful about putting it back than about anything else it does.
 
 import argparse
 import hashlib
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +54,25 @@ PYTEST_EXIT = {
 
 def digest(b):
     return hashlib.sha256(b).hexdigest()[:12]
+
+
+def pytest_exit(targets, cache_dir):
+    """Run pytest with a private bytecode cache, and give back its exit code.
+
+    A `.pyc` is reused when the source's SIZE and its mtime TRUNCATED TO
+    SECONDS both match what the cache recorded. A mutation is often the same
+    length -- `VALUE = 1` to `VALUE = 2` -- and always lands within a second of
+    the read, so the stale bytecode is imported and the test passes. The tool
+    then reports "THE TEST DID NOT FAIL" and condemns a test that was working.
+    Reproduced exactly that way.
+
+    `PYTHONPYCACHEPREFIX` puts the cache under a fresh directory, so there is
+    nothing stale to find. Every run recompiles, which costs a second and is
+    the price of the answer meaning anything.
+    """
+    env = dict(os.environ, PYTHONPYCACHEPREFIX=str(cache_dir))
+    return subprocess.run([sys.executable, "-m", "pytest", "-q", *targets],
+                          cwd=ROOT, env=env).returncode
 
 
 def read_arg(inline, path, what):
@@ -102,6 +123,20 @@ def main():
     if old == new:
         raise SystemExit("--old and --new are the same; nothing would change")
 
+    # The tests must pass BEFORE the mutation, or a failure after it says
+    # nothing. An unrelated already-failing test -- one that never imports the
+    # mutated module at all -- otherwise reported "the defect was caught".
+    # This runs first, so a bad baseline never touches the file.
+    with tempfile.TemporaryDirectory() as cache:
+        print("baseline   {}".format(" ".join(a.test)), flush=True)
+        base = pytest_exit(a.test, Path(cache) / "base")
+    if base != 0:
+        raise SystemExit(
+            "\nthe tests do not pass before the mutation (pytest exited {} -- "
+            "{}), so a failure after it would prove nothing. {} was not "
+            "touched. Fix or narrow the selection first."
+            .format(base, PYTEST_EXIT.get(base, "unknown"), path))
+
     print("mutating   {}  ({} -> applying defect)".format(path, before),
           flush=True)
     try:
@@ -109,9 +144,8 @@ def main():
         if crlf:
             out = out.replace(LF, CRLF)
         path.write_bytes(out.encode("utf-8"))
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q", *a.test],
-                           cwd=ROOT)
-        code = r.returncode
+        with tempfile.TemporaryDirectory() as cache:
+            code = pytest_exit(a.test, Path(cache) / "mut")
     finally:
         path.write_bytes(original)
         after = digest(path.read_bytes())
