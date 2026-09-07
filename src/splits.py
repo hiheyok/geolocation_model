@@ -219,3 +219,65 @@ def ineligible(rows, n_rel, labels, mode, x16, y16):
                               np.asarray(y16)[:n_rel][labels != "train"], zc))
     ec = cell_ids(np.asarray(x16)[ext], np.asarray(y16)[ext], zc)
     return bad_rel, ext[np.isin(ec, held)]
+
+
+def _prov():
+    """Imported lazily: `provenance` is a leaf, but importing it at
+    module scope here would put a second module between `config` and
+    every consumer of `splits` for the sake of one call."""
+    import provenance
+    return provenance
+
+
+def held_cells(ds, labels, zc):
+    """The cells this split holds out, at the split's OWN zoom.
+
+    `cell_z8` was read whatever the mode said, so a cell12 or cell16 split
+    compared z8 cell ids against z12/z16 ids -- different numbering, so almost
+    nothing matched, so the extension served neighbours from precisely the
+    regions being held out and the transfer question went unasked while the
+    run printed a plausible "N dropped" line (item 60).
+
+    Both sides are derived the same way here, from the z16 address, so they
+    cannot disagree about what a cell id means. Latent until now: only
+    `sequence` (no held cells at all) and `cell8` are in use, and at z8 the
+    column happened to be right.
+    """
+    # tile_math.project is scalar (math.sin, min/max), so the array form is
+    # written out here exactly as build_dataset and dataset.py write it.
+    lat = np.clip(np.asarray(ds["lat"], dtype=np.float64),
+                  -tm.MAX_LAT, tm.MAX_LAT)
+    lon = np.asarray(ds["lon"], dtype=np.float64)
+    sin = np.sin(np.radians(lat))
+    px = (lon + 180.0) / 360.0
+    py = 0.5 - np.log((1.0 + sin) / (1.0 - sin)) / (4.0 * np.pi)
+    n16 = 1 << (4 * tm.STEPS)
+    x16 = np.clip((px * n16).astype(np.int64), 0, n16 - 1)
+    y16 = np.clip((py * n16).astype(np.int64), 0, n16 - 1)
+    return cell_ids(x16, y16, zc)[labels != "train"]
+
+
+def bank_rows_for(ds, labels, mode, ext_stem=None, bank_limit=0):
+    """The rows that make up the bank, in the order they are addressed.
+
+    Release train rows first, then a bank extension appended after them, minus
+    any extension image sitting in a cell this split holds out. Exported because
+    the demo server has to reconstruct exactly the same bank the cache was built
+    from -- it used to approximate it by the extension rows that happened to be
+    someone's neighbour, which quietly lost 29,469 images.
+    """
+    rows = np.flatnonzero(labels == "train").astype(np.int64)
+    if bank_limit and bank_limit < len(rows):
+        keep = np.random.default_rng(config.SPLIT_SEED).choice(
+            len(rows), bank_limit, replace=False)
+        rows = rows[np.sort(keep)]
+    if not ext_stem:
+        return rows, None
+    m = _prov().bank_ext(ext_stem, config.RELEASE)
+    n_rel = len(labels)
+    keep = np.ones(len(m["x16"]), dtype=bool)
+    zc = MODES[mode]
+    if zc is not None:
+        held = np.unique(held_cells(ds, labels, zc))
+        keep = ~np.isin(cell_ids(m["x16"], m["y16"], zc), held)
+    return np.concatenate([rows, np.arange(n_rel, n_rel + len(keep))[keep]]), m

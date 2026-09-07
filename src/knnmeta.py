@@ -185,7 +185,7 @@ def bank_rows(z, n_bank, what):
 
 def check(z, what, street_file=None, split_mode=None, split_hash=None,
           n_release=None, need_k=None, n_bank=None, street_path=None,
-          splits=None, street_digest=None):
+          splits=None, street_digest=None, bytes_path=None):
     """Every contract a k-NN cache carries. Returns validated bank rows.
 
     Each argument that is `None` is simply not checked, so a consumer that
@@ -232,8 +232,17 @@ def check(z, what, street_file=None, split_mode=None, split_hash=None,
             "Slicing would train on fewer neighbours than the run records."
             .format(what, z["idx"].shape[1], need_k))
     if street_path is not None:
+        # Two files, two questions. `street_path` is the bank actually being
+        # used and is what records which extensions it was stacked from, so
+        # extension identity is asked of it. `bytes_path` is the file the
+        # cache's digest was taken on, which for a conditioned bank is the
+        # retrieval prefix rather than the joined file. Pointing both at the
+        # retrieval file fixed the digest and stopped the extension check
+        # seeing the joined bank at all -- a bank stacked from `bank_ext2`
+        # then passed against a cache addressing `bank_ext`, and every matched
+        # embedding got another photograph's coordinates.
         check_ext(z, street_path, what)
-        check_bytes(z, street_path, what, street_digest)
+        check_bytes(z, bytes_path or street_path, what, street_digest)
     return bank_rows(z, n_bank, what) if n_bank is not None else None
 
 
@@ -292,19 +301,30 @@ def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
     mode = ck.get("split_mode") or str(z["split_mode"])
     ds = pq.read_table(config.DATASET_PARQUET)
     labels, shash = sp.read(ds, mode)
-    # For a conditioned bank the k-NN was built on the retrieval *prefix*, not
-    # on the joined file, so compare against what the sidecar declares -- the
-    # same rule `GeoStepDataset` uses.
+    # A conditioned bank is `[retrieval | conditioning]`, and the k-NN was
+    # built on the retrieval prefix -- both its recorded name and its content
+    # digest describe that file. Passing the joined bank as `street_path`
+    # digested the wrong bytes and refused every intact conditioned bank at
+    # startup; `GeoStepDataset` compares against the retrieval file, and so
+    # does this.
     rec = prov.read(config.STREET_CACHE / bank_file) or {}
     want_sf = rec.get("retrieval_file") or bank_file
     rows = check(z, what, split_mode=mode, split_hash=shash, splits=labels,
                  street_file=want_sf, n_release=len(labels), n_bank=n_bank,
-                 street_path=config.STREET_CACHE / bank_file)
+                 street_path=config.STREET_CACHE / bank_file,
+                 bytes_path=config.STREET_CACHE / want_sf)
     if rows is None:
         raise SystemExit(
             "{} records no bank rows, so which of the {:,} embedding rows it "
             "searched is unknown. That is not the same as searching all of "
-            "them.".format(knn_file, n_bank))
+            "them. It cannot be recomputed from the split either: every cache "
+            "on disk without `bank_rows` carries only the pre-2026-09-03 split "
+            "digest, which hashes each label's first character -- so 'train' "
+            "and 'test' are both 't', and swapping them leaves that digest and "
+            "`bank_n` both unchanged while the derived bank silently gains the "
+            "held-out rows. Rebuild it: `build_knn.py` stamps `bank_rows`, and "
+            "it takes minutes."
+            .format(knn_file, n_bank))
     print("bank rows  {:,} of {:,} in the file, from {}"
           .format(len(rows), n_bank, knn_file), flush=True)
     return rows

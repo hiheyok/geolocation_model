@@ -76,26 +76,22 @@ def load_everything(tag, dev, bank_gpu, shortlist=None):
     check_split(ck, ck.get("split_mode", sp.PRIMARY), "test")
     knn = np.load(config.STREET_CACHE / ck["knn_file"], allow_pickle=True)
     ext = str(knn["bank_ext"]) if "bank_ext" in knn else ""
-    if "bank_rows" in knn:
-        # provenance.bank_ext, not a bare np.load: check_split above
-        # validates the checkpoint against the release, but the extension
-        # metadata is a separately replaceable file, and a mismatched one
-        # attaches another release's z16 addresses to valid bank rows --
-        # plausible coordinates, wrong place, nothing to notice it.
-        m = prov.bank_ext(ext, config.RELEASE) if ext else None
-        # Validated rather than read: the server had no check on this file at
-        # all, so a stale or replaced cache of the right name selected a
-        # different bank while serving carried on normally, and a negative row
-        # wrapped to the end instead of being refused. REVIEW4 #14. The bound
-        # is release + extension, not the release alone -- bank rows run past
-        # len(labels) whenever there is an extension, which is what the n_ext
-        # count below is counting.
-        rows = knnmeta.bank_rows(
-            knn, len(labels) + (len(m["x16"]) if m is not None else 0),
-            ck["knn_file"])
-    else:
-        from build_knn import bank_rows_for
-        rows, m = bank_rows_for(ds, labels, mode, ext or None)
+    # provenance.bank_ext, not a bare np.load: check_split above validates the
+    # checkpoint against the release, but the extension metadata is a
+    # separately replaceable file, and a mismatched one attaches another
+    # release's z16 addresses to valid bank rows -- plausible coordinates,
+    # wrong place, nothing to notice it.
+    m = prov.bank_ext(ext, config.RELEASE) if ext else None
+    # `bank_for_checkpoint`, not `bank_rows`: the server resolved the bank
+    # itself and so ran only the row-range check, leaving `split_mode`,
+    # `split_hash` and `street_file` uncompared. A cache built over the same
+    # embeddings and extension but a DIFFERENT split has in-range rows and a
+    # correct digest, and the server accepted it (REVIEW8 #2). The bound is
+    # release + extension, not the release alone -- bank rows run past
+    # len(labels) whenever there is an extension, which is what n_ext counts.
+    rows = knnmeta.bank_for_checkpoint(
+        ck, ck["knn_file"], len(labels) + (len(m["x16"]) if m is not None else 0),
+        sf, "serve.py")
     if ext:
         tx = np.concatenate([tx, m["x16"].astype(np.int64)])
         ty = np.concatenate([ty, m["y16"].astype(np.int64)])
