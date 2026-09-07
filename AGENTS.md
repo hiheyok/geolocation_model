@@ -24,6 +24,22 @@ Legitimate exceptions, both narrow:
 * **A genuine chain.** If B cannot exist without A, stack B on A and say which
   PR it depends on.
 
+**A stacked PR can merge into nothing.** If A reaches `main` before B merges
+into A's branch, B lands in a branch nothing merges again -- and Github shows
+it as *merged* either way. This has happened three times: #41 (on #30's
+branch), #33 (on `central-shard-reader`) and #34 (on #33). Two rounds of
+review went into #33 and none of it shipped.
+
+The merged label is not evidence. Run the check:
+
+```bash
+python scripts/check_merged.py
+```
+
+It asks `git merge-base --is-ancestor <mergeCommit> origin/main` for every
+recently merged PR, and exits non-zero on anything stranded *or* unverifiable.
+Run it after merging a stack, and before believing a PR shipped.
+
 Results are their own PR. A measurement is a thing to weigh; a code change is a
 thing to review. Do not bundle them.
 
