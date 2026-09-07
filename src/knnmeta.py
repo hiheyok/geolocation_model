@@ -189,7 +189,7 @@ def bank_rows(z, n_bank, what):
 
 def check(z, what, street_file=None, split_mode=None, split_hash=None,
           n_release=None, need_k=None, n_bank=None, street_path=None,
-          splits=None, street_digest=None):
+          splits=None, street_digest=None, bytes_path=None):
     """Every contract a k-NN cache carries. Returns validated bank rows.
 
     Each argument that is `None` is simply not checked, so a consumer that
@@ -236,8 +236,17 @@ def check(z, what, street_file=None, split_mode=None, split_hash=None,
             "Slicing would train on fewer neighbours than the run records."
             .format(what, z["idx"].shape[1], need_k))
     if street_path is not None:
+        # Two files, two questions. `street_path` is the bank actually being
+        # used and is what records which extensions it was stacked from, so
+        # extension identity is asked of it. `bytes_path` is the file the
+        # cache's digest was taken on, which for a conditioned bank is the
+        # retrieval prefix rather than the joined file. Pointing both at the
+        # retrieval file fixed the digest and stopped the extension check
+        # seeing the joined bank at all -- a bank stacked from `bank_ext2`
+        # then passed against a cache addressing `bank_ext`, and every matched
+        # embedding got another photograph's coordinates.
         check_ext(z, street_path, what)
-        check_bytes(z, street_path, what, street_digest)
+        check_bytes(z, bytes_path or street_path, what, street_digest)
     return bank_rows(z, n_bank, what) if n_bank is not None else None
 
 
@@ -306,7 +315,8 @@ def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
     want_sf = rec.get("retrieval_file") or bank_file
     rows = check(z, what, split_mode=mode, split_hash=shash, splits=labels,
                  street_file=want_sf, n_release=len(labels), n_bank=n_bank,
-                 street_path=config.STREET_CACHE / want_sf)
+                 street_path=config.STREET_CACHE / bank_file,
+                 bytes_path=config.STREET_CACHE / want_sf)
     if rows is None:
         raise SystemExit(
             "{} records no bank rows, so which of the {:,} embedding rows it "
