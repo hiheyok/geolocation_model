@@ -87,10 +87,58 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
     return torch.from_numpy(a)
 
 
+# `nbr_row` is only ever an argument to `gather_nbr`, which gathers on the
+# TABLE's device. Sending it to the GPU with the rest of the batch and letting
+# `gather_nbr` send it back costs an upload, a download, and the synchronisation
+# the download forces -- CPU -> GPU -> CPU -> gather -> GPU, for indices that
+# never needed to leave the host (REVIEW9 #1).
+HOST_ONLY = ("nbr_row",)
+
+
+def to_device(batch, dev):
+    """Move a batch to `dev`, leaving the host-only entries where they are.
+
+    One helper rather than the same dict comprehension in `train.run_epoch`,
+    `cond_probe` and `diag_beam`: three copies of a transfer rule is how the
+    round trip survived in all three at once.
+    """
+    return {k: (v.to(dev, non_blocking=True)
+                if torch.is_tensor(v) and k not in HOST_ONLY else v)
+            for k, v in batch.items()}
+
+
+def _move(t, dst):
+    """`t` on `dst`, asynchronously only when that is an upload.
+
+    One definition because the rule is easy to get half right: the first
+    version of this made every transfer non-blocking, which fixed the upload
+    and introduced a race on the download.
+    """
+    if t.device == dst:
+        return t
+    return t.to(dst, non_blocking="cuda" in str(dst))
+
+
 def gather_nbr(table, rows, dev):
-    """rows may live on either device; the table decides where the gather runs."""
-    idx = rows if rows.device == table.device else rows.to(table.device)
-    return table[idx].to(dev, non_blocking=True).float()
+    """rows may live on either device; the table decides where the gather runs.
+
+    With a host-resident table this is now a pure host gather followed by one
+    upload. With a GPU table it is one small index upload, as before -- the
+    indices are (B, K) int64 against a (B, K, D) result, so moving them is the
+    cheap half either way.
+
+    **`non_blocking` is a property of the direction, not of the call.** Going
+    INTO the card it is safe and wanted: the copy is enqueued on the stream
+    that will consume it, so the ordering holds, and `nbr_row` used to get it
+    for free from the batch transfer -- dropping it turned an async copy out
+    of pinned memory into a synchronising one on every step of a GPU-table
+    run. Coming BACK the consumer is the CPU, which is not on that stream: an
+    unfinished download means `table[idx]` gathers on indices that are not
+    written yet and returns the wrong rows, silently. Both transfers here can
+    run either way depending on where the table lives, so both ask.
+    """
+    idx = rows if rows.device == table.device else _move(rows, table.device)
+    return _move(table[idx], dev).float()
 
 
 def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64,

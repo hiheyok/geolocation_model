@@ -33,7 +33,8 @@ sys.path.insert(0, str(ROOT / "src"))
 import config  # noqa: E402
 import splits as sp  # noqa: E402
 import tile_math as tm  # noqa: E402
-from dataset import GeoStepDataset, gather_nbr, street_table  # noqa: E402
+from dataset import (GeoStepDataset, gather_nbr, street_table,  # noqa: E402
+                     to_device)
 from evaluate import check_split, load_model, street_file_for  # noqa: E402
 
 
@@ -62,8 +63,7 @@ def probe(tag, dev, n_batches, batch):
         for bi, b in enumerate(DataLoader(ds, batch_size=batch)):
             if bi >= n_batches:
                 break
-            b = {k: (v.to(dev) if torch.is_tensor(v) else v)
-                 for k, v in b.items()}
+            b = to_device(b, dev)
             if tbl is not None and "nbr_row" in b:
                 b["nbr_emb"] = gather_nbr(tbl, b["nbr_row"], dev)
             model(b)
