@@ -39,6 +39,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# https://docs.pytest.org/en/stable/reference/exit-codes.html
+PYTEST_EXIT = {
+    0: "all tests passed",
+    1: "tests failed",
+    2: "interrupted",
+    3: "internal error",
+    4: "usage error -- a path or test id that does not exist",
+    5: "no tests were collected",
+}
+
 
 def digest(b):
     return hashlib.sha256(b).hexdigest()[:12]
@@ -101,7 +111,7 @@ def main():
         path.write_bytes(out.encode("utf-8"))
         r = subprocess.run([sys.executable, "-m", "pytest", "-q", *a.test],
                            cwd=ROOT)
-        caught = r.returncode != 0
+        code = r.returncode
     finally:
         path.write_bytes(original)
         after = digest(path.read_bytes())
@@ -111,6 +121,18 @@ def main():
                 "lost from this process; recover with git."
                 .format(path, before, after))
         print("restored   {}  ({})".format(path, after), flush=True)
+
+    # Only exit 1 means a test failed. Treating every nonzero code as "the
+    # defect was caught" made a mistyped path -- exit 4, "file or directory not
+    # found" -- report success, and 5, "no tests ran", do the same. A tool that
+    # exists to catch tests which cannot fail must not itself pass on a suite
+    # that never ran.
+    if code not in (0, 1):
+        raise SystemExit(
+            "pytest exited {} ({}), so nothing was measured. The file was "
+            "restored; fix the invocation and run it again."
+            .format(code, PYTEST_EXIT.get(code, "unknown")))
+    caught = code == 1
 
     want_caught = a.expect == "fail"
     if caught == want_caught:
