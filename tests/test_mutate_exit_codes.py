@@ -118,7 +118,7 @@ def test_the_file_is_untouched_when_the_baseline_fails(target, tmp_path):
     assert src.read_bytes() == before
 
 
-def test_a_private_cache_does_not_reuse_stale_bytecode(tmp_path):
+def test_a_private_cache_does_not_reuse_stale_bytecode(tmp_path, monkeypatch):
     """A `.pyc` is reused when the source's SIZE and its mtime TRUNCATED TO
     SECONDS both match. `VALUE = 1` -> `VALUE = 2` is the same length and the
     edit lands within the same second, so both match and the OLD code is
@@ -135,6 +135,16 @@ def test_a_private_cache_does_not_reuse_stale_bytecode(tmp_path):
 
     sys.path.insert(0, str(ROOT / "scripts"))
     from mutate import pytest_exit
+
+    # This test has to CREATE the hazard before it can show the fix removes
+    # it, and the hazard is a stale `.pyc`. Under PYTHONDONTWRITEBYTECODE
+    # nothing is ever cached, every run recompiles, and the first assertion
+    # below fails -- the test reporting a problem with the environment as
+    # though it were a problem with the code. `pytest_exit` inherits the
+    # ambient environment by design, so the test clears it for itself rather
+    # than the tool ignoring what a user asked for. (Disabling the cache is
+    # SAFE for the tool: with nothing cached there is nothing stale.)
+    monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
 
     mod = tmp_path / "m.py"
     t = tmp_path / "test_m.py"
