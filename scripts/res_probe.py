@@ -36,6 +36,7 @@ look excellent.
 
 import argparse
 import json
+import io
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -48,6 +49,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+import shards
 from tile_pool import paired
 from tile_match import dense_sim, topk_stats
 
@@ -160,12 +162,16 @@ def main():
     # A row that never decoded keeps its id, coordinates and sequence while
     # holding a zero vector, so it is scored as an image that simply matches
     # nothing. Track them and drop them before any metric is computed.
+    # Reads a manifest `file` in either state -- loose or a pack member --
+    # and keeps each pack open rather than reopening it per image.
+    RD = shards.Reader(root / "img")
     decoded_ok = np.zeros(len(recs), bool)
     pool = ThreadPoolExecutor(a.workers)
 
     def load(i):
         try:
-            return i, variants(Image.open(root / "img" / recs[i]["file"]), arms)
+            return i, variants(
+                Image.open(io.BytesIO(RD.read(recs[i]["file"]))), arms)
         except Exception:
             return i, None
 

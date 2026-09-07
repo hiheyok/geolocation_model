@@ -38,10 +38,11 @@ caller has to make it.
 
 import io
 import sys
+import threading
 import time
 import zipfile
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -146,7 +147,10 @@ def _read(zf, member, shard):
     except KeyError:
         raise SystemExit(
             "{} is not in shard {}. The archive opened and its other members "
-            "read, so nothing else would have reported this."
+            "read, so nothing else would have reported this. Members are "
+            "stored under their FULL '<shard>/<name>' path, the way the "
+            "release zips store '00/12345.jpg' -- an archive written with "
+            "bare names reads as empty rather than as a mistake."
             .format(member, shard)) from None
 
 
@@ -164,11 +168,22 @@ def blobs(members, root=None, min_slurp=MIN_SLURP, quiet=False):
     project's most expensive failure shape.
     """
     members = [str(m) for m in members]
+    root = Path(root) if root else config.TRAIN_ZIPS
     want = defaultdict(list)
     for i, m in enumerate(members):
-        want[shard_of(m)].append(i)
+        want["" if "/" not in m else shard_of(m)].append(i)
 
     out = [None] * len(members)
+    # A member with no shard component is a loose file beside `root`. That is
+    # the pre-pack layout, and supporting it here rather than in each caller
+    # is what makes migration a data change instead of a code change.
+    loose = want.pop("", None) or []
+    for i in loose:
+        fp = root / members[i]
+        if not fp.exists():
+            raise SystemExit("{} is not on disk".format(fp))
+        out[i] = fp.read_bytes()
+
     for shard, idxs in sorted(want.items()):
         big = len(idxs) >= min_slurp
         with archive(shard, root=root, preload=big, quiet=quiet) as zf:
@@ -207,9 +222,18 @@ def iter_blobs(members, batch=256, root=None, min_slurp=MIN_SLURP, quiet=False):
     open across the batches yielded from it.
     """
     members = [str(m) for m in members]
+    root = Path(root) if root else config.TRAIN_ZIPS
     want = defaultdict(list)
     for i, m in enumerate(members):
-        want[shard_of(m)].append(i)
+        want["" if "/" not in m else shard_of(m)].append(i)
+
+    # Loose members first, in batches, so this agrees with `blobs` about what
+    # a bare name means. Without it `shard_of("12345.jpg")` is the whole name
+    # and the reader looks for `12345.jpg.zip`.
+    loose = want.pop("", None) or []
+    for s_ in range(0, len(loose), batch):
+        sel = loose[s_:s_ + batch]
+        yield sel, [(root / members[i]).read_bytes() for i in sel]
 
     for shard, idxs in sorted(want.items()):
         big = len(idxs) >= min_slurp
@@ -221,3 +245,151 @@ def iter_blobs(members, batch=256, root=None, min_slurp=MIN_SLURP, quiet=False):
                 yield sel, [_read(zf, members[i], shard) for i in sel]
 
 
+class Reader:
+    """Random access over a corpus that is part loose, part packed.
+
+    `blobs` is the right tool when the whole set of members is known up front:
+    it groups by shard and reads each once. Some consumers cannot do that --
+    a probe pulling images by index from a thread pool asks for one at a time,
+    and calling `blobs` per image would reopen the pack per image, which is
+    the defect this module exists to prevent.
+
+    So this keeps each pack open for its lifetime. `read` takes a manifest
+    `file` value in either state: `"12345.jpg"` while loose, `"0003/12345.jpg"`
+    once packed.
+
+    Locked, because `ZipFile.read` on a shared handle is not thread-safe and
+    two of the consumers here are thread pools. The lock covers the archive
+    read only; decoding stays outside it, which is where the time goes.
+    """
+
+    def __init__(self, root, preload=False, quiet=True):
+        self.root = Path(root)
+        self.preload = preload
+        self.quiet = quiet
+        self._stack = ExitStack()
+        self._zf = {}
+        self._lock = threading.Lock()
+
+    def read(self, name):
+        name = str(name)
+        if "/" not in name:
+            return (self.root / name).read_bytes()
+        shard = shard_of(name)
+        with self._lock:
+            zf = self._zf.get(shard)
+            if zf is None:
+                zf = self._stack.enter_context(
+                    archive(shard, root=self.root, preload=self.preload,
+                            quiet=self.quiet))
+                self._zf[shard] = zf
+            return _read(zf, name, shard)
+
+    def close(self):
+        self._stack.close()
+        self._zf.clear()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+
+def source_of(root, name):
+    """The file that actually holds `name`: its pack, or the loose image.
+
+    A cache key stamped on `root/"<id>.jpg"` silently stops existing the
+    moment that image is packed, and `safeio.file_stamp` of a missing path is
+    not a useful cache key.
+    """
+    name = str(name)
+    root = Path(root)
+    return root / (shard_of(name) + ".zip") if "/" in name else root / name
+
+
+# --- packing -----------------------------------------------------------------
+
+PACK_SIZE = 1000
+
+
+def pack_stem(i):
+    """Pack index -> the name a member path uses. `7` -> `"0007"`."""
+    return "{:04d}".format(int(i))
+
+
+def write_pack(path, items, tmp_suffix=".part"):
+    """Write `items` -- (member_name, blob) -- to a zip, atomically.
+
+    Writing lives here for the same reason reading does: a module that owns
+    the archive format owns both ends of it. The alternative is a packer that
+    needs its own exemption from `tests/test_one_reader.py`, which is how an
+    abstraction acquires its second implementation.
+
+    Stored, not deflated. JPEGs are already compressed, so deflate costs CPU
+    and saves nothing -- and the whole point of packing is that reading becomes
+    a sequential scan, which decompression would put back on the CPU.
+
+    **Member names carry their full `"<pack>/<name>"` path**, exactly as the
+    release zips store `"00/12345.jpg"`. One convention, so `blobs` needs no
+    per-archive fallback; a pack written with bare names reads as an empty
+    archive, which the reader now says out loud.
+    """
+    path = Path(path)
+    if path.exists():
+        raise SystemExit(
+            "{} already exists. Packs are immutable once written: the manifest "
+            "records point into them by name, so rewriting one silently "
+            "replaces the members those records resolve to -- and if the loose "
+            "originals were deleted, that is the only copy. Write a new pack "
+            "index instead.".format(path))
+    tmp = path.with_name(path.name + tmp_suffix)
+    with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_STORED) as zf:
+        for name, blob in items:
+            zf.writestr(str(name), blob)
+    import safeio
+    safeio.replace_from(tmp, path)
+    return path
+
+
+def next_pack_index(root):
+    """One past the highest pack already in `root`, or 0.
+
+    Numbering restarted at 0000 for every run, so a second pass over newly
+    harvested images assigned them to `0000/...` and overwrote the pack the
+    first pass had written -- while the manifest records of the images inside
+    it still resolved to those member names. With `--delete-originals` from
+    the first run, that was the only copy.
+
+    So a run never reuses an index. A partly-filled final pack stays partly
+    filled; a pack is a unit of sequential reading, not a container that has
+    to be topped up.
+    """
+    top = -1
+    for f in Path(root).glob("*.zip"):
+        if f.stem.isdigit():
+            top = max(top, int(f.stem))
+    return top + 1
+
+
+def assign_packs(ids, size=PACK_SIZE, start=0):
+    """`{id: "<pack>/<id>.jpg"}` for ids grouped in sorted order.
+
+    `start` is the first pack index to use -- see `next_pack_index`.
+
+    Sorted numerically where possible. On KartaView that is not cosmetic:
+    adjacent ids are the same drive -- 64% of consecutive ids are within 1 km
+    and 51.7% within 100 m -- so a pack of `size` consecutive ids is a set of
+    whole drives. The group boundary is therefore also the natural unit for
+    grouped bootstrap resampling, and a sequential read over a pack is a
+    sequential read over a region.
+    """
+    def key(i):
+        s = str(i)
+        return (0, int(s)) if s.isdigit() else (1, s)
+
+    out = {}
+    for k, i in enumerate(sorted(ids, key=key)):
+        out[str(i)] = "{}/{}.jpg".format(pack_stem(start + k // size), i)
+    return out
