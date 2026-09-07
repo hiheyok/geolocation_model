@@ -83,20 +83,52 @@ Two benchmarks, and they disagree in an informative way.
 | `d1536-b350-e6-drop70` | -- | 12.8% | 467.4 km |
 
 **57.5% versus 13.4% is the single most important number in this document.**
-The gap is not domain shift in the usual sense. It is **bank coverage**:
-OSV-5M queries have near-duplicates in a 3.4M-row bank drawn from OSV-5M;
-KartaView queries do not. The benchmark is substantially measuring how densely
-the corpus covers the query distribution.
+
+An earlier version of this brief said the gap "is bank coverage". That was
+asserted from an aggregate difference between two benchmarks, which cannot
+establish a mechanism, and it is **wrong for OSV-5M**. Decomposed over 49,788
+test queries against the shipping bank (`runs/COVERAGE.md`):
+
+| radius | coverage-limited | retrieval-limited | ranking-limited | solved |
+|---|---|---|---|---|
+| 1 km | 18.5% | 51.6% | 19.4% | 10.4% |
+| **25 km** | **0.2%** | 16.9% | **33.2%** | 49.7% |
+| 200 km | 0.0% | 4.7% | 25.8% | 69.4% |
+
+*coverage* = no eligible bank row within r at all; *retrieval* = one exists but
+is not in the cached top-32; *ranking* = a top-32 candidate is within r but
+rank 1 is not.
+
+**At 25 km the constraint is ranking, not coverage.** 99.8% of test queries
+have a legal bank row within 25 km and the median distance to the nearest one
+is 0.32 km. At 1 km coverage genuinely binds. Whether the *external* gap is
+coverage is a separate question that has not been decomposed the same way.
 
 ### The uncomfortable ablation
 
 | configuration | `<25 km` on OSV-5M |
 |---|---|
 | full agent | 57.5% |
-| **top-1 retrieval neighbour alone, no agent at all** | **56.4%** |
+| top-1 retrieval neighbour alone, no agent at all | **~49.7%** |
 | agent with the retrieval prior disabled | **2.7%** |
+| oracle over the cached top-32 | 82.9% |
 
-The agent contributes about **1 pp over a plain nearest-neighbour lookup**, and
+**Correction.** An earlier version put top-1 retrieval at 56.4% and concluded
+the agent adds about a point. That 56.4% was a cohort artifact: the script
+selected `flatnonzero(labels == "test")[:3000]`, and `dataset.parquet` is
+shard-ordered, so the head of the test split is BR/AR/ZA at a median nearest
+legal bank row of 0.212 km against US/DE/RU at 0.337 km — a different
+continent and 35% denser.
+
+```
+first  3,000 test rows (parquet order):  56.4%   median 13.30 km
+random 3,000                          :  49.4%   median 26.29 km
+all   49,788                          :  49.7%   median 25.68 km
+```
+
+**The agent adds roughly 7-8 pp over rank-1 retrieval, not 1 pp.** The two
+figures still come from different cohorts, so that is a difference and not yet
+a measured treatment effect; a paired run on identical ids is outstanding. It
 collapses to near-nothing without retrieval. Whatever the map-descent
 architecture is doing, it is currently a thin layer on top of a retrieval
 system. Training with `--retr-drop 0.7` (randomly hiding the prior) lifts the
@@ -176,8 +208,14 @@ This section is longer than the previous one and is probably more useful.
   measured on a bank too sparse to hold many near-duplicates.
   *(Caveat on the record: one arm of this used a 224 SigLIP interpolated to
   512, which is out of distribution; that arm needs re-measuring.)*
-* **Resolution does not complement tiles**, it dilutes them. Native crops plus
-  224 tiles scores *below* tiles alone and is no longer separated.
+* **"Resolution does not complement tiles" no longer holds.** On the biased
+  cohort, crops+tiles was +1.27 [+0.4, +2.2] separated and native-crops+tiles
+  +0.97 [−0.1, +2.0] inside noise. On a random cohort the ordering reverses:
+  +0.83 [−0.1, +1.7] against **+1.27 [+0.2, +2.3]**. The conclusion was
+  cohort-dependent. It does not reinstate resolution either — the native arms
+  used a 224 SigLIP at `img_size=512`, out of distribution, which is a
+  confound pointing the wrong way. Re-running against the genuine 512
+  checkpoint is in flight.
 * **DINOv3 is not an upgrade.** Loses to DINOv2 at every threshold, both at 224
   and at its own native 256.
 * **A third pyramid level (L2) is impossible on this corpus.** A 6x4 grid of
@@ -246,6 +284,42 @@ This section is longer than the previous one and is probably more useful.
 
 ---
 
+## 5b. Reranking: two eliminations
+
+33.2% of queries at 25 km are ranking-limited, so a correct candidate is
+already cached. But rank-1 maximises cosine by construction, so a reranker
+must supply information the cosine lacks. Its two blind spots are set
+structure (candidates scored independently) and pooling (spatial detail
+averaged away). The cheap exploit of each was tested and both fail:
+
+| geographic consensus (49,788 q) | `<25 km` | | alphaQE, no coordinates (10,000 q) | `<25 km` |
+|---|---|---|---|---|
+| rank-1 | 49.73% | | rank-1 | 49.39% |
+| K=8 | 50.48% | | k=2 | 49.45% |
+| K=16 | 48.90% | | k=3 | 46.62% |
+| K=32 | **46.59%** | | k=10 | **40.16%** |
+
+Both degrade monotonically with K, for one shared reason: **they aggregate
+over a set that is mostly wrong.** Rank-1 is right 49.7% of the time and the
+marginal candidate is far worse.
+
+A separate argument kills positional features specifically. **A query has no
+position at inference** — that is the thing being predicted — so a positional
+feature is a function of the candidates' positions alone, and the query enters
+only through which rows were retrieved, which is the cosine again. It can only
+express how clustered the retrieved set is, i.e. where the bank is dense.
+
+The distinction that survives: position as *the thing being verified* works
+(the retrieval prior proposes neighbour addresses and lets image evidence
+choose among them, +17.3 pp); position as *the evidence itself* does not.
+
+**What is left is per-candidate verification** — does this one candidate
+depict the same place as the query? No positions, no pooling, unaffected by
+the other 31 being wrong. That is the pooling blind spot, and it needs a
+14-56 GB local-token cache.
+
+---
+
 ## 5. Methodological hazards found the hard way
 
 An outside reader should weight the numbers above with these.
@@ -277,6 +351,16 @@ An outside reader should weight the numbers above with these.
   construction.** "The benchmark no longer separates arms" was retracted after
   it turned out to have been measured on four arms sharing bank, width and
   dropout; the full eight-arm table spans 52.7% to 59.1%.
+* **`[:n]` over an ordered artifact is a stratified sample.** Four probe
+  scripts sliced the head of the test split, which is shard-ordered and
+  therefore country-ordered and therefore density-ordered. Worth 7 pp, and it
+  shaped a strategic conclusion for weeks. Agent-level evaluation was
+  unaffected — it already sampled randomly.
+* **Adjacent KartaView ids are one drive**, a median 2.0 s and 67 m apart. The
+  harvester took three frames per drive, so 69.8% of 100 m spatial groups
+  contain a single drive — which means "+1.2 pp for a second angle" was
+  measured where 70% of second photographs are the same angle two seconds
+  later. The number stands; its description does not.
 * **A recurring bug class: a cache key that names an identifier rather than
   everything the value depends on** -- a tag, a filename, a length, a prefix, a
   substring. Six separate defects share this shape. Artifacts here are now
@@ -308,7 +392,8 @@ An outside reader should weight the numbers above with these.
 
 Ordered by how much a good answer would be worth.
 
-1. **The agent adds ~1 pp over its own top-1 retrieval. Should it exist?**
+1. **The agent adds ~7-8 pp over its own top-1 retrieval — less pressing than
+   this brief first claimed, but still the structural question.**
    Either find what the map-descent is uniquely able to do that a nearest
    neighbour cannot, or restructure so retrieval and reasoning are not
    competing for the same job. Note the one piece of evidence in the agent's
@@ -325,7 +410,8 @@ Ordered by how much a good answer would be worth.
 4. **`cell8` step-1 accuracy is below chance.** The policy ranks candidate
    cells by occupancy rather than by matching the map. This is a concrete,
    reproducible failure of the core mechanism and nobody has explained it.
-5. **The external gap (57.5% vs 13.4%) is bank coverage.** Is there a way to
+5. **The external gap (57.5% vs 13.4%) is NOT explained by OSV-5M coverage**,
+   which is 99.8% at 25 km. The external side has not been decomposed. Is there a way to
    generalise from a dense-corpus regime to a sparse one? Retrieval dropout is
    the only thing found so far that transfers.
 6. **The wins from tiles are rescues of gross failures** (median 379 km errors),
