@@ -134,3 +134,42 @@ def test_isotropic_rows_are_where_this_does_not_work():
     assert agree < 40, (
         "isotropic rows now agree perfectly, so this fixture no longer "
         "demonstrates the dependence on anisotropy")
+
+
+def test_only_a_projected_bank_may_be_truncated(tmp_path, monkeypatch):
+    """The precondition was stated in the module docstring and enforced
+    nowhere, so `--shortlist` defaulted on for every bank -- including the
+    4,608-d raw concatenation, whose first 128 columns are the first crop's
+    first 128 features, ordered by the encoder's layout rather than by
+    variance. Review measured top-1 matching exhaustive search on 122 of 128
+    queries there, with one true winner at rank 181 against a 128-candidate
+    cutoff, so a deeper probe would not rescue it either.
+    """
+    import json
+
+    import shortlist
+
+    raw = tmp_path / "dual_c3.f16.npy"
+    raw.write_bytes(b"")
+    ok, why = shortlist.suitable(raw)
+    assert ok is False and "no projection" in why
+
+    proj = tmp_path / "pca768.f16.npy"
+    proj.write_bytes(b"")
+    (tmp_path / "pca768.f16.npy.prov.json").write_text(
+        json.dumps({"projection": "pca768_pca.npz", "rows": 4}),
+        encoding="utf-8")
+    ok, why = shortlist.suitable(proj)
+    assert ok is True and "pca768_pca.npz" in why
+
+
+def test_the_check_reads_provenance_not_the_width():
+    """A 768-d file is not necessarily projected and a 1536-d one is not
+    necessarily raw; the sidecar is what knows."""
+    import inspect
+
+    import shortlist
+
+    src = inspect.getsource(shortlist.suitable)
+    assert "projection_of" in src
+    assert "shape" not in src and "768" not in src

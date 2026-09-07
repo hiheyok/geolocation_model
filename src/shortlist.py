@@ -48,6 +48,32 @@ DIM = 128
 PROBE = 128
 
 
+def suitable(street_path):
+    """`(ok, why)` -- may this bank be truncated?
+
+    The whole method rests on the columns being ordered by variance, which is
+    true of a PCA projection and of nothing else. `dual_c3` is 4,608-d raw
+    concatenated crops: its first 128 columns are the first crop's first 128
+    features, chosen by the encoder's layout rather than by how much they
+    explain. Truncating it is not an approximation of the cosine, it is a
+    different one.
+
+    Measured by review on 50,000 rows of that bank: top-1 matched exhaustive
+    search on 122 of 128 queries, and one true winner ranked 181st against a
+    128-candidate cutoff -- so a deeper probe would not have rescued it either.
+
+    `project_street` records the basis it used, so the sidecar answers this
+    directly instead of the width being guessed at.
+    """
+    import provenance as prov
+
+    basis = prov.projection_of(street_path)
+    if basis:
+        return True, "projected by " + str(basis)
+    return False, ("no projection recorded in its sidecar, so its columns are "
+                   "in encoder order rather than by variance")
+
+
 class Shortlist:
     """Two-stage top-k over an L2-normalised bank.
 

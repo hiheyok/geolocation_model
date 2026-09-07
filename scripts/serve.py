@@ -41,7 +41,7 @@ from tile_math import great_circle_km as great_circle_km
 STATE = {}
 
 
-def load_everything(tag, dev, bank_gpu, shortlist=0):
+def load_everything(tag, dev, bank_gpu, shortlist=None):
     """Model, encoders and bank. Done once; a request must not touch disk."""
     t0 = time.time()
     model, ck, d_street = load_model(tag, dev)
@@ -120,11 +120,25 @@ def load_everything(tag, dev, bank_gpu, shortlist=0):
     # is and is read only for the rows this proposes, so what crosses PCIe per
     # query goes from the whole 5.22 GB to a gather of `probe` rows.
     STATE["shortlist"] = None
+    ok, why = shortlist_mod.suitable(config.STREET_CACHE / sf)
+    if shortlist is None:
+        # Default is AUTO, not on. Truncation assumes the columns are ordered
+        # by variance, which is a property of a PCA projection and of nothing
+        # else; enabling it for every bank applied it to the 4,608-d raw
+        # concatenation too, where review measured top-1 matching exhaustive
+        # search on only 122 of 128 queries.
+        shortlist = shortlist_mod.DIM if ok else 0
+        if not ok:
+            print("shortlist  off: {} {}".format(sf, why), flush=True)
+    elif shortlist and not ok:
+        print("shortlist  WARNING: {} {}. Truncating it is not an "
+              "approximation of the full cosine. Asked for explicitly, so "
+              "proceeding.".format(sf, why), flush=True)
     if shortlist:
         STATE["shortlist"] = shortlist_mod.Shortlist(B, dev, dim=shortlist)
-        print("shortlist  {}-d index, {:.2f} GB on {}  (probe {})".format(
+        print("shortlist  {}-d index, {:.2f} GB on {}  (probe {}; {})".format(
             STATE["shortlist"].dim, STATE["shortlist"].gb, dev,
-            STATE["shortlist"].probe), flush=True)
+            STATE["shortlist"].probe, why), flush=True)
 
     import timm
     from timm.data import resolve_model_data_config
@@ -502,12 +516,15 @@ def main():
                          "representation, not a change to the agent.")
     ap.add_argument("--bank-gpu", action="store_true",
                     help="hold the exact bank in VRAM; only for smaller banks")
-    ap.add_argument("--shortlist", type=int, default=shortlist_mod.DIM,
-                    help="width of the resident coarse index; 0 searches the "
-                         "bank exhaustively, which is the reference path. The "
-                         "default fits the 3.4M bank in 0.87 GB of VRAM where "
-                         "the exact one needs 5.22 GB, and returns the same "
-                         "rows -- see src/shortlist.py for the measurements.")
+    ap.add_argument("--shortlist", type=int, default=None,
+                    help="width of the resident coarse index. Default is "
+                         "AUTO: {}-d for a bank whose sidecar records a PCA "
+                         "projection, off otherwise, because truncation "
+                         "assumes columns ordered by variance and only a "
+                         "projection gives that. 0 forces the exhaustive "
+                         "scan, which is the reference path; an explicit "
+                         "width overrides the check and says so."
+                    .format(shortlist_mod.DIM))
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
