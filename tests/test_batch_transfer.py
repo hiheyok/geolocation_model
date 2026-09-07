@@ -81,14 +81,25 @@ class _Rows:
 class _Table:
     def __init__(self, device):
         self.device = device
+        self.gathered = []
 
     def __getitem__(self, idx):
-        return _Moved()
+        self.gathered.append(idx)
+        return _Moved(self.device)
 
 
 class _Moved:
+    """The gather result, which is then moved to the training device."""
+
+    def __init__(self, device):
+        self.device = device
+        self.calls = []
+
     def to(self, dev, **kw):
-        return self
+        self.calls.append((dev, kw))
+        out = _Moved(dev)
+        out.calls = self.calls
+        return out
 
     def float(self):
         return self
@@ -137,3 +148,43 @@ def test_every_batch_transfer_goes_through_to_device():
     assert not bad, (
         "moves a batch to the device by hand instead of calling to_device, so "
         "nbr_row makes the round trip: " + ", ".join(sorted(set(bad))))
+
+
+def test_a_download_to_a_host_table_is_not_asynchronous():
+    """The direction the first fix got wrong.
+
+    `table[idx]` is a host gather. A non-blocking device-to-host copy can
+    still be in flight when the CPU reads `idx`, so the gather runs on indices
+    that are not written yet and returns the wrong rows -- silently, and only
+    sometimes. Async is a property of the direction, not of the call.
+    """
+    from dataset import gather_nbr
+
+    rows = _Rows("cuda")
+    gather_nbr(_Table("cpu"), rows, "cpu")
+    assert rows.calls, "the index was never moved"
+    device, kw = rows.calls[0]
+    assert device == "cpu"
+    assert kw.get("non_blocking") is not True, (
+        "a device-to-host index copy must finish before the CPU gathers on it")
+
+
+def test_the_result_download_is_not_asynchronous_either():
+    """Same rule on the second transfer: a GPU table gathered for a host
+    device hands the result straight to `.float()`."""
+    from dataset import gather_nbr
+
+    tbl = _Table("cuda")
+    out = gather_nbr(tbl, _Rows("cuda"), "cpu")
+    assert out.calls, "the gather result was never moved"
+    device, kw = out.calls[0]
+    assert device == "cpu"
+    assert kw.get("non_blocking") is not True
+
+
+def test_the_upload_of_the_result_stays_asynchronous():
+    """And the direction that must stay async is still async."""
+    from dataset import gather_nbr
+
+    out = gather_nbr(_Table("cpu"), _Rows("cpu"), "cuda")
+    assert out.calls[0] == ("cuda", {"non_blocking": True})

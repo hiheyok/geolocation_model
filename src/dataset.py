@@ -107,6 +107,18 @@ def to_device(batch, dev):
             for k, v in batch.items()}
 
 
+def _move(t, dst):
+    """`t` on `dst`, asynchronously only when that is an upload.
+
+    One definition because the rule is easy to get half right: the first
+    version of this made every transfer non-blocking, which fixed the upload
+    and introduced a race on the download.
+    """
+    if t.device == dst:
+        return t
+    return t.to(dst, non_blocking="cuda" in str(dst))
+
+
 def gather_nbr(table, rows, dev):
     """rows may live on either device; the table decides where the gather runs.
 
@@ -115,16 +127,18 @@ def gather_nbr(table, rows, dev):
     indices are (B, K) int64 against a (B, K, D) result, so moving them is the
     cheap half either way.
 
-    That upload stays `non_blocking`. `nbr_row` used to reach the card through
-    the batch transfer, which sets it; keeping the row on the host moved the
-    upload here, and dropping the flag turned an async copy out of pinned
-    memory into a synchronising one on every step of a GPU-table run. The
-    loader pins when the device is CUDA (`train.py`), so the flag is doing
-    something rather than decorating.
+    **`non_blocking` is a property of the direction, not of the call.** Going
+    INTO the card it is safe and wanted: the copy is enqueued on the stream
+    that will consume it, so the ordering holds, and `nbr_row` used to get it
+    for free from the batch transfer -- dropping it turned an async copy out
+    of pinned memory into a synchronising one on every step of a GPU-table
+    run. Coming BACK the consumer is the CPU, which is not on that stream: an
+    unfinished download means `table[idx]` gathers on indices that are not
+    written yet and returns the wrong rows, silently. Both transfers here can
+    run either way depending on where the table lives, so both ask.
     """
-    idx = (rows if rows.device == table.device
-           else rows.to(table.device, non_blocking=True))
-    return table[idx].to(dev, non_blocking=True).float()
+    idx = rows if rows.device == table.device else _move(rows, table.device)
+    return _move(table[idx], dev).float()
 
 
 def _check_retrieval_prefix(path, street, retr_file, d_retr, n_probe=64,
