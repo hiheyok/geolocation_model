@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import config
 import knnmeta
+import shortlist as shortlist_mod
 import provenance as prov
 import splits as sp
 import tile_math as tm
@@ -40,7 +41,7 @@ from tile_math import great_circle_km as great_circle_km
 STATE = {}
 
 
-def load_everything(tag, dev, bank_gpu):
+def load_everything(tag, dev, bank_gpu, shortlist=0):
     """Model, encoders and bank. Done once; a request must not touch disk."""
     t0 = time.time()
     model, ck, d_street = load_model(tag, dev)
@@ -114,6 +115,16 @@ def load_everything(tag, dev, bank_gpu):
         hi = min(lo + 8192, len(rows))
         blk = torch.from_numpy(np.asarray(emb[rows[lo:hi]], dtype=np.float32))
         B[lo:hi] = (blk / blk.norm(dim=1, keepdim=True).clamp_min(1e-6)).half().to(dst)
+
+    # A resident coarse index over the same rows. The exact bank stays where it
+    # is and is read only for the rows this proposes, so what crosses PCIe per
+    # query goes from the whole 5.22 GB to a gather of `probe` rows.
+    STATE["shortlist"] = None
+    if shortlist:
+        STATE["shortlist"] = shortlist_mod.Shortlist(B, dev, dim=shortlist)
+        print("shortlist  {}-d index, {:.2f} GB on {}  (probe {})".format(
+            STATE["shortlist"].dim, STATE["shortlist"].gb, dev,
+            STATE["shortlist"].probe), flush=True)
 
     import timm
     from timm.data import resolve_model_data_config
@@ -285,9 +296,18 @@ def embed(blob):
 
 
 def _neighbours(q):
-    """Top-k bank rows for one query vector."""
+    """Top-k bank rows for one query vector, as `(scores, rows)`.
+
+    With a shortlist this is one pass over a resident 128-d index plus an
+    exact rescore of the candidates; without one it is the full scan, kept as
+    the reference path and reachable with `--shortlist 0`.
+    """
     dev, k = STATE["dev"], STATE["k"]
     qn = (q / q.norm(dim=1, keepdim=True).clamp_min(1e-6)).half()
+    sl = STATE.get("shortlist")
+    if sl is not None:
+        s, rows = sl.topk(qn, k)
+        return s.cpu(), rows.cpu()
     B = STATE["bank"]
     sims = torch.empty(len(STATE["rows"]), dtype=torch.float32)
     step = 200000
@@ -481,11 +501,17 @@ def main():
                          "that have tiles cached. A side-by-side of the "
                          "representation, not a change to the agent.")
     ap.add_argument("--bank-gpu", action="store_true",
-                    help="hold the bank in VRAM; only for the smaller banks")
+                    help="hold the exact bank in VRAM; only for smaller banks")
+    ap.add_argument("--shortlist", type=int, default=shortlist_mod.DIM,
+                    help="width of the resident coarse index; 0 searches the "
+                         "bank exhaustively, which is the reference path. The "
+                         "default fits the 3.4M bank in 0.87 GB of VRAM where "
+                         "the exact one needs 5.22 GB, and returns the same "
+                         "rows -- see src/shortlist.py for the measurements.")
     a = ap.parse_args()
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    load_everything(a.tag, dev, a.bank_gpu)
+    load_everything(a.tag, dev, a.bank_gpu, a.shortlist)
     if a.tiles_panel:
         load_panel(dev)
     import uvicorn
