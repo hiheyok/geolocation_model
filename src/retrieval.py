@@ -187,6 +187,22 @@ class RetrievalPrior(nn.Module):
             # A row with every neighbour dropped softmaxes -inf to NaN, so
             # rescue one at random rather than always keeping the top-1 --
             # keeping the best one is not the condition being simulated.
+            #
+            # The three host reads below -- `bool`, `int`, and the `nonzero`
+            # that sizes its own output -- each drain the CUDA queue, and
+            # REVIEW9 #6 proposes a tensor-only rescue to remove them.
+            # Measured on this card at the real shapes (320 rows, k=16,
+            # drop 0.7) against queued work: 1.797 ms/call now, 1.449
+            # tensor-only, so 0.35 ms. An epoch is 400,000 images at batch 64,
+            # so 6,250 calls -- 2.19 s off a 765 s epoch, or 0.29%.
+            #
+            # It is not taken, because the tensor-only form must draw one
+            # index per ROW every step where this draws `empty.sum()` only
+            # when a row is empty. That changes how much of the generator each
+            # step consumes, so every seeded run using --retr-drop -- which is
+            # the shipping arm, at 0.7 -- would stop reproducing. 0.29% is not
+            # worth that. Revisit if the rescue ever moves off the critical
+            # path or reproducibility of these runs stops mattering.
             empty = ~keep.any(dim=1)
             if bool(empty.any()):
                 j = torch.randint(0, score.shape[1], (int(empty.sum()),),
