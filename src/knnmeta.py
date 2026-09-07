@@ -43,8 +43,6 @@ against the bytes it was built from instead.
 import sys
 from pathlib import Path
 
-import re
-
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -243,57 +241,6 @@ def check(z, what, street_file=None, split_mode=None, split_hash=None,
     return bank_rows(z, n_bank, what) if n_bank is not None else None
 
 
-def _derive_bank_rows(ds, labels, mode, z, knn_file, n_bank):
-    """Recompute the bank of a cache written before `bank_rows` was stamped.
-
-    Seven caches on disk predate the stamp, including both cell8 ones, and
-    refusing them outright would retire every checkpoint trained against them.
-    But "recompute it" is only safe where the recomputation is determined, and
-    there are exactly two things that can make it not be:
-
-    **A restricted bank.** `--bank-limit` draws a seeded subset, and the only
-    record of it is the `_bank25k` in the filename -- nothing inside the file.
-    Deriving there would hand back the *whole* train side, roughly 16x the rows
-    the cache actually searched, and every number would look like a legitimate
-    denser-bank result. So a limited name with no stamped rows is refused; it
-    is the one case a rebuild is genuinely required for.
-
-    **A different split or extension.** Both are already pinned before this
-    point: `check` has compared `split_mode`, `split_hash` and the street
-    digest, and `bank_rows_for` filters the extension by this split's held
-    cells. So the derivation runs against a cache proven to match.
-
-    Where the cache stamped `bank_n`, the derived count must equal it. That is
-    a real check, not a formality: it is what would catch an extension file
-    that has been replaced or regrown since the cache was built, which changes
-    the bank while leaving the split hash and the digest intact.
-    """
-    if re.search(r"_bank\d+k", knn_file):
-        raise SystemExit(
-            "{} records no bank rows and its name says the bank was "
-            "restricted. The subset was drawn by a seeded choice that nothing "
-            "in the file records, so it cannot be recomputed -- and deriving "
-            "the unrestricted bank instead would silently search {:,} rows "
-            "the cache never saw. Rebuild it.".format(knn_file, n_bank))
-
-    ext = str(z["bank_ext"]) if "bank_ext" in z.files else ""
-    rows, _ = sp.bank_rows_for(ds, labels, mode, ext or None)
-    if "bank_n" in z.files and int(z["bank_n"]) != len(rows):
-        raise SystemExit(
-            "{} stamped a bank of {:,} rows but this split and extension "
-            "recompute to {:,}. The cache matches on split and on embedding "
-            "bytes, so what has moved is the bank itself -- most likely the "
-            "{} extension has been rebuilt or regrown since. Rebuild the "
-            "cache.".format(knn_file, int(z["bank_n"]), len(rows),
-                            ext or "(none)"))
-    print("bank rows  {:,} of {:,}, RECOMPUTED from the {} split -- {} "
-          "predates the bank_rows stamp{}".format(
-              len(rows), n_bank, mode, knn_file,
-              "" if "bank_n" not in z.files
-              else "; matches its stamped bank_n"), flush=True)
-    return rows
-
-
 def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
                         full_corpus=False):
     """The rows a checkpoint's evaluation is allowed to search, or exit.
@@ -349,16 +296,29 @@ def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
     mode = ck.get("split_mode") or str(z["split_mode"])
     ds = pq.read_table(config.DATASET_PARQUET)
     labels, shash = sp.read(ds, mode)
-    # For a conditioned bank the k-NN was built on the retrieval *prefix*, not
-    # on the joined file, so compare against what the sidecar declares -- the
-    # same rule `GeoStepDataset` uses.
+    # A conditioned bank is `[retrieval | conditioning]`, and the k-NN was
+    # built on the retrieval prefix -- both its recorded name and its content
+    # digest describe that file. Passing the joined bank as `street_path`
+    # digested the wrong bytes and refused every intact conditioned bank at
+    # startup; `GeoStepDataset` compares against the retrieval file, and so
+    # does this.
     rec = prov.read(config.STREET_CACHE / bank_file) or {}
     want_sf = rec.get("retrieval_file") or bank_file
     rows = check(z, what, split_mode=mode, split_hash=shash, splits=labels,
                  street_file=want_sf, n_release=len(labels), n_bank=n_bank,
-                 street_path=config.STREET_CACHE / bank_file)
+                 street_path=config.STREET_CACHE / want_sf)
     if rows is None:
-        return _derive_bank_rows(ds, labels, mode, z, knn_file, n_bank)
+        raise SystemExit(
+            "{} records no bank rows, so which of the {:,} embedding rows it "
+            "searched is unknown. That is not the same as searching all of "
+            "them. It cannot be recomputed from the split either: every cache "
+            "on disk without `bank_rows` carries only the pre-2026-09-03 split "
+            "digest, which hashes each label's first character -- so 'train' "
+            "and 'test' are both 't', and swapping them leaves that digest and "
+            "`bank_n` both unchanged while the derived bank silently gains the "
+            "held-out rows. Rebuild it: `build_knn.py` stamps `bank_rows`, and "
+            "it takes minutes."
+            .format(knn_file, n_bank))
     print("bank rows  {:,} of {:,} in the file, from {}"
           .format(len(rows), n_bank, knn_file), flush=True)
     return rows
