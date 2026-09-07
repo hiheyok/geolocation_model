@@ -98,9 +98,28 @@ def knn_name(street_file, mode, k=KNN_K, bank_limit=0, ext=None):
     training time and does not change the file.
     """
     stem = street_file.replace(".f16.npy", "")
-    tail = "" if not bank_limit else "_bank{}k".format(bank_limit // 1000)
+    tail = "" if not bank_limit else "_bank" + bank_suffix(bank_limit)
     tail += "" if not ext else "_" + ext
     return "knn_{}_{}_k{}{}.npz".format(stem, mode, k, tail)
+
+
+def bank_suffix(bank_limit):
+    """`--bank-limit` as a name fragment, one fragment per limit.
+
+    This was `bank_limit // 1000`, so every limit in a thousand-row interval
+    shared one path: 1000 and 1999 are both `bank1k`, and the builder samples
+    the exact requested count, so the second build silently overwrote the
+    first bank's cache. A checkpoint still naming that path then trained
+    against a different bank while the embeddings, the split and the split
+    hash all still agreed (REVIEW8 #11).
+
+    A multiple of 1000 keeps the short form, so every artifact on disk keeps
+    the name it has -- the only restricted cache here was built at 25,000 --
+    and anything else spells the count out. The two forms cannot collide
+    because one ends in `k` and the other does not.
+    """
+    n = int(bank_limit)
+    return "{}k".format(n // 1000) if n % 1000 == 0 else str(n)
 
 
 # Candidates, in preference order. `TILE_SERVER` may name one or several,
