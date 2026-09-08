@@ -21,6 +21,13 @@ same split, because a different bank is the whole point. The first version
 checked none of it, and review fed it mismatched caches and got "+100 pp,
 separated" out of a script whose entire job is to stop that.
 
+Agreeing with each other is not enough. `sp.read` returns the split and the
+hash of the split it just computed, and the second version dropped the hash --
+`labels, _ =`. Four caches can share one *old* hash while the rows sliced come
+from a reassigned split, and review reproduced the same "+100 pp, separated"
+by changing nothing but the dataset. So the caches' common hash is checked
+against the split this run is about to use.
+
 So the statistic is a difference of differences, resampled over queries:
 
     d_q = (b_big[q] - a_big[q]) - (b_small[q] - a_small[q])
@@ -146,7 +153,21 @@ def main():
             "difference is not paired".format(len(hashes), a.split_mode))
 
     ds = pq.read_table(config.DATASET_PARQUET)
-    labels, _ = sp.read(ds, a.split_mode)
+    # `sp.read` returns the split AND the hash of the split it just computed.
+    # Discarding the hash -- `labels, _ =` -- leaves the caches agreeing only
+    # with each other: four tables can share an old hash while the rows sliced
+    # below come from a reassigned split, and then every query is scored
+    # against neighbours retrieved for a different query set. Review
+    # reproduced "+100 pp, separated" by changing nothing but the dataset.
+    labels, shash = sp.read(ds, a.split_mode)
+    if str(shash) != hashes.pop():
+        raise SystemExit(
+            "the four caches were built against {} split {}, but "
+            "{} now assigns {}; the test rows this would score are not the "
+            "ones they indexed. Rebuild the neighbour tables, or check out "
+            "the split they were built from.".format(
+                a.split_mode, str(zs[names[0]]["split_hash"]),
+                config.DATASET_PARQUET.name, str(shash)))
     te = np.flatnonzero(labels == "test")
 
     gs = gain(ds, names[0], names[1], te, a.thresh, a.rank)

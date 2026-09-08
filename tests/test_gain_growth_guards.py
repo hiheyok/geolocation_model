@@ -24,12 +24,24 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import gain_growth as G  # noqa: E402
+import splits as sp  # noqa: E402
 
 N, K = 8, 4
+# Filled by the fixture once the synthetic dataset exists.
+CURRENT_HASH = [None]
 
 
-def write_cache(path, idx, bank_rows, split_mode="sequence", split_hash="h1",
+def write_cache(path, idx, bank_rows, split_mode="sequence", split_hash=None,
                 drop=()):
+    """A cache. `split_hash=None` means the one the dataset actually has.
+
+    The first version of this file hard-coded "h1" for every cache, so the
+    four agreed with each other and with nothing else -- which is precisely
+    the hole review then found in the script: agreeing with each other is not
+    agreeing with the split whose rows get sliced.
+    """
+    if split_hash is None:
+        split_hash = CURRENT_HASH[0]
     fields = {"idx": idx, "bank_rows": bank_rows,
               "bank_n": np.array(len(bank_rows)),
               "split_mode": np.array(split_mode),
@@ -44,14 +56,16 @@ def caches(tmp_path, monkeypatch):
     """Four synthetic neighbour tables and the release they index."""
     monkeypatch.setattr(G.config, "STREET_CACHE", tmp_path)
     monkeypatch.setattr(G.K.config, "STREET_CACHE", tmp_path)
-    pq.write_table(pa.table({
+    table = pa.table({
         "image_id": pa.array(list(range(N)), pa.int64()),
         "lat": pa.array([float(i) for i in range(N)]),
         "lon": pa.array([0.0] * N),
         "split_sequence": pa.array(["test"] * N),
-    }), tmp_path / "d.parquet")
+    })
+    pq.write_table(table, tmp_path / "d.parquet")
     for mod in (G.config, G.K.config):
         monkeypatch.setattr(mod, "DATASET_PARQUET", tmp_path / "d.parquet")
+    CURRENT_HASH[0] = str(sp.read(table, "sequence")[1])
 
     rows = np.arange(N)
     perfect = np.tile(np.arange(N).reshape(-1, 1), (1, K))     # self = 0 km
@@ -136,3 +150,28 @@ def test_a_cache_too_old_to_record_its_bank_is_refused(caches, monkeypatch):
     with pytest.raises(SystemExit) as e:
         run(names, monkeypatch)
     assert "records no bank_rows" in str(e.value)
+
+
+def test_caches_built_against_an_older_split_are_refused(caches, monkeypatch):
+    """The reported defect: four caches can agree with each other and be stale.
+
+    Nothing about the caches changes here -- they are mutually consistent, the
+    same bank, the same split MODE. Only the dataset's assignment moved, which
+    is what `sp.read`'s second return value exists to detect and what the
+    script was discarding.
+    """
+    tmp, names = caches
+    for tag in names:
+        write_cache(tmp / names[tag], np.zeros((N, K), int), np.arange(N),
+                    split_hash="a-split-from-last-week")
+    with pytest.raises(SystemExit) as e:
+        run(names, monkeypatch)
+    assert "not the ones they indexed" in str(e.value)
+
+
+def test_the_fixture_uses_the_dataset_own_hash(caches):
+    """Guards the fixture: a hard-coded hash makes the test above vacuous."""
+    tmp, names = caches
+    assert CURRENT_HASH[0] and CURRENT_HASH[0] != "h1"
+    z = np.load(tmp / names["small_a"])
+    assert str(z["split_hash"]) == CURRENT_HASH[0]
