@@ -1,5 +1,15 @@
 # Tiles against what actually ships
 
+> **CONCLUSION RETRACTED -- see `runs/LEAKTRAIN.md`.**
+> This says tiles reach parity with the shipping arm and should not ship. The
+> comparator was inflated: every shipping-family checkpoint was trained before
+> 2026-09-04 04:05, when the file at
+> `knn_pca768_bank70_sequence_k32_bank_ext70.npz` was the same-sequence-LEAKY
+> cache. Trained against the rebuilt cache, the same street file scores
+> **54.6%, not 57.5%** ([-3.80, -1.96] pp, separated), and tiles beat that
+> honest baseline by **+2.38 to +4.54 pp**. Every number below is correct;
+> the arm they are compared against was not.
+
 `runs/TILEFULL.md` reported crops+tiles beating crops by **+3.72 pp** on the
 neighbour tables at 3,400,180 rows, and `scripts/tilefull_ladder.py` showed it
 surviving training at **+2.54 to +4.70 pp**. Both are true. Neither answers
@@ -95,5 +105,15 @@ about a day, most of it the ladder. The retrieval half alone (`knn_gap`
 against the shipping `pca768_bank70`) is under an hour and would say whether
 the ladder is worth starting.
 
-**Until then, do not ship tiles**, and do not quote +3.72 pp or +2.54 to
-+4.70 pp without saying what they are measured against.
+**That experiment is moot, and the cheap half is why.** `knn_gap` puts
+`pca768_bank70` and `pyr768_l0_b340` inside noise at every threshold, top-1
+and any-of-32 -- they are the same features -- and `shipclean-e4` then showed
+their trained agents indistinguishable too. There was never a "shipping
+pooling" for tiles to be blended into that differs from the pyramid one. The
+2-4 pp this file attributes to the family was the cache.
+
+~~**Until then, do not ship tiles**~~ -- retracted. Against a baseline
+trained the same way as the treatment, tiles win by +2.38 to +4.54 pp
+(`runs/LEAKTRAIN.md`). The second half stands: do not quote a tile number
+without saying what it is measured against, which is exactly how this file
+reached the wrong conclusion.
