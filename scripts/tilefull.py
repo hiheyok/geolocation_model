@@ -108,7 +108,7 @@ def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else ""
     if arg in ("-h", "--help"):
         print(__doc__)
-        return
+        return 0
     hours = float(arg) if arg else 10.0
     for d in (O.RUNS, O.LOGS, O.MARKS):
         d.mkdir(parents=True, exist_ok=True)
@@ -185,19 +185,37 @@ def main():
          "--split-mode", "cell8", "--ranks", "1,16", "--flows"],
         release=REL, est=8 * 60, retries=1))
 
+    # `Stage.critical` says "if it fails, dependents are dropped" and NOTHING
+    # in this repository reads it -- not overnight.py, which sets it on six
+    # stages, and not tilebig.py. It reads as protection and provides none: a
+    # failed pool would have let its stack, projection and index run on
+    # whatever was previously at those paths, and the comparison at the end
+    # would have been published from a stale arm. Honour it here.
+    failed = []
     for st in plan:
         if O.now() > deadline:
             log("deadline reached with {} stages unrun".format(
                 len(plan) - plan.index(st)))
             break
-        run_stage(st, state, deadline)
+        if not run_stage(st, state, deadline):
+            failed.append(st.name)
+            if st.critical:
+                log("critical stage {} failed; everything after it reads what "
+                    "it was supposed to write, and the arms cannot be "
+                    "compared, so the remaining {} stages are dropped"
+                    .format(st.name, len(plan) - plan.index(st) - 1))
+                break
     # Signal completion on every path, not just the happy one: tilebig died on
     # a missing method AFTER every stage had finished, the completion line
     # never appeared, and the monitor watching for it never fired.
     O.SAMPLER.stop_flag.set()
-    log("{} done. {} stages recorded, {} failed".format(
-        "tilefull", len(state["done"]), len(state["failed"])))
+    log("{} done. {} stages recorded, {} failed this run{}".format(
+        "tilefull", len(state["done"]), len(failed),
+        (": " + ", ".join(failed)) if failed else ""))
+    # A runner that exits 0 after a stage failed tells a caller, a chain
+    # script and a monitor that the measurement is ready. It is not.
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
