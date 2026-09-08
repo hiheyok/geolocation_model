@@ -29,11 +29,25 @@ Checking `baseRefName == "main"` instead would flag every healthy stack and
 miss nothing extra, and checking the PR's own "merged" flag is what got us
 here.
 
-**A commit that cannot be checked is reported, never passed.** When a PR's
-branch has been deleted its merge commit may not be in the local object store,
-and `--is-ancestor` cannot answer. Treating that as "fine" would reintroduce
-exactly the silence this exists to break, so it is fetched on demand and, if
-that fails, listed separately with a non-zero exit.
+**A commit that cannot be checked is reported, never guessed -- in either
+direction.** There are three outcomes, not two. `--is-ancestor` exits 0 for
+yes, 1 for no, and anything else for an error, and the first version of this
+collapsed every nonzero into "no" -- the same defect `scripts/mutate.py`
+shipped with and #43 fixed, repeated here two days later, where it turns "I
+cannot tell" into "replay it onto main".
+
+Two ways the answer is unavailable:
+
+  * **The object is missing.** A merged branch is usually deleted, so its
+    merge commit may not be in the local store. It is fetched on demand.
+  * **The history is truncated.** In a shallow clone `--is-ancestor` walks a
+    graph that stops at the graft boundary and reports exit 1 -- indistinguish-
+    able from a real stranding. Review reproduced STRANDED, with "replay it
+    onto main", for content already in `main`. So the clone is deepened first,
+    and if it cannot be, a "no" is downgraded to UNVERIFIED. A "yes" from a
+    shallow clone is still trustworthy: a path git can see does exist.
+
+Anything unverifiable exits non-zero, so it is never quietly fine.
 
 Exits non-zero if anything is stranded or unverifiable, so it can gate a
 commit or a release.
@@ -69,24 +83,72 @@ def have(sha):
               check=False).returncode == 0
 
 
+def shallow():
+    """Is the local history truncated?
+
+    A shallow clone can answer "not an ancestor" about a commit that IS one:
+    `--is-ancestor` walks the graph, and beyond the graft boundary there is no
+    graph to walk. The answer is exit 1, identical to a real non-ancestry.
+    """
+    return sh(["git", "rev-parse", "--is-shallow-repository"],
+              check=False).stdout.strip() == "true"
+
+
+def deepen():
+    """Complete a shallow history so ancestry can be decided, if we can.
+
+    Done once, before any single-commit fetch: fetching a merge commit into a
+    shallow repository gets the object without connecting it to `main`, which
+    is the exact state that produces a confident wrong answer.
+    """
+    if not shallow():
+        return True
+    sh(["git", "fetch", "--quiet", "--unshallow", "origin", "main"],
+       check=False)
+    return not shallow()
+
+
 def in_main(sha):
-    """True, False, or None when the object is not available to judge."""
+    """`(verdict, why)` -- True in main, False stranded, None cannot tell.
+
+    Three outcomes, not two, and the distinction is the whole point of the
+    script. `git merge-base --is-ancestor` exits **0** for yes, **1** for no,
+    and **anything else for an error** -- a missing object, a bad ref, a
+    corrupt repository. Collapsing every nonzero into "no" is what
+    scripts/mutate.py shipped with and #43 fixed; this had the same bug two
+    days later, and here it turns "I cannot tell" into "replay it onto main",
+    which is worse than silence.
+    """
     if not have(sha):
         # The branch is usually deleted after a merge, so the commit may be
         # unreachable from any ref even though it is on the remote.
         sh(["git", "fetch", "--quiet", "origin", sha], check=False)
         if not have(sha):
-            return None
-    return sh(["git", "merge-base", "--is-ancestor", sha, MAIN],
-              check=False).returncode == 0
+            return None, "merge commit {} could not be fetched".format(sha[:8])
+    rc = sh(["git", "merge-base", "--is-ancestor", sha, MAIN],
+            check=False).returncode
+    if rc == 0:
+        return True, ""
+    if rc != 1:
+        return None, ("git merge-base exited {} for {}, which is an error, "
+                      "not an answer".format(rc, sha[:8]))
+    # rc == 1 means "not reachable". In a complete history that is the
+    # finding. In a truncated one it may only mean the path was never
+    # fetched, so it is not reported as a stranding.
+    if shallow():
+        return None, ("{} is not reachable from {}, but this clone is still "
+                      "shallow, so the path between them may simply be "
+                      "missing".format(sha[:8], MAIN))
+    return False, ""
 
 
 def classify(prs, resolver):
     """Split merged PRs into (stranded, unverified) given an ancestry oracle.
 
-    `resolver(sha) -> True | False | None`, where None means the object could
-    not be judged. Separated from the subprocess plumbing so the part that can
-    fail silently -- an unjudgeable commit quietly counting as fine -- is
+    `resolver(sha) -> (True | False | None, why)`, where None means the
+    question could not be answered and `why` says which way it failed.
+    Separated from the subprocess plumbing so the part that can fail silently
+    -- an unjudgeable commit quietly counting as fine, or as stranded -- is
     testable without a repository or a network.
     """
     stranded, unverified = [], []
@@ -95,11 +157,10 @@ def classify(prs, resolver):
         if not sha:
             unverified.append((pr, "no merge commit recorded"))
             continue
-        got = resolver(sha)
-        if got is None:
-            unverified.append(
-                (pr, "merge commit {} not available".format(sha[:8])))
-        elif not got:
+        verdict, why = resolver(sha)
+        if verdict is None:
+            unverified.append((pr, why))
+        elif not verdict:
             stranded.append((pr, sha))
     return stranded, unverified
 
@@ -111,6 +172,10 @@ def main():
     a = ap.parse_args()
 
     sh(["git", "fetch", "--quiet", "origin", "main"])
+    if not deepen():
+        print("warning: this clone is shallow and could not be deepened; "
+              "commits it cannot connect to {} are reported UNVERIFIED "
+              "rather than stranded".format(MAIN))
     prs = merged_prs(a.limit)
     stranded, unknown = classify(prs, in_main)
 
