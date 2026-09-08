@@ -413,6 +413,7 @@ async function run() {
 const MAP = { z: 14, cx: 0, cy: 0, lat: 0, lon: 0, km: 0, cands: [],
               T: 512, MIN: 1, MAX: 19, tiles: new Map(), ready: false };
 
+/* ==== pure map arithmetic; tests/test_map_wrap.py extracts this block ==== */
 const clampLat = (d) => Math.max(-85.0511, Math.min(85.0511, d));
 const wpx = (lon, z) => (lon + 180) / 360 * Math.pow(2, z) * MAP.T;
 function wpy(lat, z) {
@@ -425,11 +426,32 @@ function wpy(lat, z) {
 const mpp = (lat, z) =>
   40075016.686 * Math.cos(clampLat(lat) * Math.PI / 180) / (MAP.T * Math.pow(2, z));
 
+/* Web Mercator repeats east-west, and the tile loop already draws that: it
+   positions tile `tx` at `tx*T - ox` for tx outside [0, n) and wraps only the
+   URL. The overlays had no such treatment. `wpx` returns a coordinate in the
+   canonical [0, world) copy, so a candidate at -179.999 beside a prediction
+   at 179.999 was placed a whole world away -- 2^14 * 512 = 8,388,608 px at
+   z14, far off-screen. Panning east across the antimeridian did the same to
+   the pin and the ring, because `cx` grew without bound while the overlays
+   stayed in copy zero.
+
+   So put every overlay in the world copy NEAREST the viewport centre. One
+   `Math.round` does it, and it is a no-op whenever the copy is already the
+   right one. */
+function nearestX(x, centre, world) {
+  return x + Math.round((centre - x) / world) * world;
+}
+/* ==== end pure map arithmetic ==== */
+
 function drawMap() {
   const m = MAP, el = $("#map"), pane = $("#pane");
   const w = el.clientWidth, h = el.clientHeight;
   if (!w || !h) return;
   const n = Math.pow(2, m.z), world = n * m.T;
+  /* Panning east is unbounded, so without this `cx` walks off to another
+     world copy and the tiles follow it (they wrap) while the overlays do
+     not. */
+  m.cx = ((m.cx % world) + world) % world;
   m.cy = world <= h ? world / 2
                     : Math.max(h / 2, Math.min(world - h / 2, m.cy));
   const ox = m.cx - w / 2, oy = m.cy - h / 2;
@@ -459,7 +481,8 @@ function drawMap() {
     if (!seen.has(k)) { img.remove(); m.tiles.delete(k); }
   }
 
-  const px = wpx(m.lon, m.z) - ox, py = wpy(m.lat, m.z) - oy;
+  const px = nearestX(wpx(m.lon, m.z), m.cx, world) - ox,
+        py = wpy(m.lat, m.z) - oy;
   const pin = $("#pin");
   pin.style.left = px + "px";
   pin.style.top = py + "px";
@@ -474,7 +497,7 @@ function drawMap() {
 
   document.querySelectorAll("#map .cand").forEach((c, i) => {
     const g = m.cands[i];
-    c.style.left = (wpx(g.lon, m.z) - ox) + "px";
+    c.style.left = (nearestX(wpx(g.lon, m.z), m.cx, world) - ox) + "px";
     c.style.top = (wpy(g.lat, m.z) - oy) + "px";
   });
 
