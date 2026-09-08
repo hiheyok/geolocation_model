@@ -196,10 +196,17 @@ def main():
     # whatever was previously at those paths, and the comparison at the end
     # would have been published from a stale arm. Honour it here.
     failed = []
-    for st in plan:
+    unrun = []
+    for i, st in enumerate(plan):
         if O.now() > deadline:
-            log("deadline reached with {} stages unrun".format(
-                len(plan) - plan.index(st)))
+            # Record what did not run, and exit non-zero for it. Breaking out
+            # silently made a window that closed early indistinguishable from
+            # a complete run: six rungs could succeed, the comparison never
+            # happen, and the process still exit 0 -- telling a caller, a
+            # chain script and a monitor that the measurement is ready.
+            unrun = [s.name for s in plan[i:]]
+            log("deadline reached with {} stages unrun: {}".format(
+                len(unrun), ", ".join(unrun)))
             break
         if not run_stage(st, state, deadline):
             failed.append(st.name)
@@ -208,6 +215,7 @@ def main():
                     "it was supposed to write, and the arms cannot be "
                     "compared, so the remaining {} stages are dropped"
                     .format(st.name, len(plan) - plan.index(st) - 1))
+                unrun = [s.name for s in plan[i + 1:]]
                 break
     # Signal completion on every path, not just the happy one: tilebig died on
     # a missing method AFTER every stage had finished, the completion line
@@ -218,7 +226,10 @@ def main():
         (": " + ", ".join(failed)) if failed else ""))
     # A runner that exits 0 after a stage failed tells a caller, a chain
     # script and a monitor that the measurement is ready. It is not.
-    return 1 if failed else 0
+    if unrun:
+        log("{} stages did not run; this is not a completed measurement"
+            .format(len(unrun)))
+    return 1 if (failed or unrun) else 0
 
 
 if __name__ == "__main__":

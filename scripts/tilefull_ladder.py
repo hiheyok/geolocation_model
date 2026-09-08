@@ -110,10 +110,17 @@ def main():
     # silently trains e4 from scratch, or from an older checkpoint of the same
     # tag, and the ladder that gets published is not the ladder that ran.
     failed = []
-    for st in plan:
+    unrun = []
+    for i, st in enumerate(plan):
         if O.now() > deadline:
-            log("deadline reached with {} stages unrun".format(
-                len(plan) - plan.index(st)))
+            # Record what did not run, and exit non-zero for it. Breaking out
+            # silently made a window that closed early indistinguishable from
+            # a complete run: six rungs could succeed, the comparison never
+            # happen, and the process still exit 0 -- telling a caller, a
+            # chain script and a monitor that the measurement is ready.
+            unrun = [s.name for s in plan[i:]]
+            log("deadline reached with {} stages unrun: {}".format(
+                len(unrun), ", ".join(unrun)))
             break
         if not run_stage(st, state, deadline):
             failed.append(st.name)
@@ -121,12 +128,16 @@ def main():
                 log("critical stage {} failed; every later rung inits from it, "
                     "so the remaining {} stages are dropped".format(
                         st.name, len(plan) - plan.index(st) - 1))
+                unrun = [s.name for s in plan[i + 1:]]
                 break
     O.SAMPLER.stop_flag.set()
     log("{} done. {} stages recorded, {} failed this run{}".format(
         "tilefull_ladder", len(state["done"]), len(failed),
         (": " + ", ".join(failed)) if failed else ""))
-    return 1 if failed else 0
+    if unrun:
+        log("{} stages did not run; this is not a completed measurement"
+            .format(len(unrun)))
+    return 1 if (failed or unrun) else 0
 
 
 if __name__ == "__main__":
