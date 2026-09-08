@@ -88,11 +88,22 @@ def rung(tag, street, mode, epochs, init=None, lr=None):
     return a
 
 
-def boot(name, tags, out, est=25 * 60):
-    return Stage(name, ["scripts/bootstrap.py", "--tags", ",".join(tags),
-                        "--split", "test", "--n", "5000", "--beam", "2",
-                        "--score-steps", "3", "--out", str(O.RUNS / out)],
-                 release=REL, est=est, retries=2)
+def boot(name, tags, out, needs=(), est=25 * 60):
+    """A comparison, and the stages it is a comparison OF.
+
+    `needs` is not decoration. A bootstrap reads checkpoints by tag, and a
+    tag that failed to train usually still has a file -- the previous rung's,
+    or an older run's. So a failed training stage does not stop its own
+    comparison from producing a clean-looking report of the wrong thing.
+    `critical` does not cover it: a non-critical failure is one the window can
+    survive, not one its dependents can ignore.
+    """
+    st = Stage(name, ["scripts/bootstrap.py", "--tags", ",".join(tags),
+                      "--split", "test", "--n", "5000", "--beam", "2",
+                      "--score-steps", "3", "--out", str(O.RUNS / out)],
+               release=REL, est=est, retries=2)
+    st.prereqs = tuple(needs)
+    return st
 
 
 def main():
@@ -125,7 +136,9 @@ def main():
     plan.append(boot("night-boot-schedule",
                      ["pyrL0L1-b340-e4", "pyrL0L1-b340-e6", "pyrL0L1-b340-c6",
                       "pyrL0-b340-e4", "pyrL0-b340-e6", "pyrL0-b340-c6"],
-                     "BOOTSTRAP_schedule.md", est=30 * 60))
+                     "BOOTSTRAP_schedule.md",
+                     needs=["night-c6-pyrL0L1", "night-c6-pyrL0"],
+                     est=30 * 60))
 
     # 2. cell8 agent ladder, arms interleaved so an early close still leaves a
     #    comparable pair. Two rungs each: TILEBIG and this project's other
@@ -140,7 +153,9 @@ def main():
     plan.append(boot("night-boot-cell8",
                      ["pyrL0-c8-e4", "pyrL0L1-c8-e4",
                       "pyrL0-c8-e2", "pyrL0L1-c8-e2"],
-                     "BOOTSTRAP_cell8_tiles.md"))
+                     "BOOTSTRAP_cell8_tiles.md",
+                     needs=["night-cell8-pyrL0-e2", "night-cell8-pyrL0L1-e2",
+                            "night-cell8-pyrL0-e4", "night-cell8-pyrL0L1-e4"]))
 
     # 3. Cheapest and least decisive, so it goes last.
     plan.append(Stage(
@@ -151,10 +166,18 @@ def main():
     plan.append(boot("night-boot-shipclean6",
                      ["shipclean-e4", "shipclean-e6",
                       "pyrL0-b340-e4", "pyrL0L1-b340-e4"],
-                     "BOOTSTRAP_shipclean6.md"))
+                     "BOOTSTRAP_shipclean6.md",
+                     needs=["night-shipclean-e6"]))
 
-    failed, unrun = [], []
+    failed, unrun, skipped = [], [], []
     for i, st in enumerate(plan):
+        gone = [d for d in getattr(st, "prereqs", ()) if d in failed]
+        if gone:
+            log("skip   {}  ({} failed, so this would compare whatever "
+                "checkpoint happens to be on disk)".format(
+                    st.name, ", ".join(gone)))
+            skipped.append(st.name)
+            continue
         if O.now() > deadline:
             unrun = [s.name for s in plan[i:]]
             log("deadline reached with {} stages unrun: {}".format(
@@ -172,10 +195,13 @@ def main():
     log("night0908 done. {} stages recorded, {} failed this run{}".format(
         len(state["done"]), len(failed),
         (": " + ", ".join(failed)) if failed else ""))
+    if skipped:
+        log("{} stages skipped for a failed prerequisite: {}"
+            .format(len(skipped), ", ".join(skipped)))
     if unrun:
         log("{} stages did not run; this is not a completed window"
             .format(len(unrun)))
-    return 1 if (failed or unrun) else 0
+    return 1 if (failed or unrun or skipped) else 0
 
 
 if __name__ == "__main__":

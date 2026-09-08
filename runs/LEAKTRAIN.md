@@ -50,11 +50,18 @@ training on the leak "HELPED"; this is how much.
 The second row is what #59 measured and read as parity. The first row is the
 same question against a baseline trained the same way as the treatment.
 
-The third row closes a loop worth stating: `pca768_bank70` and
-`pyr768_l0_b340` are **retrieval-identical** -- `knn_gap` puts every threshold
-inside noise at top-1 and any-of-32 -- and now their trained agents are
-indistinguishable too. The pooling difference really is nothing; only the
-cache was ever doing the work.
+The third row closes a loop worth stating carefully. `knn_gap` puts
+`pca768_bank70` and `pyr768_l0_b340` inside noise at every threshold, top-1
+and any-of-32, and their trained agents are indistinguishable too. That is
+**no detected difference on these metrics**, which is not the same as the
+same features -- an earlier draft of this file said "retrieval-identical" and
+that was wrong. The tables disagree on **top-1 for 19,837 of 500,000 queries
+(3.97%)**, and only **35.1%** of queries have an identical top-32 set. The
+per-query differences are real and simply do not aggregate into any metric
+reported here.
+
+What follows is therefore weaker than "the pooling is nothing": on everything
+measured, the pooling choice does not move the result, and the cache does.
 
 **Absolute levels, 5,000 test images, beam k=2, s0-s2:**
 
@@ -81,18 +88,32 @@ separated from the schedule.
 Two experiments, one knob each. `scripts/chain_lr.sh` lowers the last rung's
 peak; `night0908.py` runs a single `--epochs 6` cosine from scratch.
 
-| sixth-epoch variant | `<25km` | vs e4 |
-|---|---|---|
-| e6 @ 1e-4 (as shipped) | 57.1% | e4 better, **separated** [+0.36, +1.60] |
-| e6 @ 5e-5 | 57.7% | inside noise |
-| e6 @ 3e-5 | 57.5% | e4 better, separated |
-| **c6, one cosine from scratch** | **58.4%** | inside noise |
+**Read the epoch column first.** `--select hit` keeps the best validation
+epoch, so a tag names the epoch BUDGET, not the weights. These are
+validation-selected checkpoints under different schedule budgets, not
+sixth-epoch models:
+
+| arm | budget | epoch actually selected | `<25km` | vs e4 |
+|---|---|---|---|---|
+| `pyrL0L1-b340-e4` | 4 | **4** | 58.1% | -- |
+| `pyrL0L1-b340-e6` @ 1e-4 | 6 | **5** | 57.1% | e4 better, **separated** [+0.36, +1.60] |
+| `pyrL0L1-b340-e6-lr5e-5` | 6 | 5 | 57.7% | inside noise |
+| `pyrL0L1-b340-e6-lr3e-5` | 6 | 5 | 57.5% | e4 better, separated |
+| **`pyrL0L1-b340-c6`**, one cosine | 6 | **3** | **58.4%** | inside noise |
+| `pyrL0-b340-c6`, one cosine | 6 | **4** | -- | -- |
+
+**No arm given six epochs ever selected the sixth.** The single-cosine arms
+chose epochs 3 and 4 out of 6; the chained tiled arm chose 5. That is a
+stronger statement than the one this section originally made, and it does not
+depend on the schedule at all: wherever the budget is set, validation picks
+somewhere around 3 to 5.
 
 * **The re-heat was real and costly.** 5e-5 beats 1e-4 [-1.18, -0.02],
   separated, and the single cosine beats the chained e6 [-2.18, -0.38],
   separated.
 * **No schedule beats four epochs.** `c6` has the best hit rate and the best
-  median of any arm and is still inside noise against e4.
+  median of any arm and is still inside noise against e4 -- and it got there
+  at its own epoch 3, having been given six.
 
 So **"stop at 4" survives, for a properly separated reason** rather than five
 repetitions of a confounded one. And the chained ladder was costing about a
@@ -139,9 +160,16 @@ a different effect from the benchmark split and is not visible in a hit rate.
   wrong about arms trained in the same era as each other; they are wrong the
   moment a post-rebuild arm is compared against one.
 * **Nothing binds a checkpoint to its cache's content.** `bootstrap.py` warns
-  about seed provenance and weight-decay grouping and does not compare
-  `split_hash`, let alone a cache digest. That is the fix this run argues for,
-  and it is not made here.
+  about seed provenance and weight-decay grouping and says nothing about the
+  cache. That is the fix this run argues for, and it is not made here (PR
+  #61 makes it).
+
+  An earlier draft added "and does not compare `split_hash`". That was wrong:
+  `bootstrap.provenance` calls `evaluate.check_split`, and `main` refuses
+  arms whose provenance differs before it loads any errors. It also
+  recognises the pre-2026-09-03 weak digest, which is why the 66 checkpoints
+  carrying that digest measure null against their current-hash twins -- a
+  hash-function change, not a resplit.
 
 Ruled out along the way, each with a paired test: the street file (retrieval-
 identical, agents inside noise), the sequence split ([-1.02, +0.92] pp), and

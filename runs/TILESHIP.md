@@ -105,12 +105,18 @@ about a day, most of it the ladder. The retrieval half alone (`knn_gap`
 against the shipping `pca768_bank70`) is under an hour and would say whether
 the ladder is worth starting.
 
-**That experiment is moot, and the cheap half is why.** `knn_gap` puts
-`pca768_bank70` and `pyr768_l0_b340` inside noise at every threshold, top-1
-and any-of-32 -- they are the same features -- and `shipclean-e4` then showed
-their trained agents indistinguishable too. There was never a "shipping
-pooling" for tiles to be blended into that differs from the pyramid one. The
-2-4 pp this file attributes to the family was the cache.
+**That experiment is a low priority now, and the cheap half is why.**
+`knn_gap` puts `pca768_bank70` and `pyr768_l0_b340` inside noise at every
+threshold, top-1 and any-of-32, and `shipclean-e4` then showed their trained
+agents indistinguishable too. So the pooling choice does not move any metric
+measured here, and the 2-4 pp this file attributes to the family was the
+cache.
+
+It is **not** that they are the same features: the two tables disagree on
+top-1 for 19,837 of 500,000 queries (3.97%), and only 35.1% of queries share
+an identical top-32 set. An earlier draft called them identical and called
+the experiment moot. Neither is established -- what is established is that
+nothing measured so far distinguishes them.
 
 ~~**Until then, do not ship tiles**~~ -- retracted. Against a baseline
 trained the same way as the treatment, tiles win by +2.38 to +4.54 pp
