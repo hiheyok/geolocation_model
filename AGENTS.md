@@ -188,9 +188,12 @@ a substring, a size that gets sliced off.
   that carry the same filename and different data: comparing across it
   measured the cache, worth **2 to 4 pp**, and produced a merged,
   wrong conclusion (`runs/LEAKTRAIN.md`, PR #59). `bootstrap.py` now
-  prints a provenance table, and `knnmeta.cache_provenance` falls back
-  to comparing mtimes for the ~100 checkpoints with no digest -- which
-  can prove a mismatch, never a match, and says so.
+  prints a provenance table naming every arm it cannot verify, and
+  `knnmeta.cache_provenance` falls back to comparing mtimes for the ~100
+  checkpoints with no digest. **Only the digest proves anything.** A newer
+  mtime means "cannot be ruled out" -- a copy, a restore or a `touch` moves
+  it without changing a byte, and an in-place rewrite changes bytes without
+  moving it -- so that path reports `CACHE_NEWER`, never `CACHE_REBUILT`.
 * A joined cache records the digest of its retrieval prefix.
 * A map cache is bound to the renderer that filled it.
 * A missing named dependency is an **error**, never a fallback to something
