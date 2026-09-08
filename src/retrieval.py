@@ -187,6 +187,46 @@ class RetrievalPrior(nn.Module):
             # A row with every neighbour dropped softmaxes -inf to NaN, so
             # rescue one at random rather than always keeping the top-1 --
             # keeping the best one is not the condition being simulated.
+            #
+            # The three host reads below -- `bool`, `int`, and the `nonzero`
+            # that sizes its own output -- each drain the CUDA queue, and
+            # REVIEW9 #6 proposes a tensor-only rescue to remove them.
+            #
+            # This tensor is (B, K) = (64, 16): `retr_prior` calls `weights`
+            # on the per-IMAGE similarity and applies `rep()` afterwards, as
+            # the docstring above says. A first measurement used (320, 16),
+            # the post-expansion row count, and was wrong by more than its own
+            # conclusion. Two things follow, pulling opposite ways: there are
+            # TWO calls per batch, not one (`model(b)` and `policy_from` for
+            # the off-path negatives), so 12,500 an epoch rather than 6,250 --
+            # and a row is empty with probability 0.7^16, so the rescue branch
+            # fires 19.2% of calls at 64 rows against 65.4% at 320. On four
+            # calls in five the only host read is the unconditional
+            # `bool(empty.any())`.
+            #
+            # Re-measured on an idle card at (64, 16), sweeping the queued
+            # work a sync has to drain, because the first setup fixed that
+            # at one unstated size:
+            #
+            #   filler     512^2   1024^2   2048^2   4096^2
+            #   delta/call 0.022   0.079    0.073    0.049  ms
+            #   % of epoch 0.04    0.13     0.12     0.08
+            #
+            # So 0.04-0.13%, not the 0.29% first recorded. Note it does NOT
+            # grow with queue depth: at 4096^2 each matmul is 11 ms, so a sync
+            # could drain 11 ms, and costs 0.049. In a throughput-bound loop a
+            # host read waits for work that had to finish anyway -- and
+            # training here is throughput-bound, 94-96% GPU at a
+            # memory-bandwidth limit. That is the reason the saving stays
+            # small, and it is more durable than any single number.
+            #
+            # It is not taken, and the timing was never the deciding half. The
+            # tensor-only form must draw one index per ROW every step where
+            # this draws `empty.sum()` only when a row is empty. That changes
+            # how much of the generator each step consumes, so every seeded run
+            # using --retr-drop -- the shipping arm, at 0.7 -- would stop
+            # reproducing. Revisit if the rescue ever moves off the critical
+            # path or reproducibility of these runs stops mattering.
             empty = ~keep.any(dim=1)
             if bool(empty.any()):
                 j = torch.randint(0, score.shape[1], (int(empty.sum()),),
