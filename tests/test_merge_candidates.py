@@ -32,45 +32,45 @@ SIM = np.array([[0.95, 0.90, 0.85, 0.80],
 
 
 def test_rr_gives_each_photograph_the_same_number_of_slots():
-    ci, _ = merge_candidates([0, 1], IDX, SIM, 4, "rr")
+    ci, _, _ = merge_candidates([0, 1], IDX, SIM, 4, "rr")
     assert sum(b < 20 for b in ci) == 2
     assert sum(b >= 20 for b in ci) == 2
 
 
 def test_uncalibrated_slots_are_not_uncalibrated_weight():
     """The defect: equal slots, then a 0.50 gap decides the softmax anyway."""
-    _, cs = merge_candidates([0, 1], IDX, SIM, 4, "rr", calib="none")
+    _, cs, _ = merge_candidates([0, 1], IDX, SIM, 4, "rr", calib="none")
     lo = [s for s in cs if s < 0.5]
     hi = [s for s in cs if s >= 0.5]
     assert min(hi) - max(lo) > 0.3
 
 
 def test_top1_calibration_puts_each_photographs_best_at_zero():
-    _, cs = merge_candidates([0, 1], IDX, SIM, 4, "rr", calib="top1")
+    _, cs, _ = merge_candidates([0, 1], IDX, SIM, 4, "rr", calib="top1")
     assert max(cs) == 0.0
     # each photograph contributes one 0.0 (its own best) and one -0.05
     assert sorted(np.round(cs, 4).tolist()) == [-0.05, -0.05, 0.0, 0.0]
 
 
 def test_calibration_preserves_the_order_within_one_photograph():
-    _, cs = merge_candidates([0], IDX, SIM, 4, "rr", calib="top1")
+    _, cs, _ = merge_candidates([0], IDX, SIM, 4, "rr", calib="top1")
     assert list(cs) == sorted(cs, reverse=True)
 
 
 def test_one_photograph_is_unchanged_by_calibration_up_to_a_constant():
     """N=1 is the baseline every multi-photo number is measured against, so a
     shift there would move the baseline rather than the treatment."""
-    _, a = merge_candidates([0], IDX, SIM, 4, "rr", calib="none")
-    _, b = merge_candidates([0], IDX, SIM, 4, "rr", calib="top1")
+    _, a, _ = merge_candidates([0], IDX, SIM, 4, "rr", calib="none")
+    _, b, _ = merge_candidates([0], IDX, SIM, 4, "rr", calib="top1")
     assert np.allclose(np.diff(a), np.diff(b))
 
 
 def test_global_merge_is_calibrated_too():
     """Without this, `global` keeps the best K by raw score and one photograph
     takes every slot -- the failure `rr` was written to avoid."""
-    ci, _ = merge_candidates([0, 1], IDX, SIM, 4, "global", calib="none")
+    ci, _, _ = merge_candidates([0, 1], IDX, SIM, 4, "global", calib="none")
     assert all(b < 20 for b in ci), "uncalibrated global: one photo takes all"
-    ci, _ = merge_candidates([0, 1], IDX, SIM, 4, "global", calib="top1")
+    ci, _, _ = merge_candidates([0, 1], IDX, SIM, 4, "global", calib="top1")
     assert sum(b >= 20 for b in ci) == 2
 
 
@@ -79,7 +79,7 @@ def test_padding_does_not_let_one_row_vote_twice():
     its own score, reintroducing the double-count rr deduplicates to avoid."""
     idx = np.array([[7, 7, 7, 7]], dtype=np.int64)
     sim = np.array([[0.9, 0.9, 0.9, 0.9]], dtype=np.float32)
-    ci, cs = merge_candidates([0], idx, sim, 4, "rr", calib="none")
+    ci, cs, _ = merge_candidates([0], idx, sim, 4, "rr", calib="none")
     assert len(ci) == 4 and (ci == 7).all()
     assert (np.array(cs)[1:] < -1e3).all(), "pads must carry no weight"
 
@@ -87,5 +87,5 @@ def test_padding_does_not_let_one_row_vote_twice():
 def test_duplicates_across_photographs_are_not_counted_twice():
     idx = np.array([[5, 6], [5, 7]], dtype=np.int64)
     sim = np.array([[0.9, 0.8], [0.7, 0.6]], dtype=np.float32)
-    ci, _ = merge_candidates([0, 1], idx, sim, 3, "rr")
+    ci, _, _ = merge_candidates([0, 1], idx, sim, 3, "rr")
     assert len(set(int(b) for b in ci)) == 3

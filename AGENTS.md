@@ -104,13 +104,32 @@ the production path is broken. This happened three times in one session:
 retrieval-width" instead of calling the prior; a union over call sites that the
 *val* dataset satisfied alone.
 
-* Call what `main` calls.
-* **Prove the test fails against the pre-fix code.** Neuter the guard, watch
-  the suite go red, restore it. If it stays green the test is decorative.
+* Call what `main` calls. A helper can be correct while the caller converted
+  to use it is not: two `UnboundLocalError`s shipped because the migration was
+  verified through the new helper and never once through `main`.
+* **Prove the test fails against the pre-fix code, with `scripts/mutate.py`.**
+  It applies the defect, runs the tests, requires a failure, and restores the
+  file from the bytes it read, verifying the restore before it exits.
+
+  ```
+  py scripts/mutate.py --file src/dataset.py \
+      --test tests/test_batch_transfer.py \
+      --old 'non_blocking="cuda" in str(dst)' --new 'non_blocking=True'
+  ```
+
+  This was a habit before it was a script, and the habit caught every vacuous
+  test on record. The script exists so that remembering is not the mechanism.
+  `--expect pass` records an edit that is genuinely harmless.
 * Watch for tests that are vacuous by construction. Every gate on the retrieval
   prior is zero-initialised, so a freshly built model scores identically with
   and without its neighbours — parity tests on one prove nothing until the
   gates are given values.
+* **A fixture that stubs the thing under test disables it for the whole file.**
+  `test_bank_for_checkpoint` stubs `check_bytes` so its other tests can be
+  about argument dispatch — and the test named "compares against its retrieval
+  prefix" therefore asserted the filename half and was blind to the byte half,
+  which was the broken one. If a test is about what a stub replaces, put the
+  real function back in that test.
 * A call-presence assertion is not a behaviour assertion. Test *which*
   comparisons actually run.
 

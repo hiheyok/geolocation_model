@@ -63,6 +63,34 @@ def rows_digest(ids):
     return h.hexdigest()[:12]
 
 
+
+def require_same_corpus(a_ids, b_ids, a_what, b_what, because=""):
+    """Refuse unless two id sequences are the same photographs in the order.
+
+    **Never compare corpora by length here.** All four bank extensions on disk
+    hold exactly 750,000 rows, so two artifacts built over different ones agree
+    on every count, every index stays in range, and each matched embedding is
+    handed another photograph's coordinates. That has now been the defect in
+    three separate checks -- the extension check this replaces the body of, the
+    `knn_gap` arm comparison, and a bank rebuilt under its own name -- so the
+    correct comparison lives in one place with the reason attached, rather
+    than each site inventing one.
+
+    Order is part of the identity: row k is whatever id sits at position k, so
+    a permutation of the same ids is a different corpus.
+    """
+    a, b = rows_digest(a_ids), rows_digest(b_ids)
+    if a == b:
+        return
+    raise SystemExit(
+        "{} holds {:,} images digesting {}, {} holds {:,} digesting {}. These "
+        "are different corpora.{} Counts are no evidence here -- every bank "
+        "extension holds exactly 750,000 rows, so the lengths agree and every "
+        "index stays in range while each row names a different photograph."
+        .format(a_what, len(np.asarray(a_ids)), a,
+                b_what, len(np.asarray(b_ids)), b,
+                " " + because if because else ""))
+
 def bank_ext(stem, release):
     """Load a bank extension's metadata, refusing one from another release.
 

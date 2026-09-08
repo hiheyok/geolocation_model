@@ -95,6 +95,23 @@ def street_table(path, dev, budget_gb=1.5, ram_gb=8.0):
 HOST_ONLY = ("nbr_row",)
 
 
+def base_dataset(ds):
+    """The `GeoStepDataset` under any number of `Subset` wrappers.
+
+    `--limit` wraps the training set once and a valid `--overfit` wraps that
+    result again, so `Subset(Subset(...))` unwrapped one level is still a
+    `Subset` and the next attribute access raises `AttributeError` -- after
+    the dataset has been built and before the first epoch (REVIEW8 #5).
+
+    The one-level form was written out at four sites in `train.py`, which is
+    why one flag combination broke all four at once. `GeoStepDataset` itself
+    has no `dataset` attribute, so this terminates on it.
+    """
+    while hasattr(ds, "dataset"):
+        ds = ds.dataset
+    return ds
+
+
 def to_device(batch, dev):
     """Move a batch to `dev`, leaving the host-only entries where they are.
 
@@ -597,6 +614,21 @@ class GeoStepDataset(Dataset):
             # an unconditioned one has no prefix to check, so compare against
             # the bytes build_knn recorded (REVIEW6 #3).
             knnmeta.check_bytes(z, config.STREET_CACHE / want_sf, knn_file)
+            # And that both sides address the same PHOTOGRAPHS, which is a
+            # different question from the same bytes and takes a different
+            # file. `check_bytes` asks the retrieval prefix, because that is
+            # what `build_knn` digested; which extension a bank was stacked
+            # from is recorded by the joined file, so it is asked of
+            # `self._street_path`.
+            #
+            # Nothing asked it here at all (REVIEW4 #1). The extension's z16
+            # addresses are read a few lines above and it was never checked
+            # that they belong to the extension this street file was built
+            # over. Every extension on disk holds exactly 750,000 rows, so a
+            # mismatch leaves every length equal and every neighbour index in
+            # range, and hands each matched embedding another photograph's
+            # address -- as a training target, not as a report.
+            knnmeta.check_ext(z, self._street_path, knn_file)
             # One query row per *release* image.  Not per row of the street
             # file: a bank file has its extension rows appended after the
             # release's, so that length is larger and comparing against it
