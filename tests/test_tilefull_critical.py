@@ -130,3 +130,62 @@ def test_a_failed_cell8_build_does_not_reach_the_cell8_comparison(runner,
                         stub(runner, {"tilefull-knn-cell8-pyrL0"}))
     assert tilefull.main() == 1
     assert "tilefull-knngap-cell8" not in runner, runner
+
+
+# ------------------------------------- a comparison of a failed stage ------
+
+import night0908  # noqa: E402
+
+
+@pytest.fixture
+def night(tmp_path, monkeypatch):
+    for name in ("RUNS", "LOGS", "MARKS"):
+        monkeypatch.setattr(O, name, tmp_path / name)
+    monkeypatch.setattr(O, "Sampler", Sampler)
+    monkeypatch.setattr(night0908, "load_state",
+                        lambda: {"done": {}, "failed": {}})
+    monkeypatch.setattr(night0908, "log", lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", ["night0908.py", "24"])
+    return []
+
+
+def test_a_failed_noncritical_stage_does_not_get_compared(night, monkeypatch):
+    """The reported defect.
+
+    `night-shipclean-e6` is non-critical: the window survives its failure.
+    Its *comparison* must not. A bootstrap reads checkpoints by tag, and a
+    tag that failed to train usually still has a file from an earlier rung,
+    so the report would look clean and describe the wrong thing.
+    """
+    monkeypatch.setattr(night0908, "run_stage",
+                        stub(night, {"night-shipclean-e6"}))
+    rc = night0908.main()
+    assert rc == 1
+    assert "night-boot-shipclean6" not in night, night
+
+
+def test_the_other_stages_still_run_after_a_noncritical_failure(night,
+                                                               monkeypatch):
+    """Only the dependent is skipped, not the rest of the window."""
+    monkeypatch.setattr(night0908, "run_stage",
+                        stub(night, {"night-shipclean-e6"}))
+    night0908.main()
+    assert [s for s in night if "cell8" in s]
+
+
+def test_a_clean_night_runs_every_stage(night, monkeypatch):
+    monkeypatch.setattr(night0908, "run_stage", stub(night))
+    assert night0908.main() == 0
+    assert "night-boot-shipclean6" in night
+
+
+def test_every_bootstrap_declares_what_it_compares(night, monkeypatch):
+    """A comparison with no declared prerequisites cannot be protected."""
+    stages = []
+    monkeypatch.setattr(night0908, "run_stage",
+                        lambda st, *a: (stages.append(st), True)[1])
+    night0908.main()
+    boots = [s for s in stages if "boot" in s.name]
+    assert boots
+    assert all(getattr(s, "prereqs", ()) for s in boots), \
+        [s.name for s in boots if not getattr(s, "prereqs", ())]

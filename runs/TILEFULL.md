@@ -1,5 +1,10 @@
 # Tiles at the full corpus: 3,400,180 bank rows
 
+> **See `runs/LEAKTRAIN.md` for the shipping question.** `runs/TILESHIP.md`
+> briefly concluded tiles only reach parity; its comparator turned out to be
+> trained on a leaky cache, and against an honest baseline tiles win by
+> +2.38 to +4.54 pp. The banner below is kept for the history.
+>
 > **SUPERSEDED ON THE SHIPPING QUESTION -- see `runs/TILESHIP.md`.**
 > Every contrast below is crops+tiles against `pyrL0`, and a later three-arm
 > bootstrap puts `pyrL0` **2.06 to 4.00 pp BELOW the shipping arm**
