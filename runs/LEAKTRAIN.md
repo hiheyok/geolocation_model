@@ -93,27 +93,40 @@ epoch, so a tag names the epoch BUDGET, not the weights. These are
 validation-selected checkpoints under different schedule budgets, not
 sixth-epoch models:
 
-| arm | budget | epoch actually selected | `<25km` | vs e4 |
+| arm | budget | epoch selected | `<25km` | vs e4 |
 |---|---|---|---|---|
-| `pyrL0L1-b340-e4` | 4 | **4** | 58.1% | -- |
-| `pyrL0L1-b340-e6` @ 1e-4 | 6 | **5** | 57.1% | e4 better, **separated** [+0.36, +1.60] |
-| `pyrL0L1-b340-e6-lr5e-5` | 6 | 5 | 57.7% | inside noise |
-| `pyrL0L1-b340-e6-lr3e-5` | 6 | 5 | 57.5% | e4 better, separated |
+| `pyrL0L1-b340-e4` | 4 | 4 | 58.1% | -- |
+| `pyrL0L1-b340-e6` @ 1e-4 | 6 | 5 | 57.1% | e4 better, **separated** [+0.36, +1.60] |
+| `pyrL0L1-b340-e6-lr5e-5` | 6 | **6** | 57.7% | inside noise |
+| `pyrL0L1-b340-e6-lr3e-5` | 6 | **6** | 57.5% | e4 better, separated |
 | **`pyrL0L1-b340-c6`**, one cosine | 6 | **3** | **58.4%** | inside noise |
+| `pyrL0-b340-e6` | 6 | **6** | 53.9% | -- |
 | `pyrL0-b340-c6`, one cosine | 6 | **4** | -- | -- |
+| `shipclean-e6` | 6 | **6** | 53.8% | -- |
 
-**No arm given six epochs ever selected the sixth.** The single-cosine arms
-chose epochs 3 and 4 out of 6; the chained tiled arm chose 5. That is a
-stronger statement than the one this section originally made, and it does not
-depend on the schedule at all: wherever the budget is set, validation picks
-somewhere around 3 to 5.
+**A draft of this section claimed "no arm given six epochs ever selected the
+sixth". That is false: four of the seven did**, and two of them were printed
+in the tool output the claim was written from. Retracted.
+
+What the column does support, and only this:
+
+* **The two single-cosine arms peak earliest** -- epochs 3 and 4 of 6.
+  A single cosine over six epochs is still far from annealed at epoch 3, so
+  the best validation point falls mid-run and the remaining budget is spent
+  getting worse.
+* **The chained arms mostly run to the end of their budget**, which is what a
+  schedule that anneals to zero inside every 2-epoch rung should do -- each
+  rung's last epoch is its own best.
+* **None of it beats e4 on the test bootstrap**, including the four arms that
+  did use all six epochs. That is the claim that survives, and it rests on
+  the paired intervals rather than on where validation happened to stop.
 
 * **The re-heat was real and costly.** 5e-5 beats 1e-4 [-1.18, -0.02],
   separated, and the single cosine beats the chained e6 [-2.18, -0.38],
   separated.
 * **No schedule beats four epochs.** `c6` has the best hit rate and the best
-  median of any arm and is still inside noise against e4 -- and it got there
-  at its own epoch 3, having been given six.
+  median of any arm and is still inside noise against e4 -- reached at its own
+  epoch 3, having been given six.
 
 So **"stop at 4" survives, for a properly separated reason** rather than five
 repetitions of a confounded one. And the chained ladder was costing about a
@@ -171,6 +184,8 @@ a different effect from the benchmark split and is not visible in a hit rate.
   carrying that digest measure null against their current-hash twins -- a
   hash-function change, not a resplit.
 
-Ruled out along the way, each with a paired test: the street file (retrieval-
-identical, agents inside noise), the sequence split ([-1.02, +0.92] pp), and
+Ruled out along the way, each with a paired test: the street file (no
+detected difference at any retrieval threshold, agents inside noise -- though
+their top-1 neighbours differ on 3.97% of queries, so this is parity on the
+measured metrics, not identity), the sequence split ([-1.02, +0.92] pp), and
 the weight-decay grouping ([-0.40, +0.68] pp).

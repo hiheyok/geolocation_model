@@ -8,8 +8,9 @@
 # nothing downstream can see it. `pyrL0*` and `pyrL0L1*` were trained on
 # 2026-09-07 against the rebuilt one.
 #
-# Those two street files are RETRIEVAL-IDENTICAL -- every threshold spans zero
-# at top-1 and any-of-32 -- yet the leak-trained arms beat the clean-trained
+# Those two street files show NO DETECTED DIFFERENCE at retrieval -- every
+# threshold spans zero at top-1 and any-of-32, though their top-1 neighbours
+# do differ on 3.97% of queries -- yet the leak-trained arms beat the clean-trained
 # `pyrL0` by 2.08 to 3.98 pp. Weight-decay grouping is null between them
 # ([-0.40, +0.68]) and the split difference is null ([-1.02, +0.92]), so the
 # training-time leak is what is left.
