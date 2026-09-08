@@ -177,7 +177,14 @@ def main():
         because="Both arms are scored against --a's coordinates, so this "
                 "would compare one arm's neighbours with another arm's "
                 "geography.")
-    te = np.flatnonzero(sp.read(ds, a.split_mode)[0] == "test")
+    # `sp.read` returns the split AND the hash of the split it just computed.
+    # Taking only `[0]` leaves the two caches compared against each other and
+    # against nothing else: both can carry one OLD hash while the rows sliced
+    # here come from a reassigned split, and then every query is scored
+    # against neighbours retrieved for a different query set. Found by review
+    # in `gain_growth`, which had inherited this line.
+    labels, shash = sp.read(ds, a.split_mode)
+    te = np.flatnonzero(labels == "test")
     print("{:,} test queries, split {}\n".format(len(te), a.split_mode))
 
     for ranks in (int(r) for r in a.ranks.split(",")):
@@ -194,6 +201,13 @@ def main():
                 sys.exit("{} differs: {} vs {}".format(k, za[k], zb[k]))
         if not np.array_equal(za["bank_rows"], zb["bank_rows"]):
             sys.exit("the two tables index different bank rows")
+        if str(za["split_hash"]) != str(shash):
+            sys.exit(
+                "both tables were built against {} split {}, but {} now "
+                "assigns {}; the test rows scored here are not the ones they "
+                "indexed. Rebuild them, or check out the split they were "
+                "built from.".format(a.split_mode, str(za["split_hash"]),
+                                     config.DATASET_PARQUET.name, str(shash)))
 
         label = "top-1" if ranks == 1 else "any-of-{}".format(ranks)
         hdr = "%-34s %9s %s" % (label, "median km",
