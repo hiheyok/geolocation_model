@@ -1,5 +1,13 @@
 # Tiles at the full corpus: 3,400,180 bank rows
 
+> **SUPERSEDED ON THE SHIPPING QUESTION -- see `runs/TILESHIP.md`.**
+> Every contrast below is crops+tiles against `pyrL0`, and a later three-arm
+> bootstrap puts `pyrL0` **2.06 to 4.00 pp BELOW the shipping arm**
+> `d768-b350-e6-drop70`. Tiles bring it back to parity ([-0.62, +1.68] pp,
+> inside noise), not past it. The numbers here are correct and the comparison
+> is sound within its own pair; what is wrong is reading them as a reason to
+> ship tiles.
+
 `runs/TILEBIG.md` measured crops+tiles against crops at 1,150,180 rows and
 found **+3.30 pp [+3.0, +3.6]** at 25 km, on a series that had not flattened:
 +1.80 pp at 25k, +2.60 at 400k, +3.30 at 1.15M. That was the argument for
@@ -146,8 +154,10 @@ survives to the trained agent at 1.15M (+2.76 to +4.88 pp), and is still
 growing slowly with corpus. +0.49 pp on unseen geography is real, separated,
 and flat.
 
-**Keep tiles. Quote +3.72 for the benchmark and +0.49 for "does it read
-geography", and do not let the first stand in for the second.**
+**Quote +3.72 for the benchmark and +0.49 for "does it read geography",
+and do not let the first stand in for the second. "Keep tiles" stood
+here and no longer does:** `runs/TILESHIP.md` shows the arm these are
+measured against is itself 2-4 pp below what ships.
 
 **What is not measured here:** whether the 3.4M retrieval gain survives
 training. TILEBIG showed it does at 1.15M and grows; nothing here repeats that
