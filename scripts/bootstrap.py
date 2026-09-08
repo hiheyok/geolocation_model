@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import config
+import knnmeta
 import names
 import safeio
 import splits as sp
@@ -322,9 +323,16 @@ def main():
     # runs of the same command saw different negatives. Saying so beside the
     # numbers is the point: a table that reports a seed per arm invites the
     # reader to assume the arms are reproducible to it.
+    _seen = {}
+
+    def _load(t):
+        if t not in _seen:
+            _seen[t] = torch.load(config.CHECKPOINTS / (t + ".pt"),
+                                  map_location="cpu", weights_only=False)
+        return _seen[t]
+
     def _negs(t):
-        v = torch.load(config.CHECKPOINTS / (t + ".pt"), map_location="cpu",
-                       weights_only=False).get("neg_random")
+        v = _load(t).get("neg_random")
         if v is None:
             return "OS entropy (predates the flag)"
         return "OS entropy" if v else "seeded"
@@ -352,6 +360,29 @@ def main():
         L.append("|---|---|")
         for t in tags:
             L.append("| `{}` | {} |".format(t, rules[t]))
+        L.append("")
+    # The cache each arm was TRAINED against, by content rather than by name.
+    # Every `knn_*` was rebuilt on 2026-09-04 04:05 after the same-sequence
+    # bank leak was found, and checkpoints on either side of that record the
+    # same filename. Comparing across it measures the cache: the same street
+    # file trained on the leaky bytes scores 57.5% and on the clean bytes
+    # 54.6%, separated (`runs/LEAKTRAIN.md`). This file already warns about
+    # weight-decay grouping, which is worth nothing by comparison.
+    caches = {t: knnmeta.cache_provenance(_load(t), t) for t in tags}
+    bad = [t for t, (st, _) in caches.items() if st != knnmeta.CACHE_OK]
+    if bad and len(set(st for st, _ in caches.values())) > 1:
+        L.append("**These arms were not all trained against the same "
+                 "neighbour cache.** Every `knn_*` cache was rebuilt on "
+                 "2026-09-04 after the same-sequence bank leak; a checkpoint "
+                 "records the cache's PATH, not its content. Measured, the "
+                 "difference is worth **2 to 4 pp** -- larger than most "
+                 "contrasts in this table.")
+        L.append("")
+        L.append("| arm | cache it trained against |")
+        L.append("|---|---|")
+        for t in tags:
+            st, why = caches[t]
+            L.append("| `{}` | {} -- {} |".format(t, st, why))
         L.append("")
     L.append("| contrast | median diff, 95% CI | | <25km diff, 95% CI | |")
     L.append("|---|---|---|---|---|")

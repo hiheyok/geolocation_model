@@ -328,3 +328,65 @@ def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
     print("bank rows  {:,} of {:,} in the file, from {}"
           .format(len(rows), n_bank, knn_file), flush=True)
     return rows
+
+
+# ------------------------------------------------- a checkpoint's cache --
+
+CACHE_OK = "verified by digest"
+CACHE_PLAUSIBLE = "unrecorded; cache older than the checkpoint"
+CACHE_REBUILT = "REBUILT SINCE TRAINING"
+CACHE_UNKNOWN = "unrecorded, and the cache is newer -- cannot tell"
+CACHE_MISSING = "cache file is gone"
+
+
+def cache_provenance(ck, tag=""):
+    """`(state, detail)` for the k-NN cache a checkpoint was trained against.
+
+    A checkpoint records `knn_file`, a **path**. Paths get rewritten. On
+    2026-09-04 04:05 every `knn_*` cache was rebuilt after the same-sequence
+    bank leak was found, and `knn_pca768_bank70_sequence_k32_bank_ext70.npz`
+    went on meaning something different under the same name. Nothing noticed:
+    `d768-b350-e6-drop70` and `wd29-fix-e4` record that filename and were
+    trained on the leaky bytes, while `pyrL0*` records it and was trained on
+    the clean ones. Comparing them measured the cache, not the arms -- 2 to 4
+    pp of it (`runs/LEAKTRAIN.md`). AGENTS.md §7 is written about exactly this
+    and nothing enforced it here.
+
+    Two checks, because the archive predates the fix:
+
+    * **By digest.** `train.py` now records `knn_digest`. Exact, and the only
+      one that can see a rewrite that preserved size and mtime.
+    * **By mtime**, for the 100-odd checkpoints with no digest. If the cache
+      is NEWER than the checkpoint, the checkpoint was trained on other bytes.
+      This is how the leak was found by hand. It is a heuristic and is
+      labelled as one: it cannot see an in-place rewrite, and it cannot prove
+      a match, only a mismatch.
+
+    An unverifiable arm is reported, never passed. A check that goes quiet
+    when it cannot see is the silence this exists to break -- the same lesson
+    `scripts/check_merged.py` learned about shallow clones.
+    """
+    name = ck.get("knn_file")
+    if not name:
+        return CACHE_OK, "no cache: this arm trained without retrieval"
+    path = config.STREET_CACHE / name
+    if not path.exists():
+        return CACHE_MISSING, name
+
+    want = ck.get("knn_digest")
+    if want:
+        got = safeio.content_digest(path)
+        if str(got) == str(want):
+            return CACHE_OK, name
+        return CACHE_REBUILT, "{} digests {} now, {} at training".format(
+            name, str(got)[:12], str(want)[:12])
+
+    ck_mtime = ck.get("saved_at")
+    if not ck_mtime and tag:
+        p = config.CHECKPOINTS / (tag + ".pt")
+        ck_mtime = p.stat().st_mtime if p.exists() else None
+    if not ck_mtime:
+        return CACHE_UNKNOWN, name
+    if path.stat().st_mtime > float(ck_mtime):
+        return CACHE_REBUILT, "{} was written after the checkpoint".format(name)
+    return CACHE_PLAUSIBLE, name

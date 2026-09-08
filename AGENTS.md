@@ -181,6 +181,16 @@ than everything the value depends on** — a tag, a filename, a length, a prefix
 a substring, a size that gets sliced off.
 
 * A k-NN cache records the content digest of the street file it searched.
+* **A checkpoint records the content digest of the k-NN cache it was
+  trained against** (`knn_digest`, and `saved_at` beside it). It used to
+  record only the path. Every `knn_*` was rebuilt on 2026-09-04 04:05
+  after the same-sequence bank leak, so checkpoints on either side of
+  that carry the same filename and different data: comparing across it
+  measured the cache, worth **2 to 4 pp**, and produced a merged,
+  wrong conclusion (`runs/LEAKTRAIN.md`, PR #59). `bootstrap.py` now
+  prints a provenance table, and `knnmeta.cache_provenance` falls back
+  to comparing mtimes for the ~100 checkpoints with no digest -- which
+  can prove a mismatch, never a match, and says so.
 * A joined cache records the digest of its retrieval prefix.
 * A map cache is bound to the renderer that filled it.
 * A missing named dependency is an **error**, never a fallback to something

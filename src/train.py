@@ -690,6 +690,16 @@ def main():
                   "map_cache": a.map_cache,
                   "map_sub": _map_sub(base_dataset(tr).tokens.shape[-1]),
                   "retr_tau": a.retr_tau, "knn_file": knn_file,
+                  # The cache by CONTENT, not only by name. Every
+                  # `knn_*` was rebuilt on 2026-09-04 after the
+                  # same-sequence leak, and checkpoints on either side
+                  # of that record the same filename -- so comparing
+                  # them measured the cache, worth 2-4 pp
+                  # (`runs/LEAKTRAIN.md`). AGENTS.md §7.
+                  "knn_digest": (safeio.content_digest(
+                      config.STREET_CACHE / knn_file)
+                      if knn_file else None),
+                  "saved_at": time.time(),
                   "enc_gate": a.enc_gate,
                   "geo": a.geo, "d_geo": a.d_geo,
                   "split_mode": split_mode,
