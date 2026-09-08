@@ -100,18 +100,33 @@ def test_a_non_critical_failure_does_not_stop_the_plan(runner, monkeypatch):
 
 def test_every_stage_that_writes_an_input_is_marked_critical(runner,
                                                             monkeypatch):
-    """The flag is only protection if it is actually set on the producers.
+    """The flag is only protection if it is set on every producer.
 
-    Guards against the flag being dropped from a stage later: pool, stack,
-    project and build_knn all write a path a later stage reads.
+    The first version of this test listed the producers by name -- the pools,
+    the stacks, the projections and the two `sequence` index builds -- and so
+    was written around the two `cell8` builds, which were exactly the stages
+    still missing the flag. A test whose scope is a hand-written list agrees
+    with whatever the code happens to do.
+
+    So derive it instead: in this plan every stage except a `knngap` writes a
+    path a later stage reads. That is total, and a producer added later is
+    covered without anyone remembering to extend a list.
     """
     stages = []
     monkeypatch.setattr(tilefull, "run_stage",
                         lambda st, *a: (stages.append(st), True)[1])
     tilefull.main()
-    producers = [s for s in stages
-                 if any(k in s.name for k in ("pool", "stack", "proj"))
-                 or s.name in ("tilefull-knn-pyrL0", "tilefull-knn-pyrL0L1")]
-    assert producers
+    # 8 per arm (3 pools, 3 stacks, a projection, an index) + 2 cell8 indexes.
+    producers = [s for s in stages if "knngap" not in s.name]
+    assert len(producers) == 18, [s.name for s in stages]
     assert all(s.critical for s in producers), \
         [s.name for s in producers if not s.critical]
+
+
+def test_a_failed_cell8_build_does_not_reach_the_cell8_comparison(runner,
+                                                                  monkeypatch):
+    """The instance the name-listed version of the test above was blind to."""
+    monkeypatch.setattr(tilefull, "run_stage",
+                        stub(runner, {"tilefull-knn-cell8-pyrL0"}))
+    assert tilefull.main() == 1
+    assert "tilefull-knngap-cell8" not in runner, runner

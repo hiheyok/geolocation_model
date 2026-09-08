@@ -172,11 +172,15 @@ def main():
     # over the same 3.5M rows, and the sequence pair above is already a
     # complete result without it.
     for arm in ARMS:
+        # critical for the same reason the sequence builds are: the cell8
+        # comparison below reads these paths, and a previous run's caches are
+        # usually already there, so a failure here does not stop the
+        # comparison -- it changes which experiment the comparison is of.
         plan.append(Stage(
             "tilefull-knn-cell8-" + arm,
             ["scripts/build_knn.py", "--street-file", projected(arm),
              "--split-mode", "cell8", "--k", "32", "--bank-ext", MERGED],
-            release=REL, est=60 * 60, retries=2))
+            release=REL, est=60 * 60, retries=2, critical=True))
     plan.append(Stage(
         "tilefull-knngap-cell8",
         ["scripts/knn_gap.py",
