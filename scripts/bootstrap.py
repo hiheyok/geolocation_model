@@ -50,6 +50,40 @@ def ckpt_stamp(tag):
     return safeio.file_stamp(config.CHECKPOINTS / (tag + ".pt"))
 
 
+def cache_lines(tags, caches):
+    """Report lines for the caches these arms trained against, or [].
+
+    Split out of `main` because the condition is the part that went wrong.
+    The first version required the arms to DISAGREE, copying the idiom from
+    the weight-decay block -- so two equally unverifiable arms produced no
+    warning at all, which is the silence this check exists to break,
+    reproduced one layer above the check itself.
+
+    Every arm that is not verified is reported, whether or not they differ.
+    """
+    bad = [t for t in tags if caches[t][0] != knnmeta.CACHE_OK]
+    if not bad:
+        return []
+    proven = [t for t in bad if caches[t][0] == knnmeta.CACHE_REBUILT]
+    L = ["**{} of these {} arms cannot be shown to have trained against the "
+         "cache now on disk.** Every `knn_*` cache was rebuilt on 2026-09-04 "
+         "after the same-sequence bank leak; a checkpoint records the cache's "
+         "PATH, not its content. Measured, training against the leaky one is "
+         "worth **2 to 4 pp** -- larger than most contrasts in this table.{}"
+         .format(len(bad), len(tags),
+                 "" if not proven else
+                 " For {} the mismatch is PROVEN by digest.".format(
+                     ", ".join("`{}`".format(x) for x in proven))),
+         "",
+         "| arm | cache it trained against |",
+         "|---|---|"]
+    for t in tags:
+        st, why = caches[t]
+        L.append("| `{}` | {} -- {} |".format(t, st, why))
+    L.append("")
+    return L
+
+
 def provenance(tag, split, dev="cpu"):
     """(release, split_mode, split_hash) for a tag, validated against the data.
 
@@ -368,22 +402,8 @@ def main():
     # file trained on the leaky bytes scores 57.5% and on the clean bytes
     # 54.6%, separated (`runs/LEAKTRAIN.md`). This file already warns about
     # weight-decay grouping, which is worth nothing by comparison.
-    caches = {t: knnmeta.cache_provenance(_load(t), t) for t in tags}
-    bad = [t for t, (st, _) in caches.items() if st != knnmeta.CACHE_OK]
-    if bad and len(set(st for st, _ in caches.values())) > 1:
-        L.append("**These arms were not all trained against the same "
-                 "neighbour cache.** Every `knn_*` cache was rebuilt on "
-                 "2026-09-04 after the same-sequence bank leak; a checkpoint "
-                 "records the cache's PATH, not its content. Measured, the "
-                 "difference is worth **2 to 4 pp** -- larger than most "
-                 "contrasts in this table.")
-        L.append("")
-        L.append("| arm | cache it trained against |")
-        L.append("|---|---|")
-        for t in tags:
-            st, why = caches[t]
-            L.append("| `{}` | {} -- {} |".format(t, st, why))
-        L.append("")
+    L += cache_lines(tags, {t: knnmeta.cache_provenance(_load(t), t)
+                            for t in tags})
     L.append("| contrast | median diff, 95% CI | | <25km diff, 95% CI | |")
     L.append("|---|---|---|---|---|")
     for x, y in itertools.combinations(tags, 2):

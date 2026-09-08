@@ -334,8 +334,9 @@ def bank_for_checkpoint(ck, knn_file, n_bank, bank_file, what,
 
 CACHE_OK = "verified by digest"
 CACHE_PLAUSIBLE = "unrecorded; cache older than the checkpoint"
-CACHE_REBUILT = "REBUILT SINCE TRAINING"
-CACHE_UNKNOWN = "unrecorded, and the cache is newer -- cannot tell"
+CACHE_REBUILT = "REBUILT SINCE TRAINING (proven by digest)"
+CACHE_NEWER = "unverified: cache is NEWER than the checkpoint"
+CACHE_UNKNOWN = "unverified: no digest and no timestamp"
 CACHE_MISSING = "cache file is gone"
 
 
@@ -356,11 +357,12 @@ def cache_provenance(ck, tag=""):
 
     * **By digest.** `train.py` now records `knn_digest`. Exact, and the only
       one that can see a rewrite that preserved size and mtime.
-    * **By mtime**, for the 100-odd checkpoints with no digest. If the cache
-      is NEWER than the checkpoint, the checkpoint was trained on other bytes.
-      This is how the leak was found by hand. It is a heuristic and is
-      labelled as one: it cannot see an in-place rewrite, and it cannot prove
-      a match, only a mismatch.
+    * **By mtime**, for the 100-odd checkpoints with no digest. A cache newer
+      than the checkpoint CANNOT BE RULED OUT as a replacement -- which is how
+      the leak was found by hand. It proves nothing either way: a copy, a
+      restore or a `touch` moves mtime without changing a byte, and an
+      in-place rewrite changes bytes without moving it. So it reports
+      `CACHE_NEWER`, not `CACHE_REBUILT`; only a digest proves a mismatch.
 
     An unverifiable arm is reported, never passed. A check that goes quiet
     when it cannot see is the silence this exists to break -- the same lesson
@@ -388,5 +390,11 @@ def cache_provenance(ck, tag=""):
     if not ck_mtime:
         return CACHE_UNKNOWN, name
     if path.stat().st_mtime > float(ck_mtime):
-        return CACHE_REBUILT, "{} was written after the checkpoint".format(name)
+        # NOT proof. Copying a cache, restoring it from a backup or touching
+        # it all move mtime without changing a byte, and the first version of
+        # this returned CACHE_REBUILT here -- so a report generated after an
+        # innocent copy would have asserted that the arms trained against
+        # different data. Newer means "cannot be ruled out", which is a
+        # different sentence and gets a different state.
+        return CACHE_NEWER, "{} was written after the checkpoint".format(name)
     return CACHE_PLAUSIBLE, name
