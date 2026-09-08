@@ -1,5 +1,10 @@
 # Tiles at 1,150,180 bank rows: the gain grows, and the series was not flattening
 
+> **Read with `runs/TILESHIP.md`.** The +3.30 pp and +2.76 to +4.88 pp below
+> are crops+tiles against `pyrL0`, the same baseline a later three-arm
+> bootstrap put 2.06 to 4.00 pp below the shipping arm. The contrasts hold
+> within their pair; they are not evidence for shipping tiles.
+
 `scripts/tilebig.py`, 2026-09-06. The 3x2 tile pass over `bank_ext.parquet`
 took **233.7 min** for 750,000 images at 53.5 img/s, producing a 13.8 GB
 `tile6_ext` cache. Retrieval only -- no gradient step in any number here.
