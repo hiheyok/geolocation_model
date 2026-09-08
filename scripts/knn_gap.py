@@ -45,6 +45,49 @@ from query_only import great_circle              # noqa: E402
 THRESH = (1, 25, 200, 750, 2500)
 
 
+def ext_coords(ext):
+    """(image_id, lat, lon) for an extension stem, merged stems included.
+
+    A single extension has a parquet of its own. A stem made by
+    `merge_bank_meta.py` -- which exists to make several extensions look like
+    one to `build_knn` -- has a `_meta.npz` and no parquet, because it was
+    never a harvest: `bank_ext70` is `bank_ext ++ bank_ext2 ++ bank_ext3 ++
+    bank_ext4`, and the coordinates still live in those four files. Passing
+    such a stem raised FileNotFoundError on `bank_ext70.parquet` at the last
+    stage of a run whose indexes had already been built, which is the most
+    expensive place to discover it.
+
+    So when the stem has no parquet, every extension parquet present is read
+    and the join below decides whether the cover is complete. Deriving a
+    merged parquet instead would be a second copy of coordinates that can go
+    stale against the four it came from, and nothing would compare them.
+
+    The caller joins by `image_id`, so the order these are read in does not
+    matter -- which is the point. The one thing that would matter is the same
+    id appearing twice with different coordinates, so that is refused rather
+    than silently resolved to whichever copy sorted first.
+    """
+    cols = ["image_id", "lat", "lon"]
+    p = config.PROCESSED / (ext + ".parquet")
+    parts = [p] if p.exists() else sorted(config.PROCESSED.glob("bank_ext*.parquet"))
+    if not parts:
+        raise SystemExit(
+            "no parquet for extension {!r} and none matching bank_ext*.parquet "
+            "in {}; its rows' true coordinates live there and a z16 address is "
+            "not a substitute at the 1 km threshold"
+            .format(ext, config.PROCESSED))
+    tabs = [pq.read_table(q, columns=cols) for q in parts]
+    have = np.concatenate([np.asarray(t["image_id"]) for t in tabs])
+    elat = np.concatenate([np.asarray(t["lat"], np.float64) for t in tabs])
+    elon = np.concatenate([np.asarray(t["lon"], np.float64) for t in tabs])
+    if len(np.unique(have)) != len(have):
+        raise SystemExit(
+            "{} name the same image more than once, so a join by image_id "
+            "would take whichever copy sorted first"
+            .format(", ".join(q.name for q in parts)))
+    return have, elat, elon
+
+
 def coords(ds, name):
     """(lat, lon, ids) over the bank a cache searched: release, then extension.
 
@@ -73,18 +116,16 @@ def coords(ds, name):
         return lat, lon, ids
     m = prov.bank_ext(ext, config.RELEASE)
     want = np.asarray(m["image_id"])
-    t = pq.read_table(config.PROCESSED / (ext + ".parquet"),
-                      columns=["image_id", "lat", "lon"])
-    have = np.asarray(t["image_id"])
+    have, elat, elon = ext_coords(ext)
     order = np.argsort(have)
     pos = order[np.searchsorted(have, want, sorter=order)]
     if not np.array_equal(have[pos], want):
         raise SystemExit(
-            "{}.parquet does not contain every id {} names, so the extension's "
-            "coordinates cannot be joined to its bank rows"
-            .format(ext, config.bank_meta(ext).name))
-    return (np.concatenate([lat, np.asarray(t["lat"], np.float64)[pos]]),
-            np.concatenate([lon, np.asarray(t["lon"], np.float64)[pos]]),
+            "the extension parquets do not contain every id {} names, so the "
+            "extension's coordinates cannot be joined to its bank rows"
+            .format(config.bank_meta(ext).name))
+    return (np.concatenate([lat, elat[pos]]),
+            np.concatenate([lon, elon[pos]]),
             np.concatenate([ids, want]))
 
 
