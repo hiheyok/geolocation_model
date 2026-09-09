@@ -242,17 +242,45 @@ def errors_for(tag, split, n, beam_k, score_steps, dev, source,
     return m["err"]
 
 
+# One row per contrast, three statistics wide. Kept together and at module
+# level because a markdown table whose header, rule and rows disagree on
+# column count renders as garbage, and that is invisible in the source.
+TABLE_HEAD = ("| contrast | median diff, 95% CI | | mean diff, 95% CI | | "
+              "<25km diff, 95% CI | |")
+TABLE_RULE = "|---|---|---|---|---|---|---|"
+TABLE_ROW = ("| {} vs {} | [{:+.1f}, {:+.1f}] km | {} | [{:+.0f}, {:+.0f}] km "
+             "| {} | [{:+.2f}, {:+.2f}] pp | {} |")
+
+
 def paired(a, b, reps, rng, thresh=25.0):
-    """95% CI on (a - b) for the median and for the <thresh km hit rate."""
+    """95% CI on (a - b) for the median, the mean, and the <thresh hit rate.
+
+    The mean was reported without an interval and every report said so in
+    prose -- `runs/TILESHIP.md`: "bootstrap.py does not resample the mean, so
+    this has no interval and is not a claim." It was then read as one anyway,
+    here and elsewhere, because a column of numbers invites an ordering.
+
+    It needs its own interval rather than the median's, and a much wider one.
+    The mean of a great-circle error is a TAIL statistic: at 5,000 test images
+    the worst 1% sit near 8,600 km -- wrong hemisphere -- and contribute about
+    a third of a ~350 km mean, so which of those fifty land in a resample
+    moves it by tens of kilometres. Measured on the rotation arms, the median
+    interval spans ~2 km and the mean's spans ~58.
+
+    All three statistics share the resample `s`, which is what makes them
+    three views of one comparison rather than three comparisons.
+    """
     n = len(a)
     dm = np.empty(reps)
+    du = np.empty(reps)
     dh = np.empty(reps)
     for i in range(reps):
         s = rng.integers(0, n, n)
         dm[i] = np.median(a[s]) - np.median(b[s])
+        du[i] = a[s].mean() - b[s].mean()
         dh[i] = (a[s] < thresh).mean() - (b[s] < thresh).mean()
     q = lambda v: (np.percentile(v, 2.5), np.percentile(v, 97.5))
-    return q(dm), q(dh)
+    return q(dm), q(du), q(dh)
 
 
 def verdict(lo, hi):
@@ -404,13 +432,13 @@ def main():
     # weight-decay grouping, which is worth nothing by comparison.
     L += cache_lines(tags, {t: knnmeta.cache_provenance(_load(t), t)
                             for t in tags})
-    L.append("| contrast | median diff, 95% CI | | <25km diff, 95% CI | |")
-    L.append("|---|---|---|---|---|")
+    L.append(TABLE_HEAD)
+    L.append(TABLE_RULE)
     for x, y in itertools.combinations(tags, 2):
-        (ml, mh), (hl, hh) = paired(errs[x], errs[y], a.reps, rng)
-        L.append("| {} vs {} | [{:+.1f}, {:+.1f}] km | {} | [{:+.2f}, {:+.2f}] pp | {} |"
-                 .format(x, y, ml, mh, verdict(ml, mh),
-                         100 * hl, 100 * hh, verdict(hl, hh)))
+        (ml, mh), (ul, uh), (hl, hh) = paired(errs[x], errs[y], a.reps, rng)
+        L.append(TABLE_ROW.format(x, y, ml, mh, verdict(ml, mh),
+                                  ul, uh, verdict(ul, uh),
+                                  100 * hl, 100 * hh, verdict(hl, hh)))
     L.append("")
     L.append("A positive median difference means the first arm is worse "
              "(more km); a positive <25km difference means it is better.")
