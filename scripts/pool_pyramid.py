@@ -160,6 +160,25 @@ def view_positions(crops, grid, cols=None):
     return p0, p1
 
 
+def degenerate(pos, axes):
+    """Which of `axes` every view shares a coordinate on.
+
+    A rotation is only information when two views DIFFER on an active axis.
+    Views at the same coordinate turn through the same angle, so a flat axis
+    does not confuse them -- it just contributes nothing while still taking
+    its round-robin share of the dimension pairs.
+
+    This replaced two hand-written special cases ("depth or row without
+    --tiles" and "a square frame collapses the crops"). The second was also
+    wrong in its stated reason: it claimed rotating identical crops would
+    separate them, when identical coordinates produce identical rotations. One
+    derived rule is both correct and shorter than the list of cases somebody
+    thought of.
+    """
+    return [ax for ax in axes
+            if len({p[AXES.index(ax)] for p in pos}) == 1]
+
+
 def rope_angles(pos, n_pairs, axes, rope_max, spread):
     """(views, n_pairs) -- how far each dimension pair turns for each view.
 
@@ -373,16 +392,6 @@ def main():
         sys.exit("--rope-axes repeats an axis: {}".format(a.rope_axes))
     if a.rope_max < 0 or a.rope_spread <= 0:
         sys.exit("--rope-max must be >= 0 and --rope-spread > 0")
-    # A rotation that turns every view through the same angle is a global
-    # rotation of the pooled vector, which every cosine downstream is
-    # invariant to. It would write a file byte-identical to the baseline under
-    # a name claiming to be an arm, and a null arm that is null by
-    # construction is worse than no arm.
-    if not a.tiles and [x for x in axes if x in ("depth", "row")]:
-        sys.exit("--rope-axes {} needs --tiles: without them every view is at "
-                 "depth 0 row 0, so those axes rotate nothing and the output "
-                 "would be the untiled baseline under another name"
-                 .format(",".join(x for x in axes if x in ("depth", "row"))))
     src = config.STREET_CACHE / a.src
     out = config.STREET_CACHE / a.out
     if out == src:
@@ -420,20 +429,37 @@ def main():
                      "the cache or pool without --rope-axes.".format(a.tiles))
         gc = grid[0] if grid else crops
         cols = crop_columns(crops, gc, tuple(a.frame))
-        # Not a range check: a crop is always inside its own image, so
-        # `gc * f - 0.5` is always within (-0.5, gc - 0.5) and such a guard
-        # could never fire. What can go wrong is the frame collapsing the
-        # crops on top of each other -- at or below square, the short side IS
-        # the width, `w == size`, and all three windows sit at left 0.
-        if len(axes) and "col" in axes and crops > 1 and                 max(cols) - min(cols) < 1e-6:
-            sys.exit(
-                "--frame {}x{} puts all {} crops at column {:.3f}: the short "
-                "side is the width, so the window cannot slide and every crop "
-                "is the same pixels. Rotating them on `col` would separate "
-                "views that are identical. Give the frame {} was really built "
-                "from."
-                .format(a.frame[0], a.frame[1], crops, cols[0], a.src))
         p0, p1 = view_positions(crops, grid, cols)
+        flat = degenerate(p0 + (p1 if a.tiles else []), axes)
+        # Views that share a coordinate get the SAME rotation, so a flat axis
+        # does not confuse them -- it simply carries no information, and takes
+        # its round-robin share of the dimension pairs with it. That is a
+        # warning. It is only fatal when EVERY active axis is flat: then every
+        # view turns through the same angle, the pooled vector is a global
+        # rotation of the unrotated one, every cosine downstream is invariant
+        # to it, and the arm is the baseline under another name.
+        #
+        # `--rope-max 0` is that on purpose -- it is the identity arm the
+        # ladder is anchored on -- so it is exempt.
+        if flat and a.rope_max > 0:
+            if len(flat) == len(axes):
+                sys.exit(
+                    "every view has the same {} over these {} crops and {} "
+                    "tiles, so the rotation turns them all through the same "
+                    "angle: the output would be a global rotation of the "
+                    "unrotated pooling, identical under every cosine "
+                    "downstream, written under a name claiming to be an arm. "
+                    "Add an axis the views differ on, or pass --rope-max 0 if "
+                    "the identity is what you wanted."
+                    .format(" and ".join(flat), crops,
+                            gc * grid[1] if grid else 0))
+            print("warning: every view has the same {}, so that axis carries "
+                  "nothing and still takes {:.0f}% of the dimension pairs; "
+                  "the remaining {} are working at a coarser spread than "
+                  "--rope-spread {:g} asks for"
+                  .format(" and ".join(flat), 100.0 * len(flat) / len(axes),
+                          " and ".join(x for x in axes if x not in flat),
+                          a.rope_spread), flush=True)
         ang = [rope_angles(p, D_ENC // 2, axes, a.rope_max, a.rope_spread)
                for p in (p0, p1)]
         a0, a1 = (torch.from_numpy(x).to(dev) for x in ang)
@@ -446,10 +472,11 @@ def main():
             "{}x{}".format(*grid) if grid else "none"), flush=True)
         # Printed because a wrong `--frame` is invisible everywhere else: the
         # output is the right shape, unit length, and silently misplaced.
-        print("  crops at columns {} (frame {}x{}), tiles at 0..{}".format(
+        print("  crops at columns {} (frame {}x{}){}".format(
             ", ".join("{:.3f}".format(c) for c in cols),
             a.frame[0], a.frame[1],
-            (grid[0] if grid else crops) - 1), flush=True)
+            ", tiles at 0..{}".format(grid[0] - 1) if a.tiles else
+            ", no tiles"), flush=True)
     print("{}  {:,} x {}   {}".format(
         a.out, n, 2 * D_ENC,
         "crops only" if not a.tiles else

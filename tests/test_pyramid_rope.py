@@ -322,20 +322,63 @@ def test_the_geometry_guard_does_not_fire_without_rotation():
     assert "if axes:" in body[i:j], "geometry checks run outside `if axes`"
 
 
-def test_a_frame_at_or_below_square_collapses_the_crops():
-    """What the frame guard is actually for.
+def test_an_axis_every_view_shares_is_degenerate():
+    """The general rule, replacing two hand-written special cases."""
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
+    assert P.degenerate(p0 + p1, ["depth", "row", "col"]) == []
+    # crops alone: one depth, one row, and columns that differ
+    assert P.degenerate(p0, ["depth", "row", "col"]) == ["depth", "row"]
 
-    A range check could never fire -- a crop is inside its own image, so the
-    column is always within (-0.5, gc-0.5). What can go wrong is the frame
-    collapsing the crops onto each other: at or below square the short side is
-    the width, the window cannot slide, and all three crops are the same
-    pixels. Rotating those on `col` would separate identical views.
+
+def test_a_square_frame_makes_col_degenerate_for_the_crops_only():
+    """Rechecked on #64.
+
+    At or below square the short side IS the width, the window cannot slide,
+    and every crop is the same pixels. The old guard refused the whole run --
+    but identical coordinates produce IDENTICAL rotations, so nothing is
+    confused, and the tile columns are still 0, 1, 2. A tiled arm on a square
+    frame is valid and must not be rejected.
     """
-    assert len(set(P.crop_columns(3, 3, (512, 512)))) == 1
-    assert len(set(P.crop_columns(3, 3, (400, 512)))) == 1
-    assert len(set(P.crop_columns(3, 3, P.FRAME))) == 3
+    sq = P.crop_columns(CROPS, GRID[0], (512, 512))
+    p0, p1 = P.view_positions(CROPS, GRID, sq)
+    assert P.degenerate(p0, ["col"]) == ["col"]
+    assert P.degenerate(p0 + p1, ["col"]) == [], "tiles still differ on col"
 
 
-def test_the_collapse_guard_is_reachable_from_main():
+def test_only_an_all_flat_rotation_is_the_baseline_under_another_name():
+    """What makes it fatal rather than merely wasteful: if every active axis
+    is flat, every view turns through the same angle, the pooled vector is a
+    global rotation of the unrotated one, and every cosine downstream is
+    invariant to it."""
+    p0, _ = P.view_positions(CROPS, GRID, P.crop_columns(CROPS, GRID[0],
+                                                         (512, 512)))
+    ang = torch.from_numpy(P.rope_angles(p0, PAIRS, ["col"], 0.7,
+                                         P.ROPE_SPREAD))
+    C = views(n=CROPS, seed=11)
+    base, rot = P.levels(C)[0], P.levels(C, None, ang, None)[0]
+    assert not torch.allclose(base, rot, atol=1e-3), "not rotated at all"
+    # ... but every pairwise cosine is unchanged, so no ranking can see it
+    D = views(n=CROPS, seed=12)
+    cb = float(torch.dot(base[0], P.levels(D)[0][0]))
+    cr = float(torch.dot(rot[0], P.levels(D, None, ang, None)[0][0]))
+    assert cr == pytest.approx(cb, abs=1e-4)
+
+
+def test_zero_rotation_is_exempt_from_the_degeneracy_check():
+    """`--rope-max 0` is the identity on purpose -- it is the arm the ladder
+    is anchored on -- so refusing it for being degenerate breaks the zero
+    point the whole parameterisation is built around."""
     src = Path(inspect.getsourcefile(P.main)).read_text(encoding="utf-8")
-    assert "cannot slide" in src
+    body = src[src.index("flat = degenerate("):]
+    assert "a.rope_max > 0" in body[:body.index("p0, p1 = view_positions")
+                                    if "p0, p1 = view_positions" in body
+                                    else 2000]
+
+
+def test_a_partly_flat_rotation_warns_rather_than_exits():
+    """A flat axis carries nothing but still takes its round-robin share of
+    the pairs. That is a cost to report, not a reason to refuse: the axes that
+    are not flat are still doing the work."""
+    src = Path(inspect.getsourcefile(P.main)).read_text(encoding="utf-8")
+    assert "len(flat) == len(axes)" in src
+    assert "warning: every view has the same" in src
