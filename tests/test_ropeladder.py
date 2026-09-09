@@ -181,8 +181,21 @@ class Sampler:
 
 @pytest.fixture
 def window(tmp_path, monkeypatch):
+    """A window with its own empty cache.
+
+    `STREET_CACHE` is redirected because `main` asks whether the shipping
+    neighbour table is on disk before adding the basis comparison. Left
+    pointing at the real cache, that question is answered by the environment:
+    `conftest` defaults `OSV_RELEASE` to s01, where the file is absent, and
+    exporting s10 makes it present -- so the same test passed for whoever ran
+    it bare and failed for whoever had the variable set. A test that reads the
+    production cache is not testing the code.
+    """
+    cache = tmp_path / "street"
+    cache.mkdir()
     for name in ("RUNS", "LOGS", "MARKS"):
         monkeypatch.setattr(O, name, tmp_path / name)
+    monkeypatch.setattr(R.config, "STREET_CACHE", cache)
     monkeypatch.setattr(O, "Sampler", Sampler)
     monkeypatch.setattr(O, "log", lambda *a, **k: None)
     monkeypatch.setattr(R, "log", lambda *a, **k: None)
@@ -190,7 +203,14 @@ def window(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "sweep", lambda *a, **k: 0)
     monkeypatch.setattr(R, "free_gb", lambda: 10 ** 6)
     monkeypatch.setattr(sys, "argv", ["ropeladder.py", "10"])
-    return tmp_path
+    return cache
+
+
+def ship_table(cache):
+    """Put the shipping neighbour table in the window's cache."""
+    p = cache / R.config.knn_name(R.SHIPPING, "sequence", ext=R.MERGED)
+    p.write_bytes(b"neighbours")
+    return p
 
 
 def runner(monkeypatch, fails=()):
@@ -205,10 +225,13 @@ def runner(monkeypatch, fails=()):
 
 
 def test_a_complete_ladder_exits_zero(window, monkeypatch):
+    """Named, not counted. The count was one number covering two different
+    claims -- the arm gaps and the basis gap -- so it could pass with the
+    wrong set."""
     seen = runner(monkeypatch)
     assert R.main() == 0
-    assert len([s for s in seen
-                if s.startswith("rope-gap-")]) == len(R.ARMS) - 1
+    assert [s for s in seen if s.startswith("rope-gap-")] == [
+        "rope-gap-ropeD", "rope-gap-ropeDR", "rope-gap-ropeDRC"]
 
 
 def test_a_failed_arm_stops_the_ladder_but_keeps_the_gaps_it_earned(
@@ -254,7 +277,7 @@ def test_the_basis_refit_is_measured_against_the_shipping_bank(window,
     and test, and this chain fits on training rows only. Unmeasured, that
     difference sits inside every arm as an unlabelled gap from everything
     already published."""
-    monkeypatch.setattr(Path, "exists", lambda self: True)
+    ship_table(window)
     seen = runner(monkeypatch)
     R.main()
     assert "rope-gap-basis" in seen
@@ -263,8 +286,7 @@ def test_the_basis_refit_is_measured_against_the_shipping_bank(window,
 def test_a_missing_shipping_table_does_not_stop_the_ladder(window,
                                                            monkeypatch):
     """It is a comparison this ladder did not need in order to be a ladder."""
-    monkeypatch.setattr(Path, "exists", lambda self: False)
-    seen = runner(monkeypatch)
+    seen = runner(monkeypatch)          # the window's cache is empty
     assert R.main() == 0
     assert "rope-gap-basis" not in seen
     assert "rope-gap-ropeDRC" in seen
