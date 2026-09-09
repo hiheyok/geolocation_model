@@ -80,7 +80,31 @@ INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
                # character for character the same whichever build of X and Y
                # is on disk, so a rebuilt arm left its old gap "satisfied"
                # and the runner reported a comparison it had not made.
-               "--a": "street", "--b": "street"}
+               "--a": "street", "--b": "street",
+               # The whole pool -> stack -> project chain. Every one of these
+               # names a file some earlier stage wrote, under a name that does
+               # not change when its contents do -- so without them a rebuilt
+               # pool left the fit, the stacks, the projection, the index and
+               # the comparison all "satisfied", and the runner exited 0 on an
+               # experiment whose first stage had been replaced. The sweep hid
+               # it in the default path (a deleted intermediate is caught by
+               # `outputs_intact`) and `--keep` did not.
+               "--src": "street", "--tiles": "street",
+               "--base": "street", "--ext": "street"}
+
+
+def street_path(cache, val):
+    """The file a street-cache flag names, under whichever convention it uses.
+
+    Returns the first candidate that exists, else the bare name so a genuinely
+    missing input still stamps `absent` rather than resolving to some other
+    file that happens to be there.
+    """
+    for cand in (cache / val, cache / (val + ".f16.npy"),
+                 cache / (val + "_meta.npz")):
+        if cand.exists():
+            return cand
+    return cache / val
 
 
 def stage_inputs(argv):
@@ -118,13 +142,13 @@ def stage_inputs(argv):
         if where == "ckpt":
             paths[str(tok) + " " + val] = config.CHECKPOINTS / (val + ".pt")
             continue
-        # Some flags take a filename and some take a stem: `knn_gap --a` names
-        # `knn_x.npz`, `concat_street --a` names `embeddings_c3`. Stamping the
-        # bare name only would leave every stem-valued flag recorded as
-        # `absent` forever -- which reads as a stamp and is not one.
-        bare = config.STREET_CACHE / val
-        paths[str(tok) + " " + val] = (
-            bare if bare.exists() else config.STREET_CACHE / (val + ".f16.npy"))
+        # Three naming conventions live in this cache and the flags do not
+        # distinguish them: `--knn-file` names `knn_x.npz`, `--base` names the
+        # stem `pyr_l0l1_b115`, and `--ext bank_ext70` names a corpus whose
+        # file is `bank_ext70_meta.npz`. Resolving only the bare name would
+        # leave two of the three recorded as `absent` in perpetuity, which
+        # reads like a stamp and is not one.
+        paths[str(tok) + " " + val] = street_path(config.STREET_CACHE, val)
     return {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
 
 

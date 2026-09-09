@@ -137,3 +137,74 @@ def test_a_reused_basis_is_an_input_of_the_projection_that_uses_it(cache):
     got = runlog.stage_inputs(["scripts/project_street.py", "--src",
                                "big.f16.npy", "--basis", "p768_pca.npz"])
     assert got["--basis p768_pca.npz"] != "absent"
+
+
+# ----------------------------------------------- the chain, end to end ------
+
+CHAIN = ("--src", "--tiles", "--base", "--ext")
+
+
+def test_every_link_of_the_pool_stack_project_chain_is_stamped():
+    """Each of these names a file an earlier stage wrote, under a name that
+    does not change when its contents do."""
+    for flag in CHAIN:
+        assert runlog.INPUT_FLAGS.get(flag) == "street", flag
+
+
+def test_a_rebuilt_pool_invalidates_the_stage_that_reads_it(cache):
+    """Reported on #65. Change an arm's angle and its pools re-run -- their
+    argv carries `--rope-max` -- but the fit reads `--src` and the stacks read
+    `--base`/`--ext`, none of which were stamped. So the whole downstream
+    chain stayed satisfied and the runner exited 0 on an experiment whose
+    first stage had been replaced."""
+    (cache / "pyr_ropeD.f16.npy").write_bytes(b"rotated one way")
+    argv = ["scripts/project_street.py", "--src", "pyr_ropeD.f16.npy",
+            "--out", "pyr768_ropeD.f16.npy", "--dim", "768"]
+    before = runlog.marker_identity("fit", argv, "s10",
+                                    inputs=runlog.stage_inputs(argv))
+    (cache / "pyr_ropeD.f16.npy").write_bytes(b"rotated another way")
+    after = runlog.marker_identity("fit", argv, "s10",
+                                   inputs=runlog.stage_inputs(argv))
+    assert runlog.marker_matches(before, after) is False
+
+
+def test_a_rebuilt_extension_invalidates_the_stack(cache):
+    (cache / "pyr_ropeD.f16.npy").write_bytes(b"base")
+    (cache / "bank_ext2_ropeD.f16.npy").write_bytes(b"ext")
+    argv = ["scripts/stack_bank.py", "--base", "pyr_ropeD",
+            "--ext", "bank_ext2_ropeD", "--out", "pyr_ropeD_b190"]
+    before = runlog.stage_inputs(argv)
+    (cache / "bank_ext2_ropeD.f16.npy").write_bytes(b"ext rebuilt")
+    assert runlog.stage_inputs(argv) != before
+
+
+def test_a_rebuilt_tile_cache_invalidates_the_pool(cache):
+    (cache / "dual_c3.f16.npy").write_bytes(b"crops")
+    (cache / "tile6.f16.npy").write_bytes(b"tiles")
+    argv = ["scripts/pool_pyramid.py", "--src", "dual_c3.f16.npy",
+            "--tiles", "tile6", "--out", "pyr_x.f16.npy"]
+    before = runlog.stage_inputs(argv)
+    (cache / "tile6.f16.npy").write_bytes(b"tiles rebuilt")
+    assert runlog.stage_inputs(argv) != before
+
+
+# ------------------------------------------------ the naming conventions ----
+
+def test_a_flag_naming_a_corpus_resolves_to_its_metadata(cache):
+    """`--ext bank_ext70` names a corpus whose file is
+    `bank_ext70_meta.npz`. Two of the three conventions in this cache would
+    otherwise stamp `absent` forever."""
+    (cache / "bank_ext70_meta.npz").write_bytes(b"ids")
+    got = runlog.stage_inputs(["scripts/seqleak.py", "--ext", "bank_ext70"])
+    assert got["--ext bank_ext70"] != "absent"
+
+
+def test_the_conventions_are_tried_in_order_and_a_miss_stays_absent(cache):
+    C = runlog.street_path
+    (cache / "x.npz").write_bytes(b"1")
+    assert C(cache, "x.npz").name == "x.npz"
+    (cache / "y.f16.npy").write_bytes(b"1")
+    assert C(cache, "y").name == "y.f16.npy"
+    (cache / "z_meta.npz").write_bytes(b"1")
+    assert C(cache, "z").name == "z_meta.npz"
+    assert C(cache, "nothing").name == "nothing"
