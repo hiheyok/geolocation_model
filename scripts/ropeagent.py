@@ -115,7 +115,12 @@ def main():
     tags = [tag(a) for a in ARMS
             if tag(a) in res["done"]
             and (config.CHECKPOINTS / (tag(a) + ".pt")).exists()]
-    if len(tags) > 1:
+    # The unrotated control is not one arm among several: without it the only
+    # comparison left is rotated-against-shipping, which cannot separate the
+    # rotation from the chain rebuild that produced every rotated bank. That
+    # is the two-arm shape `runs/TILESHIP.md` got wrong, and it read as a
+    # clean result for a week.
+    if tag("rope0") in tags and len(tags) > 1:
         boot = Stage(
             "ropeagent-boot",
             ["scripts/bootstrap.py", "--tags", ",".join(tags + [SHIP]),
@@ -126,12 +131,11 @@ def main():
         for k, v in O.run_plan([boot], state, deadline).items():
             res[k] += v
     else:
-        # One arm and the shipping reference is a two-arm bootstrap with no
-        # control for the chain rebuild, which is exactly the shape
-        # `runs/TILESHIP.md` got wrong.
-        log("{} arm(s) trained; not comparing, because one rotated arm against "
-            "the shipping one cannot separate the rotation from the rebuild"
-            .format(len(tags)))
+        log("not comparing: {} trained, and this needs {} plus at least one "
+            "rotated arm. Without the unrotated control the only contrast is "
+            "against the shipping arm, which cannot separate the rotation "
+            "from the chain rebuild."
+            .format(", ".join(tags) or "nothing", tag("rope0")))
         res["skipped"].append("ropeagent-boot")
 
     O.SAMPLER.stop_flag.set()

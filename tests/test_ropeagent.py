@@ -32,18 +32,43 @@ def argv(arm):
 
 # ------------------------------------------------------ one flag apart ------
 
+BASELINE = ["pyrL0L1-b340-c6", "pyr768_l0l1_b340.f16.npy",
+            "knn_pyr768_l0l1_b340_sequence_k32_bank_ext70.npz"]
+
+
+def baseline_argv():
+    """The shipping arm's command line, rebuilt from the code that made it.
+
+    This used to read `runs/marks/night-c6-pyrL0L1.done`, which is untracked
+    and gitignored -- so the test passed only on a machine that had already
+    run that training, and failed in a clean checkout. A test that needs a
+    previous run to have happened is testing the machine.
+    """
+    from night0908 import rung, STREET
+    return rung("pyrL0L1-b340-c6", STREET["pyrL0L1"], "sequence", R.EPOCHS)
+
+
 def test_an_arm_differs_from_the_baseline_only_in_its_bank():
     """The whole design. Anything else that moved would be measured as the
     rotation."""
-    import json
-    ship = json.load(open(ROOT / "runs/marks/night-c6-pyrL0L1.done"))["argv"]
-    got = argv("ropeDR")
+    ship, got = baseline_argv(), argv("ropeDR")
     assert len(ship) == len(got)
-    diff = [(a, b) for a, b in zip(ship, got) if a != b]
-    assert [a for a, _ in diff] == ["pyrL0L1-b340-c6",
-                                    "pyr768_l0l1_b340.f16.npy",
-                                    "knn_pyr768_l0l1_b340_sequence_k32_"
-                                    "bank_ext70.npz"]
+    assert [a for a, b in zip(ship, got) if a != b] == BASELINE
+
+
+def test_the_rebuilt_baseline_matches_the_run_that_produced_it():
+    """The strong version of the check above, kept where the evidence is.
+
+    Skipped rather than dropped: on a machine that has the marker this
+    verifies the reconstruction against what was really executed, which is
+    the only thing that can catch `night0908` drifting away from the
+    checkpoint the bootstrap will compare against.
+    """
+    import json
+    m = ROOT / "runs/marks/night-c6-pyrL0L1.done"
+    if not m.exists():
+        pytest.skip("no local marker for the shipping arm")
+    assert json.load(open(m))["argv"] == baseline_argv()
 
 
 def test_every_arm_uses_the_same_recipe():
@@ -189,3 +214,22 @@ def test_an_arm_without_a_checkpoint_is_not_compared(window, monkeypatch):
                         lambda st, *a: (got.append(st.name), True)[1])
     R.main()                                   # nothing writes a .pt
     assert "ropeagent-boot" not in got
+
+
+def test_the_comparison_needs_the_unrotated_control(window, monkeypatch):
+    """Reported on #67. With `rope0-c6` failed and two rotated arms trained,
+    the only contrast left is rotated-against-shipping, which cannot separate
+    the rotation from the chain rebuild that produced every rotated bank."""
+    cache, ckpt = window
+    seen = runner(monkeypatch, ckpt, fails=("rope0-c6",))
+    assert R.main() == 1
+    assert "ropeDR-c6" in seen, "the treated arms should still have trained"
+    assert "ropeagent-boot" not in seen
+
+
+def test_the_control_alone_is_not_compared_either(window, monkeypatch):
+    cache, ckpt = window
+    seen = runner(monkeypatch, ckpt,
+                  fails=tuple(R.tag(a) for a in R.ARMS[1:]))
+    assert R.main() == 1
+    assert "ropeagent-boot" not in seen

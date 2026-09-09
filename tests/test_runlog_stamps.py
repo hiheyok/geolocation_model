@@ -208,3 +208,44 @@ def test_the_conventions_are_tried_in_order_and_a_miss_stays_absent(cache):
     (cache / "z_meta.npz").write_bytes(b"1")
     assert C(cache, "z").name == "z_meta.npz"
     assert C(cache, "nothing").name == "nothing"
+
+
+# ------------------------------------------- a comparison's checkpoints -----
+
+def boot(tags):
+    return ["scripts/bootstrap.py", "--tags", tags, "--split", "test",
+            "--n", "5000"]
+
+
+def test_a_bootstrap_stamps_every_checkpoint_it_compares(cache, monkeypatch):
+    """Reported on #67. `--tags a,b,c` names the checkpoints a comparison is
+    a comparison OF, and its argv does not move when any of them is
+    retrained -- so a rebuilt arm re-ran its training, found the comparison
+    satisfied, kept the previous report and exited 0."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b"):
+        (cache / (t + ".pt")).write_bytes(b"weights " + t.encode())
+    got = runlog.stage_inputs(boot("a,b"))
+    assert "--tags a" in got and "--tags b" in got
+    assert got["--tags a"] != "absent"
+
+
+def test_retraining_one_arm_invalidates_the_comparison(cache, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b"):
+        (cache / (t + ".pt")).write_bytes(b"weights " + t.encode())
+    before = runlog.stage_inputs(boot("a,b"))
+    (cache / "b.pt").write_bytes(b"retrained")
+    assert runlog.stage_inputs(boot("a,b")) != before
+
+
+def test_the_tags_are_stamped_one_by_one_not_as_a_blob(cache, monkeypatch):
+    """So the record says which arm moved, not merely that something did."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b", "c"):
+        (cache / (t + ".pt")).write_bytes(b"w")
+    got = runlog.stage_inputs(boot(" a , b ,c"))
+    assert {"--tags a", "--tags b", "--tags c"} <= set(got)

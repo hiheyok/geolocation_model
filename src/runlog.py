@@ -90,7 +90,13 @@ INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
                # it in the default path (a deleted intermediate is caught by
                # `outputs_intact`) and `--keep` did not.
                "--src": "street", "--tiles": "street",
-               "--base": "street", "--ext": "street"}
+               "--base": "street", "--ext": "street",
+               # `bootstrap --tags a,b,c` names the checkpoints a comparison
+               # is a comparison OF, and its argv does not move when any of
+               # them is retrained. So a rebuilt arm re-ran its training,
+               # found the comparison satisfied, kept the previous report and
+               # exited 0. Same shape as `--a`/`--b`, one list wide.
+               "--tags": "ckptlist"}
 
 
 def street_path(cache, val):
@@ -141,6 +147,14 @@ def stage_inputs(argv):
         val = str(argv[i + 1])
         if where == "ckpt":
             paths[str(tok) + " " + val] = config.CHECKPOINTS / (val + ".pt")
+            continue
+        if where == "ckptlist":
+            # Stamped per tag rather than as one blob, so the record says
+            # which arm moved rather than only that something did.
+            for t in (x.strip() for x in val.split(",")):
+                if t:
+                    paths["{} {}".format(tok, t)] = (
+                        config.CHECKPOINTS / (t + ".pt"))
             continue
         # Three naming conventions live in this cache and the flags do not
         # distinguish them: `--knn-file` names `knn_x.npz`, `--base` names the
