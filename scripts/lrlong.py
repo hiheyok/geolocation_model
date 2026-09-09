@@ -105,16 +105,29 @@ def main():
     for tag, _, _, _ in arms:
         if tag in res["done"] and (config.CHECKPOINTS / (tag + ".pt")).exists():
             tags.append(tag)
+    # Through `run_plan`, not `run_stage`, even though it is one stage. The
+    # first version called `run_stage` and dropped the return value, so four
+    # rungs could train, the comparison could fail or be dropped for time, and
+    # the window still exited 0 -- which is the exact defect this script's own
+    # commit lifted `run_plan` to fix, reintroduced two lines below the fix.
+    # One accounting path is the only way that stops recurring.
     if len(tags) > 2:
-        O.run_stage(Stage(
+        boot = Stage(
             "lrlong-boot",
             ["scripts/bootstrap.py", "--tags", ",".join(tags),
              "--split", "test", "--n", "5000", "--beam", "2",
              "--score-steps", "3", "--out", str(O.RUNS / "BOOTSTRAP_lrlong.md")],
-            release=REL, est=8 * 60 * len(tags), retries=2), state, deadline)
+            release=REL, est=8 * 60 * len(tags), retries=2)
+        for k, v in O.run_plan([boot], state, deadline).items():
+            res[k] += v
     else:
-        log("no arm trained, so there is nothing to compare; skipping the "
-            "bootstrap rather than re-reporting c6 against e4")
+        # Not a quiet skip either. Every stage can be recorded done and still
+        # leave no checkpoint -- an interrupted save, a cleaned directory --
+        # and then nothing failed, nothing was unrun, and the window measured
+        # nothing.
+        log("no arm left a checkpoint, so there is nothing to compare; "
+            "skipping the bootstrap rather than re-reporting c6 against e4")
+        res["skipped"].append("lrlong-boot")
 
     O.SAMPLER.stop_flag.set()
     log("lrlong done. {} trained, {} failed, {} skipped, {} unrun".format(

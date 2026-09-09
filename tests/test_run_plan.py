@@ -181,3 +181,63 @@ def test_an_incomplete_window_does_not_exit_zero(window, monkeypatch):
                 "pyrL0L1-b340-c6-lr6"):
         (window / (tag + ".pt")).write_bytes(b"x")
     assert lrlong.main() == 1
+
+
+def _all_trained(window, monkeypatch, fails=()):
+    seen = runner(monkeypatch, fails=fails)
+    for tag in ("pyrL0L1-b340-c6x2-lr5e-5", "pyrL0L1-b340-c6-lr15",
+                "pyrL0L1-b340-c6-lr6", "pyrL0L1-b340-c10"):
+        (window / (tag + ".pt")).write_bytes(b"x")
+    return seen
+
+
+def test_a_failed_comparison_is_not_a_completed_window(window, monkeypatch):
+    """Reported on #63.
+
+    The comparison ran outside `run_plan` and its return value was discarded,
+    so every rung could train, the bootstrap could fail, and the window still
+    exited 0. That is the same defect the commit lifted `run_plan` to fix,
+    reintroduced two lines below the fix -- which is why the stage now goes
+    through the same accounting rather than beside it.
+    """
+    _all_trained(window, monkeypatch, fails=("lrlong-boot",))
+    assert lrlong.main() == 1
+
+
+def test_a_comparison_dropped_for_time_is_not_success_either(window,
+                                                             monkeypatch):
+    """The other half of the same finding: `run_stage` also returns False when
+    it drops a stage for want of time, and that was discarded identically.
+
+    The clock is driven by the stages rather than by the wall, so the deadline
+    lands in exactly one place -- after the last rung and before the
+    comparison -- however long the test actually takes to run.
+    """
+    seen, t = [], {"now": 0.0}
+    monkeypatch.setattr(O, "now", lambda: t["now"])
+
+    def fake(st, state, deadline):
+        seen.append(st.name)
+        if len(seen) == 4:            # every rung trained; then time runs out
+            t["now"] = 10 ** 12
+        return True
+
+    monkeypatch.setattr(O, "run_stage", fake)
+    for tag in ("pyrL0L1-b340-c6x2-lr5e-5", "pyrL0L1-b340-c6-lr15",
+                "pyrL0L1-b340-c6-lr6", "pyrL0L1-b340-c10"):
+        (window / (tag + ".pt")).write_bytes(b"x")
+    assert lrlong.main() == 1
+    assert "lrlong-boot" not in seen
+
+
+def test_a_window_that_compared_nothing_is_not_success(window, monkeypatch):
+    """Stages can all be recorded done and still leave no checkpoint -- an
+    interrupted save, a cleaned directory. Then nothing failed, nothing was
+    unrun, and the window measured nothing."""
+    runner(monkeypatch)                       # every stage "succeeds"
+    assert lrlong.main() == 1                 # no .pt files written
+
+def test_a_complete_window_still_exits_zero(window, monkeypatch):
+    """So the four tests above are not passing for some blanket reason."""
+    _all_trained(window, monkeypatch)
+    assert lrlong.main() == 0
