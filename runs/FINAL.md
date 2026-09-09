@@ -1,6 +1,6 @@
 # Results digest
 
-Generated 2026-09-08 18:35 by `scripts/digest.py`. Every arm below is the test split, 5,000 seeded-random images, beam k=2, ranked on s0-s2 -- the shipping protocol. Read the paired intervals further down before believing any ordering here: the median carries a ~16 km 95% interval at this sample size.
+Generated 2026-09-08 18:50 by `scripts/digest.py`. Every arm below is the test split, 5,000 seeded-random images, beam k=2, ranked on s0-s2 -- the shipping protocol. Read the paired intervals further down before believing any ordering here: the median carries a ~16 km 95% interval at this sample size.
 
 ## Arms, best hit rate first
 
@@ -66,7 +66,11 @@ Generated 2026-09-08 18:35 by `scripts/digest.py`. Every arm below is the test s
 * `**suspect**` -- the cache is NEWER than the checkpoint. That is not proof (a copy or a `touch` moves mtime), but it cannot be ruled out.
 * `**STALE**` -- the digest disagrees. Proven trained against different bytes.
 
-**A mark is a check on one arm, not a comparison between two.** It says whether a checkpoint trained against the bytes now sitting at the path it recorded -- so `clean` does not mean leak-free: an arm that trained on the leaky cache would still verify as `clean` if nothing had since overwritten that file. Two arms sharing a mark are therefore not thereby comparable; they also need the same split mode, the same evaluation protocol, and the same side of the 2026-09-04 rebuild, and only the first of those is visible in this table. Use the marks to rule an arm OUT, and take comparability from the paired intervals below, which measure it rather than assume it.
+**A mark is a check on one arm, not a comparison between two.** It says whether a checkpoint trained against the bytes now sitting at the path it recorded -- so `clean` does not mean leak-free: an arm that trained on the leaky cache would still verify as `clean` if nothing had since overwritten that file. Two arms sharing a mark are therefore not thereby comparable; they also need the same split mode, the same evaluation protocol, and the same side of the 2026-09-04 rebuild, and only the first of those is visible in this table.
+
+**And a paired interval does not establish it either.** An interval measures the difference between two arms; it does not say what the difference is OF. `BOOTSTRAP_ship.md`, in this very file, put the shipping arm 2.06 to 4.00 pp above the pyramid arm and was *separated* -- and its conclusion is retracted, because the two arms differed in the cache they trained against and the interval was measuring that (`runs/LEAKTRAIN.md`). Tightness is not provenance.
+
+So: use the marks to rule an arm OUT, then establish independently that two arms share a split mode, an evaluation protocol and a side of the 2026-09-04 rebuild before reading any interval between them. Nothing generated in this file does that for you.
 
 **20 of 52 arms are excluded from the headline below**: 20 with no checkpoint left on disk. They remain in the table with their marks.
 The best raw hit rate in this file, `s10_b55_c6` at 73.8%, is one of them -- above the best verifiable arm, `pyrL0L1-b340-c6` at 58.4%; its errors were measured 2026-09-01, before the same-sequence bank leak was fixed on 2026-09-04. It is not a result.

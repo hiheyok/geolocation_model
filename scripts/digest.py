@@ -78,6 +78,20 @@ def headline_pool(rows):
 LEAK_FIXED = datetime(2026, 9, 4, 4, 5).timestamp()
 
 
+# Why an arm can be excluded, one entry per state `verifiable` rejects. A
+# missing cache and a rebuilt one are not the same finding: one is proof the
+# bytes changed, the other is the absence of anything to check.
+REASONS = (
+    (None, "{} with no checkpoint left on disk"),
+    ("REBUILT SINCE TRAINING (proven by digest)",
+     "{} proven by digest to have trained against a cache that has since been "
+     "rebuilt"),
+    ("cache file is gone",
+     "{} whose neighbour cache is no longer on disk, so nothing about them "
+     "can be checked either way"),
+)
+
+
 def hit(row):
     return float((row[1] < 25).mean())
 
@@ -103,13 +117,22 @@ def exclusion_note(rows, ok):
     hidden = [r for r in rows if r[0] not in keep]
     if not hidden:
         return []
-    no_ck = [r for r in hidden if r[2].get("cache") is None]
+    # One bucket per reason, and a bucket for anything `verifiable` starts
+    # excluding that this has not been told about. The first version counted
+    # "everything not missing a checkpoint" as proven-rebuilt, which quietly
+    # reported a cache that is simply GONE -- nothing proven about it at all --
+    # as proof by digest. Subtracting one known category from the total is how
+    # an unknown category gets misdescribed instead of noticed.
     why = []
-    if no_ck:
-        why.append("{} with no checkpoint left on disk".format(len(no_ck)))
-    if len(hidden) > len(no_ck):
-        why.append("{} proven by digest to have trained against a cache that "
-                   "has since been rebuilt".format(len(hidden) - len(no_ck)))
+    seen = 0
+    for state, phrase in REASONS:
+        k = len([r for r in hidden if r[2].get("cache") == state])
+        seen += k
+        if k:
+            why.append(phrase.format(k))
+    if seen < len(hidden):
+        why.append("{} for a reason this note does not name".format(
+            len(hidden) - seen))
     out = ["**{} of {} arms are excluded from the headline below**: {}. They "
            "remain in the table with their marks."
            .format(len(hidden), len(rows), ", ".join(why))]
@@ -174,8 +197,20 @@ def cache_note(rows):
         "therefore not thereby comparable; they also need the same split "
         "mode, the same evaluation protocol, and the same side of the "
         "2026-09-04 rebuild, and only the first of those is visible in this "
-        "table. Use the marks to rule an arm OUT, and take comparability from "
-        "the paired intervals below, which measure it rather than assume it.",
+        "table.",
+        "",
+        "**And a paired interval does not establish it either.** An interval "
+        "measures the difference between two arms; it does not say what the "
+        "difference is OF. `BOOTSTRAP_ship.md`, in this very file, put the "
+        "shipping arm 2.06 to 4.00 pp above the pyramid arm and was "
+        "*separated* -- and its conclusion is retracted, because the two arms "
+        "differed in the cache they trained against and the interval was "
+        "measuring that (`runs/LEAKTRAIN.md`). Tightness is not provenance.",
+        "",
+        "So: use the marks to rule an arm OUT, then establish independently "
+        "that two arms share a split mode, an evaluation protocol and a side "
+        "of the 2026-09-04 rebuild before reading any interval between them. "
+        "Nothing generated in this file does that for you.",
         "",
     ]
 

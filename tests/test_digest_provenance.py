@@ -128,7 +128,7 @@ def test_the_note_does_not_claim_matching_marks_are_comparable():
     assert "sharing a mark are comparable" not in out
     assert "not a comparison between two" in out
     assert "does not mean leak-free" in out
-    assert "paired intervals" in out
+    assert "same split mode" in out
 
 
 # ------------------------------------------------ the exclusion sentence ----
@@ -208,3 +208,58 @@ def test_every_arm_excluded_still_reports():
     assert "2 of 2 arms" in out
     assert "`a` at 90.0%" in out
     assert "above the best verifiable" not in out
+
+
+# ------------------------------- what the report does NOT establish ---------
+
+def test_the_note_does_not_offer_paired_intervals_as_proof_of_comparability():
+    """Rechecked on #62.
+
+    The first correction traded one false authority for another: it sent the
+    reader to the paired intervals "which measure it rather than assume it".
+    They do not. `BOOTSTRAP_ship.md` is in this file, was separated at 2.06 to
+    4.00 pp, and is retracted -- the arms differed in the cache they trained
+    against, so the interval measured that. Tightness is not provenance.
+    """
+    out = "\n".join(digest.cache_note([("a", None, {}, 0)]))
+    assert "which measure it rather than assume it" not in out
+    assert "does not establish it either" in out
+    assert "BOOTSTRAP_ship.md" in out
+    assert "establish independently" in out
+
+
+# ------------------------------------- a missing cache proves nothing -------
+
+def test_a_missing_cache_is_not_reported_as_a_proven_rebuild():
+    """Reported on #62. `verifiable` rejects CACHE_REBUILT and CACHE_MISSING
+    alike, and the note counted "everything with a checkpoint" as the former.
+    The table said `gone` in the same breath as the note claimed proof by
+    digest."""
+    gone = _arm("gone", 10, knnmeta.CACHE_MISSING)
+    ok = _arm("ok", 90, knnmeta.CACHE_OK)
+    out = "\n".join(digest.exclusion_note([gone, ok], [ok]))
+    assert "proven by digest" not in out
+    assert "no longer on disk" in out
+    assert "nothing about them can be checked" in out
+
+
+def test_the_three_reasons_are_counted_separately():
+    rows = [_arm("a", 10), _arm("b", 10, knnmeta.CACHE_REBUILT),
+            _arm("c", 10, knnmeta.CACHE_MISSING),
+            _arm("d", 90, knnmeta.CACHE_OK)]
+    out = "\n".join(digest.exclusion_note(rows, [rows[3]]))
+    assert "1 with no checkpoint" in out
+    assert "1 proven by digest" in out
+    assert "1 whose neighbour cache is no longer on disk" in out
+    assert "does not name" not in out
+
+
+def test_a_new_exclusion_reason_is_noticed_rather_than_absorbed():
+    """The shape of the defect, not just this instance. Subtracting one known
+    category from the total is how an unknown one gets misdescribed; an
+    unlisted state has to surface as unlisted."""
+    rows = [_arm("a", 10, "some future state"), _arm("b", 90,
+                                                     knnmeta.CACHE_OK)]
+    out = "\n".join(digest.exclusion_note(rows, [rows[1]]))
+    assert "1 for a reason this note does not name" in out
+    assert "proven by digest" not in out
