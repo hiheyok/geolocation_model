@@ -73,7 +73,38 @@ NOT_IDENTITY = ("outputs",)
 # bootstrap.py, so guessing it wrong would either strand a stage forever or
 # certify one that never ran.
 INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
-               "--basis": "street", "--bank": "street", "--init": "ckpt"}
+               "--basis": "street", "--bank": "street", "--init": "ckpt",
+               # `knn_gap --a X --b Y` and `concat_street --a X --b Y`. Both
+               # name street-cache files, and a comparison stage is exactly
+               # where an unstamped input does the most damage: the argv is
+               # character for character the same whichever build of X and Y
+               # is on disk, so a rebuilt arm left its old gap "satisfied"
+               # and the runner reported a comparison it had not made.
+               "--a": "street", "--b": "street",
+               # The whole pool -> stack -> project chain. Every one of these
+               # names a file some earlier stage wrote, under a name that does
+               # not change when its contents do -- so without them a rebuilt
+               # pool left the fit, the stacks, the projection, the index and
+               # the comparison all "satisfied", and the runner exited 0 on an
+               # experiment whose first stage had been replaced. The sweep hid
+               # it in the default path (a deleted intermediate is caught by
+               # `outputs_intact`) and `--keep` did not.
+               "--src": "street", "--tiles": "street",
+               "--base": "street", "--ext": "street"}
+
+
+def street_path(cache, val):
+    """The file a street-cache flag names, under whichever convention it uses.
+
+    Returns the first candidate that exists, else the bare name so a genuinely
+    missing input still stamps `absent` rather than resolving to some other
+    file that happens to be there.
+    """
+    for cand in (cache / val, cache / (val + ".f16.npy"),
+                 cache / (val + "_meta.npz")):
+        if cand.exists():
+            return cand
+    return cache / val
 
 
 def stage_inputs(argv):
@@ -108,9 +139,16 @@ def stage_inputs(argv):
         if where is None:
             continue
         val = str(argv[i + 1])
-        paths[str(tok) + " " + val] = (
-            config.STREET_CACHE / val if where == "street"
-            else config.CHECKPOINTS / (val + ".pt"))
+        if where == "ckpt":
+            paths[str(tok) + " " + val] = config.CHECKPOINTS / (val + ".pt")
+            continue
+        # Three naming conventions live in this cache and the flags do not
+        # distinguish them: `--knn-file` names `knn_x.npz`, `--base` names the
+        # stem `pyr_l0l1_b115`, and `--ext bank_ext70` names a corpus whose
+        # file is `bank_ext70_meta.npz`. Resolving only the bare name would
+        # leave two of the three recorded as `absent` in perpetuity, which
+        # reads like a stamp and is not one.
+        paths[str(tok) + " " + val] = street_path(config.STREET_CACHE, val)
     return {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
 
 
@@ -132,6 +170,14 @@ def stage_outputs(argv):
         if str(tok) in ("--out", "--export"):
             cand += [ROOT / val, config.STREET_CACHE / val,
                      config.STREET_CACHE / (val + ".f16.npy")]
+            # `project_street` writes `<out>_pca.npz` beside the projection,
+            # and that basis is what every later extension is projected with.
+            # Recorded only if it is there, so this costs nothing for the
+            # stages that write no basis -- but without it, deleting a basis
+            # leaves its fitting stage satisfied and the next projection fails
+            # with no indication of which stage should have re-run.
+            cand.append(config.STREET_CACHE /
+                        (val.replace(".f16.npy", "") + "_pca.npz"))
         elif str(tok) == "--tag" and str(argv[0]).endswith("train.py"):
             cand.append(config.CHECKPOINTS / (val + ".pt"))
     for p in cand:
