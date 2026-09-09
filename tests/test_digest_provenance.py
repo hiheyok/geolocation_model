@@ -110,3 +110,101 @@ def test_the_headline_pool_keeps_everything_verifiable():
             _row("c", False, knnmeta.CACHE_PLAUSIBLE)]
     ok, hidden = digest.headline_pool(rows)
     assert hidden == 0 and len(ok) == 3
+
+
+# ------------------------------------------- a mark is not a comparison -----
+
+def test_the_note_does_not_claim_matching_marks_are_comparable():
+    """Reported on #62.
+
+    A mark says whether a checkpoint trained against the bytes now sitting at
+    the path it recorded. That is a check on one arm. `clean` does not even
+    mean leak-free -- an arm that trained on the leaky cache still verifies as
+    `clean` if nothing overwrote that file since -- so two arms sharing a mark
+    have established nothing about each other. They also need the same split
+    mode, the same protocol, and the same side of the 2026-09-04 rebuild.
+    """
+    out = "\n".join(digest.cache_note([("a", None, {}, 0)]))
+    assert "sharing a mark are comparable" not in out
+    assert "not a comparison between two" in out
+    assert "does not mean leak-free" in out
+    assert "paired intervals" in out
+
+
+# ------------------------------------------------ the exclusion sentence ----
+
+BEFORE = digest.LEAK_FIXED - 86400
+AFTER = digest.LEAK_FIXED + 86400
+
+
+def _arm(tag, pct, cache="__absent__", when=AFTER):
+    """An arm whose `<25 km` rate is `pct`, with a chosen provenance."""
+    import numpy as np
+    e = np.concatenate([np.full(pct, 1.0), np.full(100 - pct, 1000.0)])
+    meta = {} if cache == "__absent__" else {"cache": cache}
+    return (tag, e, meta, when)
+
+
+def test_nothing_excluded_says_nothing():
+    rows = [_arm("a", 90, knnmeta.CACHE_OK)]
+    assert digest.exclusion_note(rows, rows) == []
+
+
+def test_a_losing_excluded_arm_does_not_discredit_the_winner():
+    """The reported defect, reproduced exactly: a verified 90% winner and a
+    missing-checkpoint 10% loser. The old text fired on any exclusion at all
+    and announced that the top score was excluded and predated the leak fix,
+    which here is false twice over."""
+    win, lose = _arm("win", 90, knnmeta.CACHE_OK), _arm("lose", 10)
+    out = "\n".join(digest.exclusion_note([win, lose], [win]))
+    assert "1 of 2 arms are excluded" in out
+    assert "best raw hit rate" not in out
+    assert "leak" not in out
+    assert "not a result" not in out
+
+
+def test_an_excluded_leader_is_named_with_both_numbers():
+    """When it IS true, say it -- and say what it beat, so the reader can see
+    the size of what is being set aside."""
+    top, ok = _arm("top", 90), _arm("ok", 60, knnmeta.CACHE_OK)
+    out = "\n".join(digest.exclusion_note([top, ok], [ok]))
+    assert "`top` at 90.0%" in out and "`ok` at 60.0%" in out
+    assert "not a result" in out
+
+
+def test_the_leak_clause_needs_the_dates_to_support_it():
+    """Measured after the rebuild, the arm is still unverifiable -- but not
+    for that reason, and saying so would be a second false claim."""
+    late = _arm("top", 90, when=AFTER)
+    ok = _arm("ok", 60, knnmeta.CACHE_OK)
+    assert "leak" not in "\n".join(digest.exclusion_note([late, ok], [ok]))
+    early = _arm("top", 90, when=BEFORE)
+    assert "leak" in "\n".join(digest.exclusion_note([early, ok], [ok]))
+
+
+def test_the_reason_counts_come_from_the_rows():
+    rows = [_arm("a", 10), _arm("b", 10),
+            _arm("c", 10, knnmeta.CACHE_REBUILT), _arm("d", 90,
+                                                       knnmeta.CACHE_OK)]
+    out = "\n".join(digest.exclusion_note(rows, [rows[3]]))
+    assert "3 of 4 arms" in out
+    assert "2 with no checkpoint" in out
+    assert "1 proven by digest" in out
+
+
+def test_a_reason_with_no_rows_behind_it_is_not_printed():
+    rows = [_arm("a", 10, knnmeta.CACHE_REBUILT), _arm("b", 90,
+                                                       knnmeta.CACHE_OK)]
+    out = "\n".join(digest.exclusion_note(rows, [rows[1]]))
+    assert "no checkpoint" not in out
+    assert "1 proven by digest" in out
+
+
+def test_every_arm_excluded_still_reports():
+    """No verifiable arm to compare against, so the comparison clause has to
+    drop out rather than crash or invent one."""
+    rows = [_arm("a", 90), _arm("b", 10)]
+    out = "\n".join(digest.exclusion_note(rows, []))
+    assert "2 of 2 arms" in out
+    assert "`a` at 90.0%" in out
+    assert "above the best verifiable" not in out

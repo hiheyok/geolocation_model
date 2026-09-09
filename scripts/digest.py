@@ -71,6 +71,66 @@ def headline_pool(rows):
     return ok, len(rows) - len(ok)
 
 
+
+# 2026-09-04 04:05, when every `knn_*` cache was rebuilt after the
+# same-sequence bank leak. Anything measured before it was measured against
+# the leaky corpus.
+LEAK_FIXED = datetime(2026, 9, 4, 4, 5).timestamp()
+
+
+def hit(row):
+    return float((row[1] < 25).mean())
+
+
+def exclusion_note(rows, ok):
+    """What the headline leaves out -- read off the rows, not recalled.
+
+    The first version hard-coded the state of the archive on the day it was
+    written: whenever *anything* was excluded it asserted that the top raw
+    score belonged to an excluded arm and predated the leak fix. That was true
+    of `s10_b55_c6` at 73.8% in September 2026 and is a claim about the data,
+    not about the code, so it went on being printed after it stopped being
+    true -- discrediting a perfectly good winner as soon as the excluded arm
+    was some 10% also-ran. It is the same defect as the stale rule in
+    AGENTS.md (#61): a fact frozen into the tool that regenerates the report.
+
+    So every clause here is derived. The count and the reason come from the
+    rows; the claim about the leader is made only when the leader really is
+    excluded; the claim about the leak fix only when that arm's errors really
+    were measured before it.
+    """
+    keep = {r[0] for r in ok}
+    hidden = [r for r in rows if r[0] not in keep]
+    if not hidden:
+        return []
+    no_ck = [r for r in hidden if r[2].get("cache") is None]
+    why = []
+    if no_ck:
+        why.append("{} with no checkpoint left on disk".format(len(no_ck)))
+    if len(hidden) > len(no_ck):
+        why.append("{} proven by digest to have trained against a cache that "
+                   "has since been rebuilt".format(len(hidden) - len(no_ck)))
+    out = ["**{} of {} arms are excluded from the headline below**: {}. They "
+           "remain in the table with their marks."
+           .format(len(hidden), len(rows), ", ".join(why))]
+
+    top = max(rows, key=hit)
+    if top[0] not in keep:
+        s = ("The best raw hit rate in this file, `{}` at {:.1f}%, is one of "
+             "them".format(top[0], 100 * hit(top)))
+        if ok:
+            b = max(ok, key=hit)
+            s += " -- above the best verifiable arm, `{}` at {:.1f}%".format(
+                b[0], 100 * hit(b))
+        if top[3] and top[3] < LEAK_FIXED:
+            s += ("; its errors were measured {}, before the same-sequence "
+                  "bank leak was fixed on 2026-09-04".format(
+                      datetime.fromtimestamp(top[3]).strftime("%Y-%m-%d")))
+        out.append(s + ". It is not a result.")
+    out.append("")
+    return out
+
+
 def cache_note(rows):
     """Say what the cache column means, when any arm is not verified.
 
@@ -106,8 +166,16 @@ def cache_note(rows):
         "* `**STALE**` -- the digest disagrees. Proven trained against "
         "different bytes.",
         "",
-        "Arms sharing a mark are comparable to each other. Comparing across "
-        "marks is what produced a merged, wrong conclusion in PR #59.",
+        "**A mark is a check on one arm, not a comparison between two.** It "
+        "says whether a checkpoint trained against the bytes now sitting at "
+        "the path it recorded -- so `clean` does not mean leak-free: an arm "
+        "that trained on the leaky cache would still verify as `clean` if "
+        "nothing had since overwritten that file. Two arms sharing a mark are "
+        "therefore not thereby comparable; they also need the same split "
+        "mode, the same evaluation protocol, and the same side of the "
+        "2026-09-04 rebuild, and only the first of those is visible in this "
+        "table. Use the marks to rule an arm OUT, and take comparability from "
+        "the paired intervals below, which measure it rather than assume it.",
         "",
     ]
 
@@ -194,18 +262,9 @@ def main():
     # from 2026-09-01 -- three days before the same-sequence leak was fixed.
     # Ranking by hit rate alone puts exactly the arms nothing can be checked
     # about at the top, because they are the ones measured before the fixes.
-    ok, hidden = headline_pool(rows)
-    best = max(ok, key=lambda r: (r[1] < 25).mean()) if ok else None
-    if hidden:
-        L.append("**{} of {} arms are excluded from the headline below** "
-                 "because their provenance cannot be established -- no "
-                 "checkpoint on disk, or a cache proven to have been rebuilt "
-                 "since. They remain in the table with their marks. The best "
-                 "raw hit rate in this file belongs to one of them, measured "
-                 "before the same-sequence bank leak was fixed on 2026-09-04, "
-                 "and it is not a result."
-                 .format(hidden, len(rows)))
-        L.append("")
+    ok, _ = headline_pool(rows)
+    best = max(ok, key=hit) if ok else None
+    L += exclusion_note(rows, ok)
     if best is not None:
         tag, e, m, _ = best
         seq = [r for r in ok if r[2].get("split_mode") == "sequence"]
