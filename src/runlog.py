@@ -73,7 +73,14 @@ NOT_IDENTITY = ("outputs",)
 # bootstrap.py, so guessing it wrong would either strand a stage forever or
 # certify one that never ran.
 INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
-               "--basis": "street", "--bank": "street", "--init": "ckpt"}
+               "--basis": "street", "--bank": "street", "--init": "ckpt",
+               # `knn_gap --a X --b Y` and `concat_street --a X --b Y`. Both
+               # name street-cache files, and a comparison stage is exactly
+               # where an unstamped input does the most damage: the argv is
+               # character for character the same whichever build of X and Y
+               # is on disk, so a rebuilt arm left its old gap "satisfied"
+               # and the runner reported a comparison it had not made.
+               "--a": "street", "--b": "street"}
 
 
 def stage_inputs(argv):
@@ -108,9 +115,16 @@ def stage_inputs(argv):
         if where is None:
             continue
         val = str(argv[i + 1])
+        if where == "ckpt":
+            paths[str(tok) + " " + val] = config.CHECKPOINTS / (val + ".pt")
+            continue
+        # Some flags take a filename and some take a stem: `knn_gap --a` names
+        # `knn_x.npz`, `concat_street --a` names `embeddings_c3`. Stamping the
+        # bare name only would leave every stem-valued flag recorded as
+        # `absent` forever -- which reads as a stamp and is not one.
+        bare = config.STREET_CACHE / val
         paths[str(tok) + " " + val] = (
-            config.STREET_CACHE / val if where == "street"
-            else config.CHECKPOINTS / (val + ".pt"))
+            bare if bare.exists() else config.STREET_CACHE / (val + ".f16.npy"))
     return {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
 
 
@@ -132,6 +146,14 @@ def stage_outputs(argv):
         if str(tok) in ("--out", "--export"):
             cand += [ROOT / val, config.STREET_CACHE / val,
                      config.STREET_CACHE / (val + ".f16.npy")]
+            # `project_street` writes `<out>_pca.npz` beside the projection,
+            # and that basis is what every later extension is projected with.
+            # Recorded only if it is there, so this costs nothing for the
+            # stages that write no basis -- but without it, deleting a basis
+            # leaves its fitting stage satisfied and the next projection fails
+            # with no indication of which stage should have re-run.
+            cand.append(config.STREET_CACHE /
+                        (val.replace(".f16.npy", "") + "_pca.npz"))
         elif str(tok) == "--tag" and str(argv[0]).endswith("train.py"):
             cand.append(config.CHECKPOINTS / (val + ".pt"))
     for p in cand:
