@@ -42,6 +42,21 @@ MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
 
 
+def crop_lefts(w, size, crops):
+    """Left edge of each crop, in pixels of the resized image.
+
+    Split out because `pool_pyramid` has to know where the crops actually
+    sit in order to give them positions, and a second copy of this arithmetic
+    would be a second answer to that question. The windows OVERLAP: on the
+    910x512 OSV-5M frame the short side scales to 224, so `w` is 398 and three
+    224-wide windows land at 0, 87 and 174 -- 61% of each is shared with its
+    neighbour.
+    """
+    if crops == 1:
+        return [(w - size) // 2]
+    return [round(i * (w - size) / (crops - 1)) for i in range(crops)]
+
+
 def preprocess(blob, size=224, crops=1, mean=None, std=None):
     """JPEG bytes -> (crops, 3, size, size) normalised float32.  224 = 16*14.
 
@@ -64,10 +79,7 @@ def preprocess(blob, size=224, crops=1, mean=None, std=None):
                          Image.BILINEAR)
     w, h = img.size
     t = (h - size) // 2
-    if crops == 1:
-        lefts = [(w - size) // 2]
-    else:
-        lefts = [round(i * (w - size) / (crops - 1)) for i in range(crops)]
+    lefts = crop_lefts(w, size, crops)
     out = np.empty((len(lefts), 3, size, size), dtype=np.float32)
     for i, l in enumerate(lefts):
         c = img.crop((l, t, l + size, t + size))
