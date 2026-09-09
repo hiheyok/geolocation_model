@@ -273,6 +273,10 @@ def main():
                     help="osv: 3 crops + 6 tiles over OSV-5M, two levels. "
                          "pyr33: 3 + 6 + 24 over the high-resolution harvest, "
                          "three levels -- the arm mean pooling cannot judge")
+    ap.add_argument("--init", default="",
+                    help="trunk from scripts/fuse_pretrain.py. Loads every "
+                         "layer except `out`, which stays zero so the run "
+                         "still starts at the mean-pooled baseline.")
     ap.add_argument("--export", default="",
                     help="stem to write the fused vectors and the trained head "
                          "to, so the agent can be trained on them")
@@ -352,6 +356,28 @@ def main():
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     model = FuseHead(d=a.d, n_reg=X.shape[1],
                      level_of=level_of).to(dev)
+    if a.init:
+        # A trunk pretrained by reconstruction on every row in the corpus
+        # (`fuse_pretrain.py`), which is 3,400,180 against the 38,009 images
+        # that have a cross-sequence positive within --pos-km. The saved
+        # state deliberately excludes `out`, so the residual stays zero here
+        # and this run still emits the mean-pooled baseline at step 0 -- the
+        # property the head's numbers are comparable through.
+        ck = torch.load(config.CHECKPOINTS / a.init, map_location="cpu",
+                        weights_only=False)
+        if any(k.startswith("out.") for k in ck["trunk"]):
+            sys.exit("{} carries `out.*`; loading it would start this run off "
+                     "the baseline and the comparison would measure the "
+                     "pretraining and the departure together".format(a.init))
+        miss, unexpected = model.load_state_dict(ck["trunk"], strict=False)
+        if unexpected:
+            sys.exit("{} has tensors this head has no home for: {}"
+                     .format(a.init, ", ".join(sorted(unexpected)[:4])))
+        print("init trunk from {}  ({} tensors loaded, {} left at init: {})"
+              .format(a.init, len(ck["trunk"]), len(miss),
+                      ", ".join(sorted(miss)[:4])), flush=True)
+        assert float(model.out[1].weight.abs().max()) == 0.0, (
+            "the residual must still be zero after --init")
     n_par = sum(p.numel() for p in model.parameters())
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=0.01)
     # Count the batches actually yielded. With --uniq-anchor the loop keeps
