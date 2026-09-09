@@ -24,6 +24,7 @@ arm ladder whose baseline is only approximately the shipping arm measures the
 approximation as well as the treatment.
 """
 
+import inspect
 import sys
 from pathlib import Path
 
@@ -38,7 +39,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import pool_pyramid as P  # noqa: E402
 
 CROPS, GRID = 3, (3, 2)          # dual_c3 and tile6, the shipping pair
+COLS = None                      # filled in below, from the real geometry
 PAIRS = P.D_ENC // 2
+COLS = P.crop_columns(CROPS, GRID[0], P.FRAME)
 
 
 def views(b=4, n=3, seed=0):
@@ -48,15 +51,47 @@ def views(b=4, n=3, seed=0):
 
 # ------------------------------------------------------- the coordinates ----
 
-def test_a_crop_sits_at_the_centre_of_the_column_it_covers():
-    """A full-height crop covers one tile column and both of its rows."""
-    p0, p1 = P.view_positions(CROPS, GRID)
-    assert p0 == [(0.0, 0.5, 0.0), (0.0, 0.5, 1.0), (0.0, 0.5, 2.0)]
+def test_the_crops_sit_where_the_preprocessor_actually_puts_them():
+    """Reported on #64. They are NOT at columns 0, 1, 2.
+
+    `embed_street.preprocess` scales the short side to 224 and slides a
+    224-wide window across the width, so on the 910x512 OSV-5M frame `w` is
+    398 and the windows land at 0, 87, 174 -- 56% of the width each, sharing
+    61% with a neighbour. Their centres are 0.344, 1.000 and 1.656 tile
+    columns: the outer two are 1.31 columns apart, not 2.
+
+    Putting them at 0 and 2 would claim two views that mostly show the same
+    pixels are as far apart as the outer tile columns, and would align each
+    crop with a tile centre it does not sit on -- the exact cross-level
+    matching the rotation exists to get right.
+    """
+    cols = P.crop_columns(CROPS, GRID[0], P.FRAME)
+    assert cols == pytest.approx([0.34422, 1.0, 1.65578], abs=1e-4)
+    p0, _ = P.view_positions(CROPS, GRID, cols)
+    assert [r for _, r, _ in p0] == [0.5, 0.5, 0.5]
+
+
+def test_the_crop_positions_come_from_the_preprocessor_itself():
+    """One definition of where a crop sits. A second copy of the arithmetic
+    would be a second answer, and the two would drift apart silently."""
+    import embed_street
+    w = max(224, round(910 * 224 / 512))
+    assert embed_street.crop_lefts(w, 224, 3) == [0, 87, 174]
+    assert P.crop_columns(3, 3, (910, 512)) == pytest.approx(
+        [3 * (l + 112) / w - 0.5 for l in (0, 87, 174)])
+
+
+def test_a_different_frame_moves_the_crops():
+    """The positions are a function of the frame, so `--frame` is load-bearing
+    rather than decorative. A square frame gives one crop, dead centre."""
+    assert P.crop_columns(3, 3, (512, 512)) == pytest.approx([1.0, 1.0, 1.0])
+    wide = P.crop_columns(3, 3, (2048, 512))
+    assert wide[0] < 0.34422 and wide[2] > 1.65578
 
 
 def test_tiles_are_row_major_over_the_grid():
     """`tile_cache` writes axis 1 row-major; the positions must agree."""
-    _, p1 = P.view_positions(CROPS, GRID)
+    _, p1 = P.view_positions(CROPS, GRID, COLS)
     assert p1 == [(1.0, 0.0, 0.0), (1.0, 0.0, 1.0), (1.0, 0.0, 2.0),
                   (1.0, 1.0, 0.0), (1.0, 1.0, 1.0), (1.0, 1.0, 2.0)]
 
@@ -68,12 +103,24 @@ def test_a_transposed_grid_gives_different_positions():
     assert P.view_positions(2, (2, 3))[1] != P.view_positions(3, (3, 2))[1]
 
 
-def test_a_crop_and_its_children_share_a_column():
-    p0, p1 = P.view_positions(CROPS, GRID)
-    for c in range(CROPS):
-        kids = [p for p in p1 if p[2] == c]
-        assert len(kids) == GRID[1]
-        assert all(k[2] == p0[c][2] for k in kids)
+def test_a_crop_is_not_the_parent_of_a_tile_column():
+    """The model this replaced. A crop is 56% of the width and shares 61% of
+    itself with its neighbour, so it is not the parent of one column -- only
+    the middle crop lands on a column centre, and the outer two do not."""
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
+    centres = {c for _, _, c in p1}
+    on_centre = [c for _, _, c in p0 if c in centres]
+    assert on_centre == [1.0], on_centre
+
+
+def test_the_crops_span_less_than_the_tiles_do():
+    """Because they overlap. The rotation should separate them less than it
+    separates the tile columns, and it only does that if their coordinates
+    say so."""
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
+    spread = lambda ps: max(c for _, _, c in ps) - min(c for _, _, c in ps)
+    assert spread(p0) == pytest.approx(1.3116, abs=1e-3)
+    assert spread(p1) == 2.0
 
 
 # ------------------------------------------------------------ the angles ----
@@ -142,7 +189,7 @@ def test_the_rotation_preserves_every_norm():
     the angles *between* views."""
     V = views(n=6)
     ang = torch.from_numpy(P.rope_angles(
-        P.view_positions(CROPS, GRID)[1], PAIRS,
+        P.view_positions(CROPS, GRID, COLS)[1], PAIRS,
         ["depth", "row", "col"], 0.7, 1000.0))
     R = P.apply_rope(V, ang)
     assert torch.allclose(R.norm(dim=-1), V.norm(dim=-1), atol=1e-4)
@@ -155,28 +202,55 @@ def test_the_pooled_vector_stops_being_permutation_invariant():
     S = V[:, [2, 1, 0]]
     assert torch.allclose(V.mean(1), S.mean(1), atol=1e-6)
     ang = torch.from_numpy(P.rope_angles(
-        P.view_positions(CROPS, GRID)[0], PAIRS, ["col"], 0.7, 1000.0))
+        P.view_positions(CROPS, GRID, COLS)[0], PAIRS, ["col"], 0.7, 1000.0))
     assert not torch.allclose(P.apply_rope(V, ang).mean(1),
                               P.apply_rope(S, ang).mean(1), atol=1e-3)
 
 
+def _one_view(pos, n, axes, slot, mx=0.7, spread=None):
+    """Pool a single feature placed in view `slot`, and nothing else."""
+    feat = views(b=1, n=1)[:, 0]
+    ang = torch.from_numpy(P.rope_angles(
+        pos, PAIRS, axes, mx, P.ROPE_SPREAD if spread is None else spread))
+    V = torch.zeros(1, n, 2, P.D_ENC)
+    V[:, slot] = feat
+    v = P.apply_rope(V, ang).mean(1).flatten()
+    return v / v.norm()
+
+
 def test_a_same_position_match_keeps_more_credit_than_a_moved_one():
     """The property the retrieval cosine is being given: two images sharing a
-    feature in the same view should score above two sharing it in different
-    views. Under a plain mean those are identical."""
-    b, feat = 1, views(b=1, n=1)[:, 0]
-    ang = torch.from_numpy(P.rope_angles(
-        P.view_positions(CROPS, GRID)[0], PAIRS, ["col"], 0.7, 1000.0))
+    feature in the same view score above two sharing it in different views.
+    Under a plain mean those are identical."""
+    _, p1 = P.view_positions(CROPS, GRID, COLS)
+    q = _one_view(p1, 6, ["col"], 0)
+    same = float(torch.dot(q, _one_view(p1, 6, ["col"], 0)))
+    moved = float(torch.dot(q, _one_view(p1, 6, ["col"], 2)))
+    assert same == pytest.approx(1.0, abs=1e-5)
+    assert moved < 0.85, moved
 
-    def pooled(slot):
-        V = torch.zeros(b, CROPS, 2, P.D_ENC)
-        V[:, slot] = feat
-        return P.apply_rope(V, ang).mean(1).flatten()
 
-    q, same, moved = pooled(0), pooled(0), pooled(2)
-    aligned = torch.dot(q, same) / (q.norm() * same.norm())
-    across = torch.dot(q, moved) / (q.norm() * moved.norm())
-    assert aligned > across + 0.05, (float(aligned), float(across))
+def test_the_overlapping_crops_separate_less_than_the_tiles():
+    """The geometry showing through the metric, which is the point of getting
+    it right: two crops sharing 61% of their pixels are held closer than two
+    disjoint tile columns, instead of being forced 2 columns apart."""
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
+    c = float(torch.dot(_one_view(p0, 3, ["col"], 0),
+                        _one_view(p0, 3, ["col"], 2)))
+    t = float(torch.dot(_one_view(p1, 6, ["col"], 0),
+                        _one_view(p1, 6, ["col"], 2)))
+    assert c > t, (c, t)
+
+
+def test_the_default_spread_separates_positions_and_1000_barely_does():
+    """Ties the spread default to the thing it exists for. At 1000 the outer
+    crops are 0.97 apart -- indistinguishable in a cosine that ranks 3.4M
+    rows."""
+    p0, _ = P.view_positions(CROPS, GRID, COLS)
+    far = lambda sp: float(torch.dot(_one_view(p0, 3, ["col"], 0, spread=sp),
+                                     _one_view(p0, 3, ["col"], 2, spread=sp)))
+    assert far(1000.0) > 0.96
+    assert far(P.ROPE_SPREAD) < 0.93
 
 
 # ------------------------------------------- the zero point, exactly --------
@@ -191,7 +265,7 @@ def test_zero_rotation_reproduces_the_unrotated_pooling_bit_for_bit():
     (`tiles-gain-grows-with-corpus`, `pyramid-fusion-head-is-negative`).
     """
     C, T = views(n=CROPS, seed=1), views(n=6, seed=2)
-    p0, p1 = P.view_positions(CROPS, GRID)
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
     z0, z1 = (torch.from_numpy(P.rope_angles(p, PAIRS,
                                              ["depth", "row", "col"],
                                              0.0, 1000.0)) for p in (p0, p1))
@@ -211,7 +285,7 @@ def test_no_axes_leaves_the_pooling_untouched():
 def test_a_nonzero_rotation_actually_changes_the_output():
     """So the two tests above are not passing because nothing is wired up."""
     C, T = views(n=CROPS, seed=5), views(n=6, seed=6)
-    p0, p1 = P.view_positions(CROPS, GRID)
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
     a0, a1 = (torch.from_numpy(P.rope_angles(p, PAIRS, ["depth", "row", "col"],
                                              0.7, 1000.0))
               for p in (p0, p1))
@@ -224,10 +298,44 @@ def test_the_levels_stay_unit_length():
     """Downstream reads one cosine; a level that is not normalised silently
     reweights the blend (`blend-weight-is-set-by-block-norms`)."""
     C, T = views(n=CROPS, seed=7), views(n=6, seed=8)
-    p0, p1 = P.view_positions(CROPS, GRID)
+    p0, p1 = P.view_positions(CROPS, GRID, COLS)
     a0, a1 = (torch.from_numpy(P.rope_angles(p, PAIRS, ["row", "col"],
                                              0.9, 1000.0))
               for p in (p0, p1))
     for L in P.levels(C, T, a0, a1):
         assert torch.allclose(L.norm(dim=-1), torch.ones(L.shape[0]),
                               atol=1e-5)
+
+
+# ------------------------------------ the guard is the rotation's, not ------
+
+def test_the_geometry_guard_does_not_fire_without_rotation():
+    """Reported on #64.
+
+    The crop/grid check ran unconditionally, so a 3-crop cache against a 2x3
+    grid -- which pooled fine before this flag existed -- started exiting. A
+    flag must not restrict the inputs of the path that does not use it.
+    """
+    src = Path(inspect.getsourcefile(P.main)).read_text(encoding="utf-8")
+    body = src[src.index("def main("):]
+    i, j = body.index("grid = tile_grid("), body.index("p0, p1 = view_positions")
+    assert "if axes:" in body[i:j], "geometry checks run outside `if axes`"
+
+
+def test_a_frame_at_or_below_square_collapses_the_crops():
+    """What the frame guard is actually for.
+
+    A range check could never fire -- a crop is inside its own image, so the
+    column is always within (-0.5, gc-0.5). What can go wrong is the frame
+    collapsing the crops onto each other: at or below square the short side is
+    the width, the window cannot slide, and all three crops are the same
+    pixels. Rotating those on `col` would separate identical views.
+    """
+    assert len(set(P.crop_columns(3, 3, (512, 512)))) == 1
+    assert len(set(P.crop_columns(3, 3, (400, 512)))) == 1
+    assert len(set(P.crop_columns(3, 3, P.FRAME))) == 3
+
+
+def test_the_collapse_guard_is_reachable_from_main():
+    src = Path(inspect.getsourcefile(P.main)).read_text(encoding="utf-8")
+    assert "cannot slide" in src

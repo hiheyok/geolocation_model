@@ -70,6 +70,7 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import config                                        # noqa: E402
+import embed_street                                  # noqa: E402
 import maskio                                        # noqa: E402
 import provenance as prov                            # noqa: E402
 
@@ -82,6 +83,12 @@ AXES = ("depth", "row", "col")
 # so a language model's geometric spread would park most of the vector at
 # under a degree per unit and carry no position in it.
 ROPE_SPREAD = 10.0
+
+# The frame the corpus was embedded from, and the window size slid across
+# it. Every OSV-5M image is 910x512; `--frame` exists because the crop
+# positions are a function of it and a wrong one is invisible downstream.
+FRAME = (910, 512)
+CROP_SIZE = 224
 
 
 def tile_grid(stem):
@@ -103,21 +110,52 @@ def tile_grid(stem):
     return gc, gr
 
 
-def view_positions(crops, grid):
+def crop_columns(crops, gc, frame, size=CROP_SIZE):
+    """Where the crops actually sit, measured in tile columns.
+
+    **Not 0, 1, 2.** `embed_street.preprocess` scales the short side to `size`
+    and slides a size-by-size window across the width, so on the 910x512
+    OSV-5M frame the crops are 224 pixels of 398 -- 56% of the width -- placed
+    at lefts 0, 87, 174 and overlapping by 61%. Their centres land at
+
+        0.344, 1.000, 1.656   tile columns
+
+    and the outer two are 1.31 columns apart, not 2.
+
+    The difference is not cosmetic. Putting the outer crops at 0 and 2 claims
+    they are as far apart as the outer tile columns, so a `col` rotation would
+    separate two views that mostly show the same pixels -- and it would align
+    each crop with a tile centre it does not sit on, which is precisely the
+    cross-level matching the rotation exists to get right.
+
+    A crop is an extent, not a point, and giving it one coordinate is an
+    approximation either way. The centre is the honest choice; inventing a
+    correspondence with the columns is not.
+    """
+    W, H = frame
+    w = max(size, round(W * size / min(W, H)))
+    return [gc * (l + size / 2.0) / w - 0.5
+            for l in embed_street.crop_lefts(w, size, crops)]
+
+
+def view_positions(crops, grid, cols=None):
     """(depth, row, col) for every view, crops first then tiles.
 
     The two levels share one coordinate frame, which is the only reason a
-    depth rotation means anything: with `--grid 3x2` a full-height crop covers
-    exactly one column of the tile grid and both of its rows, so crop `c` is
-    the parent of tiles `(0, c)` and `(1, c)`. It therefore takes that column
-    and the centre row, `(gr - 1) / 2`.
+    depth rotation means anything. `cols` is where the crops sit along that
+    frame, from `crop_columns`; the tiles are a uniform partition, so tile `t`
+    is simply at `(t // gc, t % gc)`.
 
-    Fractional rows are deliberate. Rounding a parent onto one of its children
-    would make the crop nearer to that child than to its sibling, which is a
-    claim about the image nobody has evidence for.
+    Crops are full height -- `preprocess` takes a size-by-size window from an
+    image whose short side is already `size` -- so a crop spans every tile row
+    and takes the centre one, `(gr - 1) / 2`. Fractional rows are deliberate:
+    rounding a crop onto one row would claim it is nearer that row than the
+    other, which is a claim about the image nobody has evidence for.
     """
     gc, gr = grid if grid else (crops, 1)
-    p0 = [(0.0, (gr - 1) / 2.0, float(c)) for c in range(crops)]
+    if cols is None:
+        cols = list(range(crops))
+    p0 = [(0.0, (gr - 1) / 2.0, float(c)) for c in cols]
     p1 = [(1.0, float(t // gc), float(t % gc)) for t in range(gc * gr)]
     return p0, p1
 
@@ -315,6 +353,10 @@ def main():
     ap.add_argument("--rope-max", type=float, default=1.0,
                     help="radians the fastest dimension pair turns per unit "
                          "coordinate; 0 reproduces the unrotated pooling")
+    ap.add_argument("--frame", type=int, nargs=2, default=list(FRAME),
+                    metavar=("W", "H"),
+                    help="the frame the crop cache was embedded from; sets "
+                         "where the crops sit relative to the tiles")
     ap.add_argument("--rope-spread", type=float, default=ROPE_SPREAD,
                     help="ratio between the fastest and slowest pair; small, "
                          "because the coordinates here span 0 to 2")
@@ -364,20 +406,34 @@ def main():
                 a.tiles, T_all.shape[2], 2 * D_ENC))
 
     grid = tile_grid(a.tiles) if a.tiles else None
-    if grid and grid[0] != crops:
-        sys.exit(
-            "{} has {} crops and {} is a {}x{} grid. The rotation places a "
-            "crop at the centre of the tile column it covers, which is only "
-            "true when there is one crop per column; with {} and {} there is "
-            "no such correspondence and every position would be wrong."
-            .format(a.src, crops, a.tiles, grid[0], grid[1], crops, grid[0]))
-    if axes and a.tiles and grid is None:
-        sys.exit("{} records no grid, and 3x2 and 2x3 hold the same six "
-                 "tiles, so row and column cannot be recovered. Rebuild the "
-                 "cache or pool without --rope-axes.".format(a.tiles))
     a0 = a1 = None
+    cols = None
+    # Every geometry question below is a question the ROTATION asks. Without
+    # `--rope-axes` this script pools exactly as it always did, and gating on
+    # anything else here would refuse inputs it used to accept -- a 3-crop
+    # cache against a 2x3 grid pooled fine before this flag existed and has to
+    # keep doing so.
     if axes:
-        p0, p1 = view_positions(crops, grid)
+        if a.tiles and grid is None:
+            sys.exit("{} records no grid, and 3x2 and 2x3 hold the same six "
+                     "tiles, so row and column cannot be recovered. Rebuild "
+                     "the cache or pool without --rope-axes.".format(a.tiles))
+        gc = grid[0] if grid else crops
+        cols = crop_columns(crops, gc, tuple(a.frame))
+        # Not a range check: a crop is always inside its own image, so
+        # `gc * f - 0.5` is always within (-0.5, gc - 0.5) and such a guard
+        # could never fire. What can go wrong is the frame collapsing the
+        # crops on top of each other -- at or below square, the short side IS
+        # the width, `w == size`, and all three windows sit at left 0.
+        if len(axes) and "col" in axes and crops > 1 and                 max(cols) - min(cols) < 1e-6:
+            sys.exit(
+                "--frame {}x{} puts all {} crops at column {:.3f}: the short "
+                "side is the width, so the window cannot slide and every crop "
+                "is the same pixels. Rotating them on `col` would separate "
+                "views that are identical. Give the frame {} was really built "
+                "from."
+                .format(a.frame[0], a.frame[1], crops, cols[0], a.src))
+        p0, p1 = view_positions(crops, grid, cols)
         ang = [rope_angles(p, D_ENC // 2, axes, a.rope_max, a.rope_spread)
                for p in (p0, p1)]
         a0, a1 = (torch.from_numpy(x).to(dev) for x in ang)
@@ -388,6 +444,12 @@ def main():
         print("mRoPE on {}  max {:g} rad/unit  spread {:g}  grid {}".format(
             ",".join(axes), a.rope_max, a.rope_spread,
             "{}x{}".format(*grid) if grid else "none"), flush=True)
+        # Printed because a wrong `--frame` is invisible everywhere else: the
+        # output is the right shape, unit length, and silently misplaced.
+        print("  crops at columns {} (frame {}x{}), tiles at 0..{}".format(
+            ", ".join("{:.3f}".format(c) for c in cols),
+            a.frame[0], a.frame[1],
+            (grid[0] if grid else crops) - 1), flush=True)
     print("{}  {:,} x {}   {}".format(
         a.out, n, 2 * D_ENC,
         "crops only" if not a.tiles else
@@ -441,7 +503,8 @@ def main():
                rope_axes=",".join(axes) or "none",
                rope_max=a.rope_max if axes else 0.0,
                rope_spread=a.rope_spread if axes else 0.0,
-               rope_grid="{}x{}".format(*grid) if (axes and grid) else "none")
+               rope_grid="{}x{}".format(*grid) if (axes and grid) else "none",
+               rope_frame="{}x{}".format(*a.frame) if axes else "none")
     print("\nwrote {} in {:.0f}s; 5 rows verified against a recompute".format(
         out.name, time.time() - t0), flush=True)
 
