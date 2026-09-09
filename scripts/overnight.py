@@ -349,6 +349,57 @@ def run_stage(st, state, deadline):
     return False
 
 
+
+def run_plan(plan, state, deadline):
+    """Run a list of stages in order, and report honestly what did not run.
+
+    Four scripts had grown their own copy of this loop, and each copy knew a
+    different subset of the rules -- `tilefull` learned that a deadline break
+    must not exit 0, `night0908` learned that a bootstrap whose training stage
+    failed will happily compare whatever checkpoint is on disk, and neither
+    knew what the other had learned. This is the union, in one place.
+
+    Two things stop a stage from running, and they are not the same thing:
+
+    * `critical` -- its failure invalidates the rest of the window, so nothing
+      after it runs. A non-critical failure is one the window survives.
+    * `prereqs` -- names of stages this one is a comparison OF. A bootstrap
+      reads checkpoints by tag, and a tag that failed to train usually still
+      has a file (the previous rung's, or an older run's), so a failed
+      training stage does not stop its own comparison from producing a
+      clean-looking report of the wrong thing.
+
+    Returns a dict of stage-name lists: `done`, `failed`, `skipped`, `unrun`.
+    The caller decides the exit code, but a window with anything in `failed`,
+    `skipped` or `unrun` is not a completed window.
+    """
+    out = {"done": [], "failed": [], "skipped": [], "unrun": []}
+    for i, st in enumerate(plan):
+        gone = [d for d in getattr(st, "prereqs", ()) or ()
+                if d in out["failed"] or d in out["skipped"]]
+        if gone:
+            log("skip   {}  ({} did not run, so this would compare whatever "
+                "checkpoint happens to be on disk)".format(
+                    st.name, ", ".join(gone)))
+            out["skipped"].append(st.name)
+            continue
+        if now() > deadline:
+            out["unrun"] = [s.name for s in plan[i:]]
+            log("deadline reached with {} stages unrun: {}".format(
+                len(out["unrun"]), ", ".join(out["unrun"])))
+            break
+        if run_stage(st, state, deadline):
+            out["done"].append(st.name)
+            continue
+        out["failed"].append(st.name)
+        if st.critical:
+            out["unrun"] = [s.name for s in plan[i + 1:]]
+            log("critical stage {} failed; the remaining {} stages are "
+                "dropped".format(st.name, len(out["unrun"])))
+            break
+    return out
+
+
 # ------------------------------------------------------- stage definitions --
 
 def parquet_rows(release, name="dataset.parquet"):
