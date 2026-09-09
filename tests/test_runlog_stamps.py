@@ -208,3 +208,122 @@ def test_the_conventions_are_tried_in_order_and_a_miss_stays_absent(cache):
     (cache / "z_meta.npz").write_bytes(b"1")
     assert C(cache, "z").name == "z_meta.npz"
     assert C(cache, "nothing").name == "nothing"
+
+
+# ------------------------------------------- a comparison's checkpoints -----
+
+def boot(tags):
+    return ["scripts/bootstrap.py", "--tags", tags, "--split", "test",
+            "--n", "5000"]
+
+
+def test_a_bootstrap_stamps_every_checkpoint_it_compares(cache, monkeypatch):
+    """Reported on #67. `--tags a,b,c` names the checkpoints a comparison is
+    a comparison OF, and its argv does not move when any of them is
+    retrained -- so a rebuilt arm re-ran its training, found the comparison
+    satisfied, kept the previous report and exited 0."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b"):
+        (cache / (t + ".pt")).write_bytes(b"weights " + t.encode())
+    got = runlog.stage_inputs(boot("a,b"))
+    assert "--tags a" in got and "--tags b" in got
+    assert got["--tags a"] != "absent"
+
+
+def test_retraining_one_arm_invalidates_the_comparison(cache, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b"):
+        (cache / (t + ".pt")).write_bytes(b"weights " + t.encode())
+    before = runlog.stage_inputs(boot("a,b"))
+    (cache / "b.pt").write_bytes(b"retrained")
+    assert runlog.stage_inputs(boot("a,b")) != before
+
+
+def test_the_tags_are_stamped_one_by_one_not_as_a_blob(cache, monkeypatch):
+    """So the record says which arm moved, not merely that something did."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    for t in ("a", "b", "c"):
+        (cache / (t + ".pt")).write_bytes(b"w")
+    got = runlog.stage_inputs(boot(" a , b ,c"))
+    assert {"--tags a", "--tags b", "--tags c"} <= set(got)
+
+
+def _ckpt(path, street, knn):
+    import torch
+    torch.save({"street_file": street, "knn_file": knn, "epoch": 3}, path)
+
+
+def test_a_rebuilt_neighbour_cache_invalidates_the_comparison(cache,
+                                                              monkeypatch):
+    """Reported on #67, after `--tags` was already stamping checkpoints.
+
+    An arm can stay exactly as it is while the neighbour table underneath it
+    is rebuilt, and beam search reads that table at evaluation time. Nothing
+    in the argv or the checkpoints moves, so the comparison stayed satisfied
+    and the previous report survived a rebuild it no longer describes.
+    """
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    _ckpt(cache / "a.pt", "bank.f16.npy", "knn_bank.npz")
+    (cache / "bank.f16.npy").write_bytes(b"vectors")
+    (cache / "knn_bank.npz").write_bytes(b"neighbours")
+    before = runlog.stage_inputs(boot("a"))
+    (cache / "knn_bank.npz").write_bytes(b"REBUILT neighbours")
+    assert runlog.stage_inputs(boot("a")) != before
+
+
+def test_a_rebuilt_bank_invalidates_the_comparison(cache, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    _ckpt(cache / "a.pt", "bank.f16.npy", "knn_bank.npz")
+    (cache / "bank.f16.npy").write_bytes(b"vectors")
+    (cache / "knn_bank.npz").write_bytes(b"neighbours")
+    before = runlog.stage_inputs(boot("a"))
+    (cache / "bank.f16.npy").write_bytes(b"REPOOLED")
+    assert runlog.stage_inputs(boot("a")) != before
+
+
+def test_the_reference_is_named_so_the_record_says_which_file_moved(
+        cache, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    _ckpt(cache / "a.pt", "bank.f16.npy", "knn_bank.npz")
+    (cache / "bank.f16.npy").write_bytes(b"v")
+    (cache / "knn_bank.npz").write_bytes(b"n")
+    got = runlog.stage_inputs(boot("a"))
+    assert "--tags a -> bank.f16.npy" in got
+    assert "--tags a -> knn_bank.npz" in got
+
+
+def test_a_checkpoint_that_cannot_be_read_says_so(cache, monkeypatch):
+    """Present but unreadable is not the same as absent, and neither is the
+    same as "no references" -- the recurring defect is the middle one reading
+    as the last."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    (cache / "a.pt").write_bytes(b"not a torch file")
+    got = runlog.stage_inputs(boot("a"))
+    assert got.get("--tags a (unreadable)") == "unreadable"
+
+
+def test_an_absent_checkpoint_is_not_called_unreadable(cache, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    got = runlog.stage_inputs(boot("gone"))
+    assert got["--tags gone"] == "absent"
+    assert not [k for k in got if "unreadable" in k]
+
+
+def test_an_arm_with_no_retrieval_stamps_only_what_it_names(cache,
+                                                            monkeypatch):
+    """`knn_file` is None for a control trained without `--retr`."""
+    import config
+    monkeypatch.setattr(config, "CHECKPOINTS", cache)
+    _ckpt(cache / "a.pt", "bank.f16.npy", None)
+    (cache / "bank.f16.npy").write_bytes(b"v")
+    got = runlog.stage_inputs(boot("a"))
+    assert "--tags a -> bank.f16.npy" in got
+    assert not [k for k in got if k.endswith("-> None")]
