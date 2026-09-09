@@ -99,6 +99,39 @@ INPUT_FLAGS = {"--street-file": "street", "--knn-file": "street",
                "--tags": "ckptlist"}
 
 
+_REFS = {}
+
+
+def checkpoint_refs(p):
+    """The cache files a checkpoint names, or None if it cannot be read.
+
+    A comparison's identity has to follow these. `--tags` stamps the
+    checkpoints, which catches a retrained arm -- but an arm can stay exactly
+    as it is while the bank or the neighbour table underneath it is rebuilt,
+    and beam search reads both at evaluation time. Then nothing in the argv
+    or the checkpoints moved, the comparison stayed satisfied, and the
+    previous report survived a rebuild it no longer describes.
+
+    Memoised on (size, mtime): `identity` is computed more than once per
+    stage and this opens every checkpoint a bootstrap names.
+    """
+    try:
+        st = p.stat()
+    except OSError:
+        return None
+    key = (str(p), st.st_size, st.st_mtime)
+    if key in _REFS:
+        return _REFS[key]
+    try:
+        import torch
+        c = torch.load(p, map_location="cpu", weights_only=False)
+        refs = [c.get("street_file"), c.get("knn_file")]
+    except Exception:
+        refs = []                      # present but unreadable, which is not
+    _REFS[key] = refs                  # the same as absent
+    return refs
+
+
 def street_path(cache, val):
     """The file a street-cache flag names, under whichever convention it uses.
 
@@ -136,7 +169,7 @@ def stage_inputs(argv):
     import config
     import safeio
 
-    paths = {}
+    paths, literal = {}, {}
     if argv:
         paths["code:" + str(argv[0])] = ROOT / str(argv[0])
     paths["dataset.parquet"] = config.DATASET_PARQUET
@@ -150,11 +183,24 @@ def stage_inputs(argv):
             continue
         if where == "ckptlist":
             # Stamped per tag rather than as one blob, so the record says
-            # which arm moved rather than only that something did.
+            # which arm moved rather than only that something did -- and
+            # transitively, because what a comparison actually reads is each
+            # arm's weights AND the bank and neighbour table those weights
+            # name.
             for t in (x.strip() for x in val.split(",")):
-                if t:
-                    paths["{} {}".format(tok, t)] = (
-                        config.CHECKPOINTS / (t + ".pt"))
+                if not t:
+                    continue
+                ck = config.CHECKPOINTS / (t + ".pt")
+                paths["{} {}".format(tok, t)] = ck
+                refs = checkpoint_refs(ck)
+                if refs is None:
+                    continue           # absent; its own stamp says so
+                if not refs:
+                    literal["{} {} (unreadable)".format(tok, t)] = "unreadable"
+                for r in refs:
+                    if r:
+                        paths["{} {} -> {}".format(tok, t, r)] = street_path(
+                            config.STREET_CACHE, str(r))
             continue
         # Three naming conventions live in this cache and the flags do not
         # distinguish them: `--knn-file` names `knn_x.npz`, `--base` names the
@@ -163,7 +209,9 @@ def stage_inputs(argv):
         # leave two of the three recorded as `absent` in perpetuity, which
         # reads like a stamp and is not one.
         paths[str(tok) + " " + val] = street_path(config.STREET_CACHE, val)
-    return {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
+    out = {k: safeio.file_stamp(v) for k, v in sorted(paths.items())}
+    out.update(literal)
+    return out
 
 
 def stage_outputs(argv):
